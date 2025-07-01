@@ -8,9 +8,7 @@
     <!-- Tailwind CSS CDN -->
     <script src="https://cdn.tailwindcss.com"></script>
     
-    <!-- Google APIs -->
-    <script src="https://apis.google.com/js/api.js"></script>
-    <script src="https://accounts.google.com/gsi/client" async defer></script>
+    <!-- No necesitamos Google APIs para Apps Script -->
     
     <!-- Configuración personalizada de Tailwind -->
     <script>
@@ -77,13 +75,20 @@
 
     <!-- Scripts de configuración -->
     <script>
-        // Configuración global
+        // Configuración global para Google Apps Script
         window.APP_CONFIG = {
-            GOOGLE_CLIENT_ID: '326972434192-mvk4i8apo17s0lc9rsjgkpoe55jqekm4.apps.googleusercontent.com', // Temporal - debes cambiar esto
-            GOOGLE_API_KEY: 'AIzaSyCxKGtNGGKNlC8ZOlb2k5Z-LpgXkF9_8a4', // Temporal - debes cambiar esto
-            SPREADSHEET_ID: '1BxiMVs0XRA5nFMdKvBdBZjgmUUqptlbs74OgvE2upms', // Temporal - debes cambiar esto
+            // URL de tu Google Apps Script Web App (reemplazar con la tuya)
+            APPS_SCRIPT_URL: 'https://script.google.com/macros/s/TU_URL_AQUI/exec',
+            
+            // ID de tu Google Sheets (ya configurado)
+            SPREADSHEET_ID: '17V4XZMYxc9wzzlc9JWXdoZgTmxhlM8I_p9ZUYoJn7OI',
+            
+            // Configuración del entorno
             ENVIRONMENT: 'development',
-            DEBUG: true
+            DEBUG: true,
+            
+            // Configuración de modo demo (para desarrollo sin Apps Script)
+            USE_DEMO_MODE: true  // Cambiar a false cuando tengas Apps Script configurado
         };
         
         // Variable global para el estado de la aplicación
@@ -100,7 +105,6 @@
 
     <!-- Scripts principales -->
     <script src="js/utils.js"></script>
-    <script src="js/google-auth.js"></script>
     <script src="js/sheets-api.js"></script>
     <script src="js/main.js"></script>
 
