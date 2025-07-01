@@ -29,7 +29,7 @@ const SheetsAPI = {
      */
     async makeGetRequest(action, params = {}) {
         if (!this.webAppUrl) {
-            throw new Error('URL de Google Apps Script no configurada');
+            throw new Error('https://script.google.com/macros/s/AKfycbxxJCh932yKVgUdY0nY5lN-wkRgCgjTq9fFbhSCiwP5ODnbsef9ouNE7gjSQnQF1ktR/exec');
         }
 
         const url = new URL(this.webAppUrl);
