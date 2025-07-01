@@ -1,1 +1,116 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Sistema Asistencia Tenis</title>
+    
+    <!-- Tailwind CSS CDN -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    
+    <!-- Google APIs -->
+    <script src="https://apis.google.com/js/api.js"></script>
+    <script src="https://accounts.google.com/gsi/client" async defer></script>
+    
+    <!-- Configuración personalizada de Tailwind -->
+    <script>
+        tailwind.config = {
+            theme: {
+                extend: {
+                    colors: {
+                        primary: {
+                            50: '#ecfdf5',
+                            100: '#d1fae5',
+                            200: '#a7f3d0',
+                            300: '#6ee7b7',
+                            400: '#34d399',
+                            500: '#10b981',
+                            600: '#059669',
+                            700: '#047857',
+                            800: '#065f46',
+                            900: '#064e3b',
+                        },
+                        secondary: {
+                            500: '#f59e0b',
+                            600: '#d97706',
+                        },
+                        accent: {
+                            500: '#ef4444',
+                            600: '#dc2626',
+                        }
+                    }
+                }
+            }
+        }
+    </script>
+    
+    <!-- Estilos personalizados -->
+    <link rel="stylesheet" href="css/styles.css">
+</head>
+<body class="bg-gray-50 min-h-screen">
+    <!-- Contenido principal - Se carga dinámicamente -->
+    <div id="app">
+        <!-- Loading inicial -->
+        <div class="flex items-center justify-center min-h-screen">
+            <div class="text-center">
+                <div class="animate-spin rounded-full h-12 w-12 border-b-2 border-primary-500 mx-auto mb-4"></div>
+                <p class="text-gray-600 text-lg">Cargando Sistema de Asistencia...</p>
+            </div>
+        </div>
+    </div>
 
+    <!-- Modal para notificaciones -->
+    <div id="notification-modal" class="fixed inset-0 bg-black bg-opacity-50 hidden z-50">
+        <div class="flex items-center justify-center min-h-screen p-4">
+            <div class="bg-white rounded-lg p-6 max-w-md w-full">
+                <div id="notification-content">
+                    <!-- Contenido del modal -->
+                </div>
+                <div class="mt-4 text-right">
+                    <button onclick="closeNotification()" class="px-4 py-2 bg-gray-500 text-white rounded hover:bg-gray-600">
+                        Cerrar
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Scripts de configuración -->
+    <script>
+        // Configuración global
+        window.APP_CONFIG = {
+            GOOGLE_CLIENT_ID: '326972434192-mvk4i8apo17s0lc9rsjgkpoe55jqekm4.apps.googleusercontent.com', // Temporal - debes cambiar esto
+            GOOGLE_API_KEY: 'AIzaSyCxKGtNGGKNlC8ZOlb2k5Z-LpgXkF9_8a4', // Temporal - debes cambiar esto
+            SPREADSHEET_ID: '1BxiMVs0XRA5nFMdKvBdBZjgmUUqptlbs74OgvE2upms', // Temporal - debes cambiar esto
+            ENVIRONMENT: 'development',
+            DEBUG: true
+        };
+        
+        // Variable global para el estado de la aplicación
+        window.AppState = {
+            user: null,
+            isAuthenticated: false,
+            currentPage: 'login',
+            grupos: [],
+            estudiantes: [],
+            currentAttendance: {},
+            connectionStatus: 'online'
+        };
+    </script>
+
+    <!-- Scripts principales -->
+    <script src="js/utils.js"></script>
+    <script src="js/google-auth.js"></script>
+    <script src="js/sheets-api.js"></script>
+    <script src="js/main.js"></script>
+
+    <!-- Inicializar la aplicación -->
+    <script>
+        // Inicializar cuando el DOM esté listo
+        document.addEventListener('DOMContentLoaded', function() {
+            console.log('🚀 Iniciando Sistema de Asistencia Tenis...');
+            initApp();
+        });
+    </script>
+</body>
+</html>
