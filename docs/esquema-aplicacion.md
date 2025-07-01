@@ -1,586 +1,461 @@
 # Esquema de Aplicación Web - Sistema de Asistencia de Tenis
+## Enfoque Progresivo: De Simple a Avanzado
 
-## 🏗️ Arquitectura General
+---
 
-### Stack Tecnológico
-- **Frontend:** React.js + Vite
-- **Styling:** Tailwind CSS
-- **Estado:** React Context + useReducer
-- **Almacenamiento Local:** localStorage (sincronización offline)
+## 🎯 **Estrategia de Desarrollo**
+
+### **FASE 1: Prototipo Funcional (2-3 semanas)**
+- HTML + JavaScript + CSS
+- Funcionalidad básica online
+- Conexión directa a Google Sheets
+- Interfaz optimizada para tablets
+
+### **FASE 2: Mejoras Intermedias (3-4 semanas)**
+- Funcionalidad offline básica
+- Mejores validaciones
+- Reportes simples
+
+### **FASE 3: Versión Avanzada (opcional)**
+- Migración a React si es necesario
+- Funcionalidades avanzadas
+- Optimizaciones de rendimiento
+
+---
+
+## 🏗️ **FASE 1: Arquitectura Simple**
+
+### Stack Tecnológico Inicial
+- **Frontend:** HTML5 + Vanilla JavaScript + CSS3
+- **Estilos:** Tailwind CSS (via CDN)
 - **Backend:** Google Sheets API
-- **Autenticación:** Google OAuth 2.0
-- **Despliegue:** Netlify
-- **Control de Versiones:** GitHub
+- **Autenticación:** Google OAuth 2.0 (biblioteca simple)
+- **Despliegue:** Netlify (archivos estáticos)
 
----
-
-## 📱 Estructura de Páginas y Componentes
-
-### 1. Autenticación
+### Estructura de Archivos FASE 1
 ```
-/login
-├── LoginPage.jsx
-├── GoogleAuthButton.jsx
-└── AuthContext.jsx
-```
-
-### 2. Dashboard Principal
-```
-/dashboard
-├── DashboardPage.jsx
-├── QuickStats.jsx
-├── TodayClasses.jsx
-└── NavigationMenu.jsx
-```
-
-### 3. Registro de Asistencia
-```
-/asistencia
-├── AsistenciaPage.jsx
-├── GroupSelector.jsx
-├── StudentList.jsx
-├── AttendanceForm.jsx
-├── StudentCard.jsx
-└── SubmitButton.jsx
-```
-
-### 4. Gestión de Clases
-```
-/clases
-├── ClasesPage.jsx
-├── ClassSchedule.jsx
-├── CancelClassModal.jsx
-├── CreateRepositionModal.jsx
-└── ClassStatusCard.jsx
-```
-
-### 5. Reportes y Consultas
-```
-/reportes
-├── ReportesPage.jsx
-├── FilterPanel.jsx
-├── ReportTable.jsx
-├── ExportButton.jsx
-├── MetricsCards.jsx
-└── ChartComponents.jsx
-```
-
-### 6. Configuración
-```
-/configuracion
-├── ConfiguracionPage.jsx
-├── SyncStatus.jsx
-├── UserProfile.jsx
-└── SystemSettings.jsx
+proyecto/
+├── index.html              # Página principal
+├── css/
+│   └── styles.css         # Estilos personalizados
+├── js/
+│   ├── main.js           # Lógica principal
+│   ├── google-auth.js    # Autenticación Google
+│   ├── sheets-api.js     # Conexión Google Sheets
+│   └── utils.js          # Funciones auxiliares
+├── docs/                 # Documentación existente
+└── README.md
 ```
 
 ---
 
-## 🎯 Flujos de Usuario Principales
+## 📱 **Páginas y Funcionalidades FASE 1**
 
-### Flujo 1: Registro Diario de Asistencia
-```mermaid
-graph TD
-    A[Login] --> B[Dashboard]
-    B --> C[Seleccionar Asistencia]
-    C --> D[Filtrar Grupos del Día]
-    D --> E[Seleccionar Grupo]
-    E --> F[Lista de Estudiantes]
-    F --> G[Marcar Asistencias]
-    G --> H[Agregar Justificaciones]
-    H --> I[Guardar en Cache]
-    I --> J[Enviar a Google Sheets]
-    J --> K[Confirmación]
+### 1. **Página Principal (index.html)**
+```html
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Sistema Asistencia Tenis</title>
+    <!-- Tailwind CSS CDN -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- Google APIs -->
+    <script src="https://apis.google.com/js/api.js"></script>
+</head>
+<body>
+    <!-- Contenido dinámico se carga aquí -->
+    <div id="app"></div>
     
-    J --> L[Error de Conexión]
-    L --> M[Guardar Offline]
-    M --> N[Sincronizar Automáticamente]
+    <!-- Scripts -->
+    <script src="js/utils.js"></script>
+    <script src="js/google-auth.js"></script>
+    <script src="js/sheets-api.js"></script>
+    <script src="js/main.js"></script>
+</body>
+</html>
 ```
 
-### Flujo 2: Cancelación de Clases
-```mermaid
-graph TD
-    A[Dashboard/Clases] --> B[Ver Clases del Día]
-    B --> C[Seleccionar Clase]
-    C --> D[Cancelar Clase]
-    D --> E[Seleccionar Motivo]
-    E --> F[Confirmar Cancelación]
-    F --> G[Actualizar Estado]
-    G --> H[Notificar Sistema]
-```
+### 2. **Funcionalidades Principales**
 
-### Flujo 3: Creación de Reposiciones
-```mermaid
-graph TD
-    A[Clases] --> B[Crear Reposición]
-    B --> C[Seleccionar Fecha]
-    C --> D[Elegir Estudiantes]
-    D --> E[Asignar Profesor]
-    E --> F[Definir Tipo]
-    F --> G[Guardar Reposición]
-    G --> H[Registrar Asistencia]
-```
-
----
-
-## 🛠️ Componentes Clave
-
-### 1. AuthContext.jsx
+#### **Login Simple**
 ```javascript
-// Manejo global de autenticación
-const AuthContext = createContext();
-
-export const AuthProvider = ({ children }) => {
-  const [user, setUser] = useState(null);
-  const [loading, setLoading] = useState(true);
-  
-  // Funciones de login/logout
-  // Verificación de tokens
-  // Renovación automática
-};
-```
-
-### 2. DataContext.jsx
-```javascript
-// Estado global de datos y sincronización
-const DataContext = createContext();
-
-export const DataProvider = ({ children }) => {
-  const [grupos, setGrupos] = useState([]);
-  const [estudiantes, setEstudiantes] = useState([]);
-  const [asistencias, setAsistencias] = useState([]);
-  const [connectionStatus, setConnectionStatus] = useState('online');
-  
-  // Funciones de sincronización
-  // Cache management
-  // Offline handling
-};
-```
-
-### 3. GroupSelector.jsx
-```javascript
-const GroupSelector = ({ onGroupSelect, selectedDate }) => {
-  // Filtrar grupos por día de la semana
-  // Mostrar información del grupo
-  // Permitir filtros adicionales (profesor, nivel)
-  
-  return (
-    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-      {filteredGroups.map(group => (
-        <GroupCard key={group.codigo} group={group} onClick={onGroupSelect} />
-      ))}
-    </div>
-  );
-};
-```
-
-### 4. StudentList.jsx
-```javascript
-const StudentList = ({ groupCode, onAttendanceChange }) => {
-  // Lista de estudiantes del grupo
-  // Estados de asistencia individuales
-  // Validaciones en tiempo real
-  
-  return (
-    <div className="space-y-2">
-      {students.map(student => (
-        <StudentCard 
-          key={student.id} 
-          student={student} 
-          onStatusChange={onAttendanceChange}
-        />
-      ))}
-    </div>
-  );
-};
-```
-
-### 5. AttendanceForm.jsx
-```javascript
-const AttendanceForm = ({ groupCode, date }) => {
-  // Formulario principal de asistencia
-  // Manejo de estados local
-  // Validaciones antes de envío
-  // Sincronización offline
-  
-  const handleSubmit = async () => {
-    try {
-      await saveToGoogleSheets(attendanceData);
-      showSuccess('Asistencia registrada correctamente');
-    } catch (error) {
-      saveToLocalStorage(attendanceData);
-      showWarning('Guardado offline - se sincronizará automáticamente');
+// js/google-auth.js
+const GoogleAuth = {
+    async init() {
+        // Inicializar Google Auth
+    },
+    
+    async signIn() {
+        // Proceso de login
+    },
+    
+    async signOut() {
+        // Cerrar sesión
     }
-  };
 };
 ```
 
----
-
-## 🔄 Gestión de Estado
-
-### Estado Global (Context)
+#### **Dashboard Básico**
 ```javascript
-// AuthContext
-{
-  user: { id, name, email, role },
-  isAuthenticated: boolean,
-  loading: boolean
-}
-
-// DataContext
-{
-  grupos: Array,
-  estudiantes: Array,
-  profesores: Array,
-  asistencias: Array,
-  connectionStatus: 'online' | 'offline' | 'syncing',
-  lastSync: timestamp,
-  pendingSync: Array
-}
-
-// UIContext
-{
-  currentPage: string,
-  notifications: Array,
-  modals: Object,
-  filters: Object
-}
+// Mostrar:
+// - Grupos del día actual
+// - Botón para registrar asistencia
+// - Acceso a reportes simples
 ```
 
-### Estado Local (Componentes)
+#### **Registro de Asistencia**
 ```javascript
-// AttendanceForm
-{
-  selectedGroup: Object,
-  attendanceList: Array,
-  isDirty: boolean,
-  validationErrors: Array
+// js/main.js - Funciones principales
+function showAttendanceForm(groupCode) {
+    // 1. Cargar estudiantes del grupo
+    // 2. Mostrar lista con checkboxes
+    // 3. Permitir justificaciones
+    // 4. Guardar en Google Sheets
 }
 
-// ReportesPage
-{
-  filters: Object,
-  reportData: Array,
-  loading: boolean,
-  exportFormat: string
+function saveAttendance(attendanceData) {
+    // Enviar datos a Google Sheets
+    // Mostrar confirmación
 }
 ```
 
 ---
 
-## 📡 Integración con Google Sheets API
+## 🔌 **Integración Google Sheets API (Simplificada)**
 
-### 1. Configuración de API
+### Configuración Básica
 ```javascript
-// googleSheetsAPI.js
-export class GoogleSheetsAPI {
-  constructor(spreadsheetId) {
-    this.spreadsheetId = spreadsheetId;
-    this.baseURL = 'https://sheets.googleapis.com/v4/spreadsheets';
-  }
-  
-  async readRange(range) {
-    // Leer datos de un rango específico
-  }
-  
-  async appendData(range, values) {
-    // Agregar nuevos registros
-  }
-  
-  async updateData(range, values) {
-    // Actualizar registros existentes
-  }
-}
-```
-
-### 2. Servicios de Datos
-```javascript
-// dataServices.js
-export const DataService = {
-  // Grupos
-  async getGrupos() {
-    return await api.readRange('Grupos!A:I');
-  },
-  
-  // Estudiantes
-  async getEstudiantes() {
-    return await api.readRange('Estudiantes!A:F');
-  },
-  
-  // Asistencias
-  async saveAsistencia(attendanceData) {
-    const values = formatAttendanceForSheets(attendanceData);
-    return await api.appendData('Asistencias!A:J', [values]);
-  },
-  
-  // Sincronización
-  async syncPendingData() {
-    const pending = getFromLocalStorage('pendingSync');
-    for (const item of pending) {
-      await this.saveAsistencia(item);
+// js/sheets-api.js
+const SheetsAPI = {
+    spreadsheetId: 'TU_SPREADSHEET_ID',
+    apiKey: 'TU_API_KEY',
+    
+    async readData(range) {
+        const url = `https://sheets.googleapis.com/v4/spreadsheets/${this.spreadsheetId}/values/${range}?key=${this.apiKey}`;
+        const response = await fetch(url);
+        return await response.json();
+    },
+    
+    async writeData(range, values) {
+        // Escribir datos usando API
+    },
+    
+    // Funciones específicas del negocio
+    async getGroups() {
+        return await this.readData('Grupos!A:I');
+    },
+    
+    async getStudents(groupCode) {
+        // Filtrar estudiantes por grupo
+    },
+    
+    async saveAttendance(data) {
+        return await this.writeData('Asistencias!A:J', [data]);
     }
-    clearLocalStorage('pendingSync');
-  }
+};
+```
+
+### Manejo de Datos Simple
+```javascript
+// js/utils.js
+const DataUtils = {
+    // Filtrar grupos por día actual
+    getTodayGroups(allGroups) {
+        const today = new Date().toLocaleDateString('es', {weekday: 'long'});
+        return allGroups.filter(group => 
+            group.dias.toLowerCase().includes(today.toLowerCase())
+        );
+    },
+    
+    // Formatear datos para Google Sheets
+    formatAttendanceData(groupCode, studentId, status, justification) {
+        return [
+            this.generateId(),
+            this.getCurrentDate(),
+            studentId,
+            groupCode,
+            'Regular',
+            status,
+            justification || '',
+            '', // descripción
+            'user', // usuario actual
+            new Date().toISOString()
+        ];
+    },
+    
+    // Generar ID único simple
+    generateId() {
+        return 'AST' + Date.now().toString(36).toUpperCase();
+    },
+    
+    getCurrentDate() {
+        return new Date().toISOString().split('T')[0];
+    }
 };
 ```
 
 ---
 
-## 🔒 Seguridad y Autenticación
+## 🎨 **Interfaz de Usuario FASE 1**
 
-### 1. Google OAuth 2.0
-```javascript
-// auth.js
-export const AuthService = {
-  async login() {
-    const response = await gapi.auth2.getAuthInstance().signIn();
-    const token = response.getAuthResponse().access_token;
-    return this.validateUser(token);
-  },
-  
-  async validateUser(token) {
-    // Verificar permisos del usuario
-    // Determinar rol (Asistente/Admin)
-    // Establecer sesión
-  },
-  
-  async refreshToken() {
-    // Renovar token automáticamente
-  }
-};
-```
-
-### 2. Control de Acceso
-```javascript
-// ProtectedRoute.jsx
-const ProtectedRoute = ({ children, requiredRole }) => {
-  const { user, isAuthenticated } = useAuth();
-  
-  if (!isAuthenticated) {
-    return <Navigate to="/login" />;
-  }
-  
-  if (requiredRole && user.role !== requiredRole) {
-    return <UnauthorizedPage />;
-  }
-  
-  return children;
-};
-```
-
----
-
-## 📱 Responsive Design y UX
-
-### 1. Breakpoints (Tailwind CSS)
+### Diseño Mobile-First para Tablets
 ```css
-/* Mobile First */
-sm: 640px   /* Tablet */
-md: 768px   /* Tablet Landscape */
-lg: 1024px  /* Desktop */
-xl: 1280px  /* Large Desktop */
+/* css/styles.css */
+:root {
+    --primary-color: #10b981;
+    --secondary-color: #f59e0b;
+    --accent-color: #ef4444;
+    --neutral-color: #6b7280;
+}
+
+/* Optimización para tablets */
+.container {
+    max-width: 1024px;
+    margin: 0 auto;
+    padding: 1rem;
+}
+
+/* Botones touch-friendly */
+.btn {
+    min-height: 48px;
+    min-width: 48px;
+    padding: 0.75rem 1.5rem;
+    border-radius: 0.5rem;
+    font-size: 1.1rem;
+    cursor: pointer;
+    transition: all 0.2s;
+}
+
+.btn:active {
+    transform: scale(0.95);
+}
+
+/* Cards para grupos/estudiantes */
+.card {
+    background: white;
+    border-radius: 0.75rem;
+    padding: 1.5rem;
+    box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+    margin-bottom: 1rem;
+}
+
+/* Lista de estudiantes */
+.student-item {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 1rem;
+    border-bottom: 1px solid #e5e7eb;
+}
+
+.student-item:last-child {
+    border-bottom: none;
+}
+
+/* Estados de asistencia */
+.status-presente { background-color: #dcfce7; }
+.status-ausente { background-color: #fef2f2; }
+.status-justificada { background-color: #fef3c7; }
 ```
 
-### 2. Componentes Adaptativos
+### Componentes UI Básicos
 ```javascript
-// Optimizado para tablets (uso principal)
-const ResponsiveGrid = ({ children }) => {
-  return (
-    <div className="
-      grid 
-      grid-cols-1 
-      sm:grid-cols-2 
-      lg:grid-cols-3 
-      xl:grid-cols-4 
-      gap-4 
-      p-4
-    ">
-      {children}
-    </div>
-  );
-};
-```
-
-### 3. Touch-Friendly Interface
-```javascript
-// Botones y elementos optimizados para touch
-const TouchButton = ({ children, onClick }) => {
-  return (
-    <button 
-      className="
-        min-h-12 
-        min-w-12 
-        text-lg 
-        rounded-lg 
-        active:scale-95 
-        transition-transform
-      "
-      onClick={onClick}
-    >
-      {children}
-    </button>
-  );
-};
-```
-
----
-
-## 🔄 Funcionalidad Offline
-
-### 1. Detección de Conexión
-```javascript
-// useOnlineStatus.js
-export const useOnlineStatus = () => {
-  const [isOnline, setIsOnline] = useState(navigator.onLine);
-  
-  useEffect(() => {
-    const handleOnline = () => setIsOnline(true);
-    const handleOffline = () => setIsOnline(false);
+// js/ui-components.js
+const UI = {
+    // Crear card de grupo
+    createGroupCard(group) {
+        return `
+            <div class="card cursor-pointer hover:shadow-md" onclick="selectGroup('${group.codigo}')">
+                <h3 class="text-xl font-bold text-gray-800">${group.descriptor}</h3>
+                <p class="text-gray-600">Profesor: ${group.profe}</p>
+                <p class="text-gray-600">Horario: ${group.hora}</p>
+                <p class="text-gray-600">Cancha: ${group.cancha}</p>
+            </div>
+        `;
+    },
     
-    window.addEventListener('online', handleOnline);
-    window.addEventListener('offline', handleOffline);
+    // Crear item de estudiante
+    createStudentItem(student) {
+        return `
+            <div class="student-item" data-student-id="${student.id}">
+                <div>
+                    <h4 class="font-semibold">${student.nombre}</h4>
+                </div>
+                <div class="flex gap-2">
+                    <button class="btn btn-sm bg-green-500 text-white" onclick="markAttendance('${student.id}', 'Presente')">
+                        Presente
+                    </button>
+                    <button class="btn btn-sm bg-red-500 text-white" onclick="markAttendance('${student.id}', 'Ausente')">
+                        Ausente
+                    </button>
+                    <button class="btn btn-sm bg-yellow-500 text-white" onclick="markAttendance('${student.id}', 'Justificada')">
+                        Justificada
+                    </button>
+                </div>
+            </div>
+        `;
+    },
     
-    return () => {
-      window.removeEventListener('online', handleOnline);
-      window.removeEventListener('offline', handleOffline);
-    };
-  }, []);
-  
-  return isOnline;
-};
-```
-
-### 2. Sincronización Automática
-```javascript
-// syncManager.js
-export const SyncManager = {
-  async syncWhenOnline() {
-    const pendingData = getFromLocalStorage('pendingSync') || [];
+    // Mostrar loading
+    showLoading(message = 'Cargando...') {
+        document.getElementById('app').innerHTML = `
+            <div class="flex items-center justify-center min-h-screen">
+                <div class="text-center">
+                    <div class="animate-spin rounded-full h-12 w-12 border-b-2 border-primary mx-auto mb-4"></div>
+                    <p class="text-gray-600">${message}</p>
+                </div>
+            </div>
+        `;
+    },
     
-    for (const item of pendingData) {
-      try {
-        await DataService.saveAsistencia(item);
-        removePendingItem(item.id);
-      } catch (error) {
-        console.error('Error syncing:', error);
-        break; // Detener si hay error
-      }
+    // Mostrar mensaje de éxito
+    showSuccess(message) {
+        // Implementar toast o modal simple
+    },
+    
+    // Mostrar error
+    showError(message) {
+        // Implementar toast o modal simple
     }
-  },
-  
-  savePendingSync(data) {
-    const pending = getFromLocalStorage('pendingSync') || [];
-    pending.push({ ...data, id: generateUniqueId(), timestamp: Date.now() });
-    saveToLocalStorage('pendingSync', pending);
-  }
 };
 ```
 
 ---
 
-## 📊 Reportes y Análisis
+## 📊 **Flujo de Trabajo FASE 1**
 
-### 1. Componentes de Filtrado
+### 1. **Inicio de Sesión**
 ```javascript
-// FilterPanel.jsx
-const FilterPanel = ({ onFiltersChange }) => {
-  const [filters, setFilters] = useState({
-    dateRange: { start: '', end: '' },
-    groups: [],
-    professors: [],
-    students: []
-  });
-  
-  // UI para filtros dinámicos
-  // Validaciones de rangos
-  // Reset de filtros
-};
+// main.js - Flujo principal
+async function initApp() {
+    try {
+        UI.showLoading('Inicializando aplicación...');
+        
+        // Inicializar Google Auth
+        await GoogleAuth.init();
+        
+        // Verificar si está logueado
+        if (GoogleAuth.isSignedIn()) {
+            showDashboard();
+        } else {
+            showLoginScreen();
+        }
+    } catch (error) {
+        UI.showError('Error al inicializar la aplicación');
+    }
+}
+
+function showLoginScreen() {
+    document.getElementById('app').innerHTML = `
+        <div class="min-h-screen flex items-center justify-center bg-gray-50">
+            <div class="max-w-md w-full bg-white rounded-lg shadow-md p-6">
+                <h1 class="text-2xl font-bold text-center mb-6">Sistema Asistencia Tenis</h1>
+                <button onclick="GoogleAuth.signIn()" class="w-full btn bg-primary text-white">
+                    Iniciar Sesión con Google
+                </button>
+            </div>
+        </div>
+    `;
+}
 ```
 
-### 2. Generación de Reportes
+### 2. **Dashboard Principal**
 ```javascript
-// reportGenerator.js
-export const ReportGenerator = {
-  generateAttendanceReport(data, filters) {
-    // Procesar datos según filtros
-    // Calcular métricas
-    // Formatear para exportación
-  },
-  
-  exportToExcel(data, filename) {
-    // Usar SheetJS para generar Excel
-  },
-  
-  exportToPDF(data, filename) {
-    // Generar PDF con jsPDF
-  }
-};
+async function showDashboard() {
+    try {
+        UI.showLoading('Cargando dashboard...');
+        
+        // Cargar grupos del día
+        const allGroups = await SheetsAPI.getGroups();
+        const todayGroups = DataUtils.getTodayGroups(allGroups);
+        
+        document.getElementById('app').innerHTML = `
+            <div class="container">
+                <header class="flex justify-between items-center mb-6">
+                    <h1 class="text-2xl font-bold">Dashboard</h1>
+                    <button onclick="GoogleAuth.signOut()" class="btn bg-gray-500 text-white">
+                        Cerrar Sesión
+                    </button>
+                </header>
+                
+                <div class="mb-6">
+                    <h2 class="text-xl font-semibold mb-4">Grupos de Hoy</h2>
+                    <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                        ${todayGroups.map(group => UI.createGroupCard(group)).join('')}
+                    </div>
+                </div>
+                
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <button onclick="showReports()" class="btn bg-secondary text-white p-6 text-lg">
+                        📊 Ver Reportes
+                    </button>
+                    <button onclick="showSettings()" class="btn bg-neutral text-white p-6 text-lg">
+                        ⚙️ Configuración
+                    </button>
+                </div>
+            </div>
+        `;
+    } catch (error) {
+        UI.showError('Error al cargar el dashboard');
+    }
+}
+```
+
+### 3. **Registro de Asistencia**
+```javascript
+async function selectGroup(groupCode) {
+    try {
+        UI.showLoading('Cargando estudiantes...');
+        
+        const students = await SheetsAPI.getStudents(groupCode);
+        
+        document.getElementById('app').innerHTML = `
+            <div class="container">
+                <header class="flex items-center mb-6">
+                    <button onclick="showDashboard()" class="btn bg-gray-500 text-white mr-4">
+                        ← Volver
+                    </button>
+                    <h1 class="text-xl font-bold">Registro de Asistencia</h1>
+                </header>
+                
+                <div class="bg-white rounded-lg shadow-md p-6 mb-6">
+                    <h2 class="text-lg font-semibold mb-4">Grupo: ${groupCode}</h2>
+                    <div id="student-list">
+                        ${students.map(student => UI.createStudentItem(student)).join('')}
+                    </div>
+                    
+                    <div class="mt-6 flex gap-4">
+                        <button onclick="saveAllAttendance('${groupCode}')" class="btn bg-primary text-white flex-1">
+                            💾 Guardar Asistencia
+                        </button>
+                        <button onclick="resetAttendance()" class="btn bg-gray-500 text-white">
+                            🔄 Limpiar
+                        </button>
+                    </div>
+                </div>
+            </div>
+        `;
+        
+        // Inicializar estado de asistencia
+        window.currentAttendance = {};
+        
+    } catch (error) {
+        UI.showError('Error al cargar estudiantes');
+    }
+}
 ```
 
 ---
 
-## ⚡ Optimización y Rendimiento
+## 🚀 **Configuración de Despliegue FASE 1**
 
-### 1. Lazy Loading
-```javascript
-// App.jsx
-const AsistenciaPage = lazy(() => import('./pages/AsistenciaPage'));
-const ReportesPage = lazy(() => import('./pages/ReportesPage'));
-
-// Implementar Suspense para carga diferida
-<Suspense fallback={<LoadingSpinner />}>
-  <Routes>
-    <Route path="/asistencia" element={<AsistenciaPage />} />
-    <Route path="/reportes" element={<ReportesPage />} />
-  </Routes>
-</Suspense>
-```
-
-### 2. Memoización
-```javascript
-// Optimizar re-renders
-const StudentCard = memo(({ student, onStatusChange }) => {
-  // Componente solo se re-renderiza si student cambia
-});
-
-// Cachear cálculos pesados
-const processedData = useMemo(() => {
-  return heavyDataProcessing(rawData, filters);
-}, [rawData, filters]);
-```
-
-### 3. Debouncing
-```javascript
-// useDebounce.js
-export const useDebounce = (value, delay) => {
-  const [debouncedValue, setDebouncedValue] = useState(value);
-  
-  useEffect(() => {
-    const handler = setTimeout(() => {
-      setDebouncedValue(value);
-    }, delay);
-    
-    return () => clearTimeout(handler);
-  }, [value, delay]);
-  
-  return debouncedValue;
-};
-```
-
----
-
-## 🚀 Configuración de Despliegue
-
-### 1. Netlify Configuration
+### Netlify (Archivos Estáticos)
 ```toml
 # netlify.toml
 [build]
-  command = "npm run build"
-  publish = "dist"
-
-[build.environment]
-  NODE_VERSION = "18"
+  publish = "."
 
 [[redirects]]
   from = "/*"
@@ -588,92 +463,47 @@ export const useDebounce = (value, delay) => {
   status = 200
 ```
 
-### 2. Variables de Entorno
+### Variables de Entorno
 ```javascript
-// .env.production
-VITE_GOOGLE_CLIENT_ID=your_client_id
-VITE_GOOGLE_API_KEY=your_api_key
-VITE_SPREADSHEET_ID=your_spreadsheet_id
-VITE_APP_ENV=production
-```
-
-### 3. GitHub Actions (Opcional)
-```yaml
-# .github/workflows/deploy.yml
-name: Deploy to Netlify
-on:
-  push:
-    branches: [ main ]
-jobs:
-  deploy:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v2
-      - name: Setup Node
-        uses: actions/setup-node@v2
-        with:
-          node-version: '18'
-      - name: Install and Build
-        run: |
-          npm install
-          npm run build
-      - name: Deploy to Netlify
-        uses: netlify/actions/build@master
+// js/config.js
+const CONFIG = {
+    GOOGLE_CLIENT_ID: 'tu_client_id_aqui',
+    GOOGLE_API_KEY: 'tu_api_key_aqui',
+    SPREADSHEET_ID: 'tu_spreadsheet_id_aqui',
+    ENVIRONMENT: 'production'
+};
 ```
 
 ---
 
-## 🎨 Guía de Estilos (Design System)
+## 📝 **Próximos Pasos**
 
-### 1. Colores
-```css
-/* Paleta de colores para tenis */
-:root {
-  --primary: #10B981;     /* Verde tenis */
-  --secondary: #F59E0B;   /* Amarillo */
-  --accent: #EF4444;      /* Rojo */
-  --neutral: #6B7280;     /* Gris */
-  --success: #10B981;
-  --warning: #F59E0B;
-  --error: #EF4444;
-  --info: #3B82F6;
-}
-```
+### **Inmediatos (Esta semana):**
+1. ✅ Crear estructura de archivos
+2. ✅ Configurar Google Sheets API
+3. ✅ Implementar login básico
+4. ✅ Crear dashboard simple
 
-### 2. Tipografía
-```css
-/* Jerarquía tipográfica */
-.text-title { @apply text-2xl font-bold text-gray-900; }
-.text-subtitle { @apply text-lg font-semibold text-gray-700; }
-.text-body { @apply text-base text-gray-600; }
-.text-caption { @apply text-sm text-gray-500; }
-```
+### **Fase 2 (Próximas semanas):**
+1. 🔄 Funcionalidad offline con localStorage
+2. 📊 Reportes básicos
+3. 🎨 Mejorar UI/UX
+4. ✅ Validaciones y manejo de errores
 
-### 3. Componentes Base
-```javascript
-// Button.jsx
-const Button = ({ variant = 'primary', size = 'md', children, ...props }) => {
-  const baseClasses = 'font-medium rounded-lg transition-colors';
-  const variants = {
-    primary: 'bg-primary text-white hover:bg-green-600',
-    secondary: 'bg-gray-200 text-gray-900 hover:bg-gray-300',
-    danger: 'bg-red-500 text-white hover:bg-red-600'
-  };
-  const sizes = {
-    sm: 'px-3 py-1.5 text-sm',
-    md: 'px-4 py-2 text-base',
-    lg: 'px-6 py-3 text-lg'
-  };
-  
-  return (
-    <button 
-      className={`${baseClasses} ${variants[variant]} ${sizes[size]}`}
-      {...props}
-    >
-      {children}
-    </button>
-  );
-};
-```
+### **Fase 3 (Opcional):**
+1. 🚀 Migración a React (si es necesario)
+2. 📱 PWA (Progressive Web App)
+3. 🔔 Notificaciones
+4. 📈 Analytics y métricas
 
-Este esquema proporciona una base sólida para desarrollar la aplicación web completa, con todas las funcionalidades requeridas, optimizada para el uso en tablets y con capacidades offline robustas.
+---
+
+## 💡 **Ventajas de este Enfoque**
+
+✅ **Aprendizaje gradual** - Empiezas viendo resultados inmediatos  
+✅ **Menos complejidad** - HTML/JS que puedes entender  
+✅ **Funcional desde día 1** - Usable mientras mejoramos  
+✅ **Despliegue simple** - Archivos estáticos en Netlify  
+✅ **Escalable** - Puedes migrar a React después si quieres  
+
+Este enfoque te permite tener un sistema funcional rápidamente mientras aprendes y mejoras gradualmente.
