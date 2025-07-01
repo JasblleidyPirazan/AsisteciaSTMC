@@ -18,26 +18,30 @@ async function initApp() {
         // Mostrar loading inicial
         UIUtils.showLoading('app', 'Inicializando Sistema de Asistencia...');
         
-        // Inicializar Google APIs
-        if (typeof gapi !== 'undefined') {
-            await initGoogleAPIs();
-        } else {
-            console.warn('Google APIs no disponibles');
+        // Configurar URL de Apps Script si está disponible
+        if (window.APP_CONFIG?.APPS_SCRIPT_URL && !window.APP_CONFIG.USE_DEMO_MODE) {
+            SheetsAPI.setWebAppUrl(window.APP_CONFIG.APPS_SCRIPT_URL);
+            
+            // Probar conexión con Apps Script
+            const connectionTest = await SheetsAPI.testConnection();
+            if (connectionTest.success) {
+                debugLog('Conexión con Apps Script exitosa');
+                UIUtils.showSuccess('Conectado con Google Sheets');
+            } else {
+                debugLog('Error de conexión, usando modo demo');
+                window.APP_CONFIG.USE_DEMO_MODE = true;
+            }
         }
         
-        // Verificar autenticación
-        if (window.GoogleAuth && GoogleAuth.isSignedIn()) {
-            debugLog('Usuario ya autenticado');
-            await loadUserData();
-            showDashboard();
-        } else {
-            debugLog('Usuario no autenticado');
-            showLoginScreen();
-        }
+        // Mostrar pantalla de inicio (ya no necesitamos autenticación)
+        showWelcomeScreen();
         
     } catch (error) {
         console.error('Error al inicializar aplicación:', error);
-        showErrorScreen('Error al inicializar la aplicación. Por favor, recarga la página.');
+        showErrorScreen('Error al inicializar la aplicación. Usando modo demo.');
+        // En caso de error, usar modo demo
+        window.APP_CONFIG.USE_DEMO_MODE = true;
+        setTimeout(() => showWelcomeScreen(), 2000);
     }
 }
 
@@ -276,59 +280,107 @@ function showErrorScreen(message) {
 // ===========================================
 
 /**
- * Maneja el inicio de sesión con Google
+ * Inicia con datos reales de Google Sheets
  */
-async function handleGoogleSignIn() {
-    debugLog('Iniciando proceso de login...');
+async function startWithRealData() {
+    debugLog('Iniciando con datos reales...');
     
-    const btn = document.getElementById('google-signin-btn');
-    if (btn) {
-        btn.disabled = true;
-        btn.innerHTML = '<div class="spinner mr-3"></div>Iniciando sesión...';
-    }
+    // Simular usuario para el sistema
+    window.AppState.user = {
+        email: 'usuario@academia-tenis.com',
+        name: 'Usuario del Sistema',
+        picture: null
+    };
+    window.AppState.isAuthenticated = true;
     
     try {
-        if (window.GoogleAuth) {
-            await GoogleAuth.signIn();
-        } else {
-            // Modo demo si no hay Google Auth
-            showDemoMode();
-        }
-    } catch (error) {
-        console.error('Error en login:', error);
-        UIUtils.showError('Error al iniciar sesión. Por favor, intenta de nuevo.');
+        UIUtils.showLoading('app', 'Conectando con Google Sheets...');
         
-        if (btn) {
-            btn.disabled = false;
-            btn.innerHTML = 'Iniciar Sesión con Google';
+        // Probar conexión
+        const connectionTest = await SheetsAPI.testConnection();
+        if (!connectionTest.success) {
+            throw new Error('No se pudo conectar con Google Sheets');
         }
+        
+        // Cargar datos reales
+        await loadUserData();
+        showDashboard();
+        
+        UIUtils.showSuccess('¡Conectado con Google Sheets! Datos reales cargados.');
+        
+    } catch (error) {
+        console.error('Error al conectar con datos reales:', error);
+        UIUtils.showError('Error al conectar. Cambiando a modo demo.');
+        
+        // Fallback a modo demo
+        setTimeout(() => showDemoMode(), 2000);
     }
 }
 
 /**
- * Maneja el cierre de sesión
+ * Muestra instrucciones de configuración
+ */
+function showSetupInstructions() {
+    const modal = document.getElementById('notification-modal');
+    const content = document.getElementById('notification-content');
+    
+    if (modal && content) {
+        content.innerHTML = `
+            <h3 class="text-lg font-bold mb-4">📋 Configuración de Google Apps Script</h3>
+            
+            <div class="space-y-4 text-sm">
+                <div class="bg-blue-50 p-3 rounded-lg">
+                    <p class="font-semibold text-blue-800">Pasos rápidos:</p>
+                    <ol class="list-decimal list-inside mt-2 space-y-1 text-blue-700">
+                        <li>Abre tu Google Sheets</li>
+                        <li>Ve a <strong>Extensiones → Apps Script</strong></li>
+                        <li>Copia el código del backend</li>
+                        <li>Despliega como Web App</li>
+                        <li>Copia la URL en index.html</li>
+                    </ol>
+                </div>
+                
+                <div class="bg-green-50 p-3 rounded-lg">
+                    <p class="font-semibold text-green-800">💡 Beneficios:</p>
+                    <ul class="list-disc list-inside mt-2 space-y-1 text-green-700">
+                        <li>Datos reales en Google Sheets</li>
+                        <li>Sin configuración compleja</li>
+                        <li>Completamente gratis</li>
+                        <li>Fácil de mantener</li>
+                    </ul>
+                </div>
+                
+                <div class="text-center">
+                    <p class="text-gray-600">Tiempo estimado: <strong>10-15 minutos</strong></p>
+                </div>
+            </div>
+        `;
+        
+        modal.classList.remove('hidden');
+        document.body.classList.add('no-scroll');
+    }
+}
+
+/**
+ * Maneja el cierre de sesión (simplificado)
  */
 async function handleSignOut() {
     debugLog('Cerrando sesión...');
     
     try {
-        if (window.GoogleAuth) {
-            await GoogleAuth.signOut();
-        }
-        
         // Limpiar estado de la aplicación
         window.AppState = {
             user: null,
             isAuthenticated: false,
-            currentPage: 'login',
+            currentPage: 'welcome',
             grupos: [],
             estudiantes: [],
             currentAttendance: {},
             connectionStatus: checkConnection() ? 'online' : 'offline'
         };
         
-        // Mostrar pantalla de login
-        showLoginScreen();
+        // Mostrar pantalla de bienvenida
+        showWelcomeScreen();
         
         UIUtils.showSuccess('Sesión cerrada correctamente');
         
@@ -364,65 +416,95 @@ function showDemoMode() {
 // ===========================================
 
 /**
- * Carga los datos del usuario autenticado
+ * Carga los datos del usuario (desde Apps Script o demo)
  */
 async function loadUserData() {
     debugLog('Cargando datos del usuario...');
     
     try {
-        // Aquí cargarías datos específicos del usuario
-        // Por ahora, solo cargar datos generales
-        await loadGroupsData();
-        await loadStudentsData();
+        if (window.APP_CONFIG.USE_DEMO_MODE) {
+            // Cargar datos demo
+            loadDemoData();
+        } else {
+            // Cargar datos reales desde Apps Script
+            await loadGroupsData();
+            await loadStudentsData();
+        }
         
     } catch (error) {
         console.error('Error al cargar datos del usuario:', error);
-        UIUtils.showWarning('Error al cargar algunos datos');
+        UIUtils.showWarning('Error al cargar algunos datos. Usando modo demo.');
+        loadDemoData();
     }
 }
 
 /**
- * Carga datos de grupos desde Google Sheets
+ * Carga datos de grupos (Apps Script o demo)
  */
 async function loadGroupsData() {
     debugLog('Cargando datos de grupos...');
     
     try {
-        if (window.SheetsAPI) {
+        if (window.APP_CONFIG.USE_DEMO_MODE) {
+            loadDemoGroups();
+        } else {
+            // Cargar desde Apps Script
             const groupsData = await SheetsAPI.getGroups();
             window.AppState.grupos = groupsData || [];
-        } else {
-            // Usar datos demo si no hay API
-            loadDemoGroups();
+            
+            // Guardar en cache para uso offline
+            StorageUtils.save('cached_groups', groupsData);
         }
         
         debugLog(`Grupos cargados: ${window.AppState.grupos.length}`);
         
     } catch (error) {
         console.error('Error al cargar grupos:', error);
-        loadDemoGroups(); // Fallback a datos demo
+        
+        // Fallback: intentar usar datos en cache
+        const cachedGroups = StorageUtils.get('cached_groups', []);
+        if (cachedGroups.length > 0) {
+            window.AppState.grupos = cachedGroups;
+            UIUtils.showWarning('Usando datos de grupos guardados localmente');
+        } else {
+            // Último recurso: datos demo
+            loadDemoGroups();
+        }
     }
 }
 
 /**
- * Carga datos de estudiantes desde Google Sheets
+ * Carga datos de estudiantes (Apps Script o demo)
  */
 async function loadStudentsData() {
     debugLog('Cargando datos de estudiantes...');
     
     try {
-        if (window.SheetsAPI) {
+        if (window.APP_CONFIG.USE_DEMO_MODE) {
+            loadDemoStudents();
+        } else {
+            // Cargar desde Apps Script
             const studentsData = await SheetsAPI.getStudents();
             window.AppState.estudiantes = studentsData || [];
-        } else {
-            loadDemoStudents();
+            
+            // Guardar en cache para uso offline
+            StorageUtils.save('cached_students', studentsData);
         }
         
         debugLog(`Estudiantes cargados: ${window.AppState.estudiantes.length}`);
         
     } catch (error) {
         console.error('Error al cargar estudiantes:', error);
-        loadDemoStudents(); // Fallback a datos demo
+        
+        // Fallback: intentar usar datos en cache
+        const cachedStudents = StorageUtils.get('cached_students', []);
+        if (cachedStudents.length > 0) {
+            window.AppState.estudiantes = cachedStudents;
+            UIUtils.showWarning('Usando datos de estudiantes guardados localmente');
+        } else {
+            // Último recurso: datos demo
+            loadDemoStudents();
+        }
     }
 }
 
@@ -438,27 +520,40 @@ function loadDemoGroups() {
     window.AppState.grupos = [
         {
             codigo: 'LM-15:45-Brayan-Verde',
-            dias: 'Lunes,Miércoles',
+            días: 'lunes,miércoles',
             hora: '15:45-16:30',
             profe: 'Brayan',
             cancha: '2',
             frecuencia_semanal: '2',
             bola: 'Verde',
-            descriptor: 'Lunes,Miércoles-15:45-16:30-Brayan-Verde',
+            descriptor: 'Lunes,Miércoles 15:45-16:30 - Prof. Brayan - Verde',
             activo: true
         },
         {
             codigo: 'MJ-16:30-Ricardo-Amarilla',
-            dias: 'Martes,Jueves',
+            días: 'martes,jueves',
             hora: '16:30-17:15',
             profe: 'Ricardo',
             cancha: '1',
             frecuencia_semanal: '2',
             bola: 'Amarilla',
-            descriptor: 'Martes,Jueves-16:30-17:15-Ricardo-Amarilla',
+            descriptor: 'Martes,Jueves 16:30-17:15 - Prof. Ricardo - Amarilla',
+            activo: true
+        },
+        {
+            codigo: 'VSD-09:00-Carlos-Naranja',
+            días: 'viernes,sábado,domingo',
+            hora: '09:00-10:30',
+            profe: 'Carlos',
+            cancha: '3',
+            frecuencia_semanal: '3',
+            bola: 'Naranja',
+            descriptor: 'Fin de Semana 09:00-10:30 - Prof. Carlos - Naranja',
             activo: true
         }
     ];
+    
+    debugLog('Datos demo de grupos cargados');
 }
 
 function loadDemoStudents() {
@@ -478,8 +573,34 @@ function loadDemoStudents() {
             grupo_secundario: '',
             max_clases: '40',
             activo: true
+        },
+        {
+            id: 'EST003',
+            nombre: 'Carlos Rodríguez Sánchez',
+            grupo_principal: 'MJ-16:30-Ricardo-Amarilla',
+            grupo_secundario: '',
+            max_clases: '40',
+            activo: true
+        },
+        {
+            id: 'EST004',
+            nombre: 'Ana Sofía Méndez',
+            grupo_principal: 'VSD-09:00-Carlos-Naranja',
+            grupo_secundario: '',
+            max_clases: '60',
+            activo: true
+        },
+        {
+            id: 'EST005',
+            nombre: 'Luis Alberto Torres',
+            grupo_principal: 'LM-15:45-Brayan-Verde',
+            grupo_secundario: 'MJ-16:30-Ricardo-Amarilla',
+            max_clases: '80',
+            activo: true
         }
     ];
+    
+    debugLog('Datos demo de estudiantes cargados');
 }
 
 // ===========================================
@@ -948,7 +1069,7 @@ function updateAttendanceSummary() {
 }
 
 /**
- * Guarda los datos de asistencia
+ * Guarda los datos de asistencia (Apps Script o localStorage)
  */
 async function saveAttendanceData(groupCode) {
     debugLog('Guardando datos de asistencia...');
@@ -968,7 +1089,7 @@ async function saveAttendanceData(groupCode) {
     }
     
     try {
-        // Convertir asistencia a formato para Google Sheets
+        // Convertir asistencia a formato para backend
         const attendanceData = Object.values(attendance).map(record => {
             return DataUtils.formatAttendanceData(
                 record.studentId,
@@ -979,20 +1100,26 @@ async function saveAttendanceData(groupCode) {
             );
         });
         
-        // Guardar en Google Sheets o localStorage según conexión
-        if (window.AppState.connectionStatus === 'online' && window.SheetsAPI) {
-            await SheetsAPI.saveAttendance(attendanceData);
-            UIUtils.showSuccess(`Asistencia guardada correctamente (${attendanceCount} registros)`);
+        if (window.APP_CONFIG.USE_DEMO_MODE) {
+            // Modo demo: solo simular guardado
+            UIUtils.showSuccess(`Asistencia guardada en modo demo (${attendanceCount} registros)`);
+            debugLog('Datos que se guardarían:', attendanceData);
         } else {
-            // Guardar offline
-            attendanceData.forEach(record => {
-                StorageUtils.savePendingAttendance({
-                    data: record,
-                    groupCode: groupCode,
-                    date: DateUtils.getCurrentDate()
+            // Guardar en Google Sheets via Apps Script
+            if (window.AppState.connectionStatus === 'online') {
+                await SheetsAPI.saveAttendance(attendanceData);
+                UIUtils.showSuccess(`Asistencia guardada en Google Sheets (${attendanceCount} registros)`);
+            } else {
+                // Guardar offline
+                attendanceData.forEach(record => {
+                    StorageUtils.savePendingAttendance({
+                        data: record,
+                        groupCode: groupCode,
+                        date: DateUtils.getCurrentDate()
+                    });
                 });
-            });
-            UIUtils.showWarning(`Asistencia guardada offline (${attendanceCount} registros). Se sincronizará cuando haya conexión.`);
+                UIUtils.showWarning(`Asistencia guardada offline (${attendanceCount} registros). Se sincronizará cuando haya conexión.`);
+            }
         }
         
         // Limpiar asistencia actual
@@ -1005,7 +1132,27 @@ async function saveAttendanceData(groupCode) {
         
     } catch (error) {
         console.error('Error al guardar asistencia:', error);
-        UIUtils.showError('Error al guardar la asistencia');
+        
+        // En caso de error, guardar offline como backup
+        const attendanceData = Object.values(attendance).map(record => {
+            return DataUtils.formatAttendanceData(
+                record.studentId,
+                groupCode,
+                record.status,
+                record.justification,
+                record.description
+            );
+        });
+        
+        attendanceData.forEach(record => {
+            StorageUtils.savePendingAttendance({
+                data: record,
+                groupCode: groupCode,
+                date: DateUtils.getCurrentDate()
+            });
+        });
+        
+        UIUtils.showError(`Error al guardar online. Guardado offline (${attendanceCount} registros)`);
         
         if (saveBtn) {
             saveBtn.disabled = false;
