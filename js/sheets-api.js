@@ -1,131 +1,142 @@
 /**
- * SISTEMA DE ASISTENCIA TENIS - API GOOGLE SHEETS
- * ================================================
- * Funciones para interactuar con Google Sheets
+ * SISTEMA DE ASISTENCIA TENIS - API GOOGLE APPS SCRIPT
+ * =====================================================
+ * Funciones para interactuar con Google Apps Script como backend
  */
 
 // ===========================================
-// CONFIGURACIÓN DE SHEETS API
+// CONFIGURACIÓN DE APPS SCRIPT API
 // ===========================================
 
 const SheetsAPI = {
-    // Tu ID de spreadsheet
-    spreadsheetId: '17V4XZMYxc9wzzlc9JWXdoZgTmxhlM8I_p9ZUYoJn7OI',
+    // URL de tu Google Apps Script Web App (se configurará después)
+    webAppUrl: null,
     
-    // Rangos de las hojas (nombres exactos como aparecen en tu Google Sheets)
-    ranges: {
-        grupos: 'Grupos!A:I',
-        estudiantes: 'Estudiantes!A:F', 
-        profesores: 'Profesores!A:C',
-        asistencias: 'Asistencias!A:J',
-        clases_programadas: 'Clases_Programadas!A:G',
-        clases_reposicion: 'Clases_Reposicion!A:H'
-    },
-    
-    // Headers esperados para cada hoja
-    headers: {
-        grupos: ['Código', 'Días', 'Hora', 'Profe', 'Cancha', 'Frecuencia_Semanal', 'Bola', 'Descriptor', 'Activo'],
-        estudiantes: ['ID', 'Nombre', 'Grupo_Principal', 'Grupo_Secundario', 'Max_Clases', 'Activo'],
-        profesores: ['ID', 'Nombre', 'Activo'],
-        asistencias: ['ID', 'Fecha', 'Estudiante_ID', 'Grupo_Codigo', 'Tipo_Clase', 'Estado', 'Justificacion', 'Descripcion', 'Enviado_Por', 'Timestamp'],
-        clases_programadas: ['ID', 'Fecha', 'Grupo_Codigo', 'Estado', 'Motivo_Cancelacion', 'Creado_Por', 'Timestamp'],
-        clases_reposicion: ['ID', 'Fecha', 'Estudiantes_IDs', 'Tipo', 'Profesor', 'Descripcion', 'Creado_Por', 'Timestamp']
+    // Configuración
+    timeout: 30000, // 30 segundos
+    retryAttempts: 3,
+
+    /**
+     * Configura la URL del Web App
+     */
+    setWebAppUrl(url) {
+        this.webAppUrl = url;
+        debugLog('URL de Apps Script configurada:', url);
     },
 
     /**
-     * Realiza una petición GET a Google Sheets
+     * Realiza una petición GET al Apps Script
      */
-    async makeRequest(range) {
-        debugLog(`Realizando petición a: ${range}`);
+    async makeGetRequest(action, params = {}) {
+        if (!this.webAppUrl) {
+            throw new Error('URL de Google Apps Script no configurada');
+        }
+
+        const url = new URL(this.webAppUrl);
+        url.searchParams.append('action', action);
         
-        try {
-            // Asegurar token válido
-            if (GoogleAuth.isSignedIn()) {
-                await GoogleAuth.ensureValidToken();
+        // Agregar parámetros adicionales
+        Object.keys(params).forEach(key => {
+            if (params[key] !== null && params[key] !== undefined) {
+                url.searchParams.append(key, params[key]);
             }
-            
-            const response = await gapi.client.sheets.spreadsheets.values.get({
-                spreadsheetId: this.spreadsheetId,
-                range: range,
-                valueRenderOption: 'UNFORMATTED_VALUE',
-                dateTimeRenderOption: 'FORMATTED_STRING'
+        });
+
+        debugLog(`Petición GET: ${action}`, params);
+
+        try {
+            const response = await this.fetchWithRetry(url.toString(), {
+                method: 'GET',
+                headers: {
+                    'Content-Type': 'application/json',
+                }
             });
-            
-            debugLog(`Respuesta recibida:`, response);
-            return response.result.values || [];
-            
+
+            const result = await response.json();
+            debugLog(`Respuesta GET ${action}:`, result);
+
+            if (!result.success) {
+                throw new Error(result.error || 'Error desconocido del servidor');
+            }
+
+            return result.data;
+
         } catch (error) {
-            console.error(`Error en petición GET ${range}:`, error);
-            handleGoogleApiError(error);
+            console.error(`Error en petición GET ${action}:`, error);
             throw error;
         }
     },
-    
+
     /**
-     * Realiza una petición POST para agregar datos
+     * Realiza una petición POST al Apps Script
      */
-    async appendData(range, values) {
-        debugLog(`Agregando datos a: ${range}`, values);
-        
+    async makePostRequest(action, data = {}) {
+        if (!this.webAppUrl) {
+            throw new Error('URL de Google Apps Script no configurada');
+        }
+
+        debugLog(`Petición POST: ${action}`, data);
+
         try {
-            // Asegurar token válido
-            if (GoogleAuth.isSignedIn()) {
-                await GoogleAuth.ensureValidToken();
-            }
-            
-            const response = await gapi.client.sheets.spreadsheets.values.append({
-                spreadsheetId: this.spreadsheetId,
-                range: range,
-                valueInputOption: 'RAW',
-                insertDataOption: 'INSERT_ROWS',
-                resource: {
-                    values: values
-                }
+            const response = await this.fetchWithRetry(this.webAppUrl, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({
+                    action: action,
+                    ...data
+                })
             });
-            
-            debugLog(`Datos agregados correctamente:`, response);
-            return response.result;
-            
+
+            const result = await response.json();
+            debugLog(`Respuesta POST ${action}:`, result);
+
+            if (!result.success) {
+                throw new Error(result.error || 'Error desconocido del servidor');
+            }
+
+            return result;
+
         } catch (error) {
-            console.error(`Error en petición POST ${range}:`, error);
-            handleGoogleApiError(error);
+            console.error(`Error en petición POST ${action}:`, error);
             throw error;
         }
     },
-    
+
     /**
-     * Actualiza datos en un rango específico
+     * Fetch con reintentos automáticos
      */
-    async updateData(range, values) {
-        debugLog(`Actualizando datos en: ${range}`, values);
-        
+    async fetchWithRetry(url, options, attempt = 1) {
         try {
-            // Asegurar token válido
-            if (GoogleAuth.isSignedIn()) {
-                await GoogleAuth.ensureValidToken();
-            }
+            const controller = new AbortController();
+            const timeoutId = setTimeout(() => controller.abort(), this.timeout);
             
-            const response = await gapi.client.sheets.spreadsheets.values.update({
-                spreadsheetId: this.spreadsheetId,
-                range: range,
-                valueInputOption: 'RAW',
-                resource: {
-                    values: values
-                }
+            const response = await fetch(url, {
+                ...options,
+                signal: controller.signal
             });
             
-            debugLog(`Datos actualizados correctamente:`, response);
-            return response.result;
-            
+            clearTimeout(timeoutId);
+
+            if (!response.ok) {
+                throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+            }
+
+            return response;
+
         } catch (error) {
-            console.error(`Error en petición UPDATE ${range}:`, error);
-            handleGoogleApiError(error);
+            if (attempt < this.retryAttempts && error.name !== 'AbortError') {
+                debugLog(`Reintentando petición (intento ${attempt + 1}/${this.retryAttempts})`);
+                await new Promise(resolve => setTimeout(resolve, 1000 * attempt));
+                return this.fetchWithRetry(url, options, attempt + 1);
+            }
             throw error;
         }
     },
 
     // ===========================================
-    // FUNCIONES ESPECÍFICAS PARA CADA HOJA
+    // FUNCIONES ESPECÍFICAS PARA CADA ENDPOINT
     // ===========================================
     
     /**
@@ -135,30 +146,48 @@ const SheetsAPI = {
         debugLog('Obteniendo grupos...');
         
         try {
-            const values = await this.makeRequest(this.ranges.grupos);
-            
-            if (!values || values.length === 0) {
-                debugLog('No se encontraron grupos');
-                return [];
-            }
-            
-            // Convertir a objetos usando headers
-            const groups = DataUtils.sheetsToObjects(values, this.headers.grupos);
-            
-            // Filtrar solo grupos activos
-            const activeGroups = groups.filter(group => 
-                group.activo === true || 
-                group.activo === 'TRUE' || 
-                group.activo === '1' ||
-                group.activo === 1
-            );
-            
-            debugLog(`Grupos obtenidos: ${activeGroups.length}`);
-            return activeGroups;
+            const groups = await this.makeGetRequest('getGroups');
+            debugLog(`Grupos obtenidos: ${groups.length}`);
+            return groups;
             
         } catch (error) {
             console.error('Error al obtener grupos:', error);
+            
+            // Si estamos offline, intentar usar datos en cache
+            if (!navigator.onLine) {
+                const cachedGroups = StorageUtils.get('cached_groups', []);
+                if (cachedGroups.length > 0) {
+                    UIUtils.showWarning('Usando datos guardados localmente (sin conexión)');
+                    return cachedGroups;
+                }
+            }
+            
             throw error;
+        }
+    },
+
+    /**
+     * Obtiene grupos del día actual
+     */
+    async getTodayGroups() {
+        debugLog('Obteniendo grupos del día actual...');
+        
+        try {
+            const result = await this.makeGetRequest('getTodayGroups');
+            debugLog(`Grupos de hoy: ${result.length}`);
+            return result;
+            
+        } catch (error) {
+            console.error('Error al obtener grupos de hoy:', error);
+            
+            // Fallback: obtener todos los grupos y filtrar localmente
+            try {
+                const allGroups = await this.getGroups();
+                const todayGroups = DataUtils.getTodayGroups(allGroups);
+                return todayGroups;
+            } catch (fallbackError) {
+                throw error; // Lanzar el error original
+            }
         }
     },
     
@@ -169,29 +198,26 @@ const SheetsAPI = {
         debugLog('Obteniendo estudiantes...');
         
         try {
-            const values = await this.makeRequest(this.ranges.estudiantes);
+            const students = await this.makeGetRequest('getStudents');
             
-            if (!values || values.length === 0) {
-                debugLog('No se encontraron estudiantes');
-                return [];
-            }
+            // Guardar en cache para uso offline
+            StorageUtils.save('cached_students', students);
             
-            // Convertir a objetos usando headers
-            const students = DataUtils.sheetsToObjects(values, this.headers.estudiantes);
-            
-            // Filtrar solo estudiantes activos
-            const activeStudents = students.filter(student => 
-                student.activo === true || 
-                student.activo === 'TRUE' || 
-                student.activo === '1' ||
-                student.activo === 1
-            );
-            
-            debugLog(`Estudiantes obtenidos: ${activeStudents.length}`);
-            return activeStudents;
+            debugLog(`Estudiantes obtenidos: ${students.length}`);
+            return students;
             
         } catch (error) {
             console.error('Error al obtener estudiantes:', error);
+            
+            // Si estamos offline, intentar usar datos en cache
+            if (!navigator.onLine) {
+                const cachedStudents = StorageUtils.get('cached_students', []);
+                if (cachedStudents.length > 0) {
+                    UIUtils.showWarning('Usando datos guardados localmente (sin conexión)');
+                    return cachedStudents;
+                }
+            }
+            
             throw error;
         }
     },
@@ -203,19 +229,21 @@ const SheetsAPI = {
         debugLog(`Obteniendo estudiantes del grupo: ${groupCode}`);
         
         try {
-            const allStudents = await this.getStudents();
-            
-            const groupStudents = allStudents.filter(student => 
-                student.grupo_principal === groupCode || 
-                student.grupo_secundario === groupCode
-            );
-            
-            debugLog(`Estudiantes del grupo ${groupCode}: ${groupStudents.length}`);
-            return groupStudents;
+            const students = await this.makeGetRequest('getStudentsByGroup', { groupCode });
+            debugLog(`Estudiantes del grupo ${groupCode}: ${students.length}`);
+            return students;
             
         } catch (error) {
             console.error(`Error al obtener estudiantes del grupo ${groupCode}:`, error);
-            throw error;
+            
+            // Fallback: obtener todos los estudiantes y filtrar localmente
+            try {
+                const allStudents = await this.getStudents();
+                const groupStudents = DataUtils.getStudentsByGroup(allStudents, groupCode);
+                return groupStudents;
+            } catch (fallbackError) {
+                throw error;
+            }
         }
     },
     
@@ -226,26 +254,9 @@ const SheetsAPI = {
         debugLog('Obteniendo profesores...');
         
         try {
-            const values = await this.makeRequest(this.ranges.profesores);
-            
-            if (!values || values.length === 0) {
-                debugLog('No se encontraron profesores');
-                return [];
-            }
-            
-            // Convertir a objetos usando headers
-            const professors = DataUtils.sheetsToObjects(values, this.headers.profesores);
-            
-            // Filtrar solo profesores activos
-            const activeProfessors = professors.filter(prof => 
-                prof.activo === true || 
-                prof.activo === 'TRUE' || 
-                prof.activo === '1' ||
-                prof.activo === 1
-            );
-            
-            debugLog(`Profesores obtenidos: ${activeProfessors.length}`);
-            return activeProfessors;
+            const professors = await this.makeGetRequest('getProfessors');
+            debugLog(`Profesores obtenidos: ${professors.length}`);
+            return professors;
             
         } catch (error) {
             console.error('Error al obtener profesores:', error);
@@ -263,11 +274,26 @@ const SheetsAPI = {
             if (!Array.isArray(attendanceDataArray) || attendanceDataArray.length === 0) {
                 throw new Error('Datos de asistencia inválidos');
             }
-            
-            // Agregar datos a la hoja de asistencias
-            const result = await this.appendData(this.ranges.asistencias, attendanceDataArray);
-            
-            debugLog(`Asistencia guardada: ${attendanceDataArray.length} registros`);
+
+            // Convertir formato del frontend al formato esperado por Apps Script
+            const formattedData = attendanceDataArray.map(record => ({
+                id: record[0],
+                fecha: record[1],
+                estudiante_id: record[2],
+                grupo_codigo: record[3],
+                tipo_clase: record[4],
+                estado: record[5],
+                justificacion: record[6],
+                descripcion: record[7],
+                enviado_por: record[8],
+                timestamp: record[9]
+            }));
+
+            const result = await this.makePostRequest('saveAttendance', {
+                attendanceData: formattedData
+            });
+
+            debugLog(`Asistencia guardada: ${result.count} registros`);
             return result;
             
         } catch (error) {
@@ -283,23 +309,13 @@ const SheetsAPI = {
         debugLog(`Obteniendo asistencias del ${startDate} al ${endDate}`);
         
         try {
-            const values = await this.makeRequest(this.ranges.asistencias);
-            
-            if (!values || values.length === 0) {
-                return [];
-            }
-            
-            // Convertir a objetos
-            const attendances = DataUtils.sheetsToObjects(values, this.headers.asistencias);
-            
-            // Filtrar por rango de fechas
-            const filtered = attendances.filter(attendance => {
-                const attendanceDate = attendance.fecha;
-                return attendanceDate >= startDate && attendanceDate <= endDate;
+            const attendances = await this.makeGetRequest('getAttendanceByDateRange', {
+                startDate,
+                endDate
             });
             
-            debugLog(`Asistencias filtradas: ${filtered.length}`);
-            return filtered;
+            debugLog(`Asistencias filtradas: ${attendances.length}`);
+            return attendances;
             
         } catch (error) {
             console.error('Error al obtener asistencias por fecha:', error);
@@ -314,22 +330,12 @@ const SheetsAPI = {
         debugLog(`Obteniendo asistencias del estudiante: ${studentId}`);
         
         try {
-            const values = await this.makeRequest(this.ranges.asistencias);
+            const attendances = await this.makeGetRequest('getAttendanceByStudent', {
+                studentId
+            });
             
-            if (!values || values.length === 0) {
-                return [];
-            }
-            
-            // Convertir a objetos
-            const attendances = DataUtils.sheetsToObjects(values, this.headers.asistencias);
-            
-            // Filtrar por estudiante
-            const studentAttendances = attendances.filter(attendance => 
-                attendance.estudiante_id === studentId
-            );
-            
-            debugLog(`Asistencias del estudiante ${studentId}: ${studentAttendances.length}`);
-            return studentAttendances;
+            debugLog(`Asistencias del estudiante ${studentId}: ${attendances.length}`);
+            return attendances;
             
         } catch (error) {
             console.error(`Error al obtener asistencias del estudiante ${studentId}:`, error);
@@ -344,17 +350,9 @@ const SheetsAPI = {
         debugLog('Creando clase programada:', classData);
         
         try {
-            const values = [[
-                classData.id || DataUtils.generateId('CLS'),
-                classData.fecha,
-                classData.grupo_codigo,
-                classData.estado || 'Programada',
-                classData.motivo_cancelacion || '',
-                classData.creado_por || window.AppState.user?.email || 'sistema',
-                DateUtils.getCurrentTimestamp()
-            ]];
-            
-            const result = await this.appendData(this.ranges.clases_programadas, values);
+            const result = await this.makePostRequest('createScheduledClass', {
+                classData
+            });
             
             debugLog('Clase programada creada correctamente');
             return result;
@@ -372,18 +370,9 @@ const SheetsAPI = {
         debugLog('Creando clase de reposición:', repositionData);
         
         try {
-            const values = [[
-                repositionData.id || DataUtils.generateId('REP'),
-                repositionData.fecha,
-                repositionData.estudiantes_ids,
-                repositionData.tipo || 'Grupal',
-                repositionData.profesor,
-                repositionData.descripcion || '',
-                repositionData.creado_por || window.AppState.user?.email || 'usuario',
-                DateUtils.getCurrentTimestamp()
-            ]];
-            
-            const result = await this.appendData(this.ranges.clases_reposicion, values);
+            const result = await this.makePostRequest('createRepositionClass', {
+                repositionData
+            });
             
             debugLog('Clase de reposición creada correctamente');
             return result;
@@ -395,22 +384,18 @@ const SheetsAPI = {
     },
     
     /**
-     * Verifica la conectividad con Google Sheets
+     * Verifica la conectividad con Google Apps Script
      */
     async testConnection() {
-        debugLog('Probando conexión con Google Sheets...');
+        debugLog('Probando conexión con Google Apps Script...');
         
         try {
-            // Intentar obtener información básica del spreadsheet
-            const response = await gapi.client.sheets.spreadsheets.get({
-                spreadsheetId: this.spreadsheetId
-            });
-            
-            debugLog('Conexión exitosa:', response.result.properties.title);
+            const result = await this.makeGetRequest('testConnection');
+            debugLog('Conexión exitosa:', result);
             return {
                 success: true,
-                title: response.result.properties.title,
-                sheets: response.result.sheets.map(sheet => sheet.properties.title)
+                message: result.message,
+                timestamp: result.timestamp
             };
             
         } catch (error) {
@@ -429,25 +414,7 @@ const SheetsAPI = {
         debugLog('Obteniendo información del spreadsheet...');
         
         try {
-            const response = await gapi.client.sheets.spreadsheets.get({
-                spreadsheetId: this.spreadsheetId,
-                includeGridData: false
-            });
-            
-            const spreadsheet = response.result;
-            
-            const info = {
-                title: spreadsheet.properties.title,
-                locale: spreadsheet.properties.locale,
-                timeZone: spreadsheet.properties.timeZone,
-                sheets: spreadsheet.sheets.map(sheet => ({
-                    title: sheet.properties.title,
-                    sheetId: sheet.properties.sheetId,
-                    rowCount: sheet.properties.gridProperties.rowCount,
-                    columnCount: sheet.properties.gridProperties.columnCount
-                }))
-            };
-            
+            const info = await this.makeGetRequest('getSpreadsheetInfo');
             debugLog('Información del spreadsheet:', info);
             return info;
             
@@ -459,71 +426,7 @@ const SheetsAPI = {
 };
 
 // ===========================================
-// FUNCIONES AUXILIARES PARA SHEETS
-// ===========================================
-
-/**
- * Valida que el formato de fecha sea correcto para Sheets
- */
-function validateDateForSheets(dateString) {
-    const regex = /^\d{4}-\d{2}-\d{2}$/;
-    return regex.test(dateString);
-}
-
-/**
- * Convierte boolean a formato que entiende Sheets
- */
-function booleanToSheets(value) {
-    if (typeof value === 'boolean') {
-        return value ? 'TRUE' : 'FALSE';
-    }
-    return value;
-}
-
-/**
- * Convierte datos de Sheets a boolean
- */
-function sheetsToBoolean(value) {
-    if (typeof value === 'string') {
-        return value.toUpperCase() === 'TRUE' || value === '1';
-    }
-    if (typeof value === 'number') {
-        return value === 1;
-    }
-    return Boolean(value);
-}
-
-/**
- * Limpia datos antes de enviar a Sheets
- */
-function sanitizeForSheets(data) {
-    if (Array.isArray(data)) {
-        return data.map(sanitizeForSheets);
-    }
-    
-    if (typeof data === 'object' && data !== null) {
-        const sanitized = {};
-        for (const [key, value] of Object.entries(data)) {
-            sanitized[key] = sanitizeForSheets(value);
-        }
-        return sanitized;
-    }
-    
-    // Limpiar strings
-    if (typeof data === 'string') {
-        return data.trim();
-    }
-    
-    // Convertir booleans
-    if (typeof data === 'boolean') {
-        return booleanToSheets(data);
-    }
-    
-    return data;
-}
-
-// ===========================================
-// MANAGER DE SINCRONIZACIÓN
+// MANAGER DE SINCRONIZACIÓN ACTUALIZADO
 // ===========================================
 
 const SyncManager = {
@@ -551,10 +454,15 @@ const SyncManager = {
             
             debugLog(`Sincronizando ${pendingData.length} registros pendientes...`);
             
+            let syncedCount = 0;
             for (const item of pendingData) {
                 try {
-                    await SheetsAPI.saveAttendance([item.data]);
+                    // Convertir datos al formato correcto
+                    const formattedData = [item.data];
+                    await SheetsAPI.saveAttendance(formattedData);
+                    
                     StorageUtils.removePendingAttendance(item.id);
+                    syncedCount++;
                     debugLog(`Registro ${item.id} sincronizado correctamente`);
                 } catch (error) {
                     console.error(`Error al sincronizar registro ${item.id}:`, error);
@@ -565,9 +473,9 @@ const SyncManager = {
             const remainingPending = StorageUtils.getPendingAttendance();
             
             if (remainingPending.length === 0) {
-                UIUtils.showSuccess('Todos los datos se sincronizaron correctamente');
+                UIUtils.showSuccess(`Todos los datos se sincronizaron correctamente (${syncedCount} registros)`);
             } else {
-                UIUtils.showWarning(`Se sincronizaron algunos datos. Quedan ${remainingPending.length} pendientes.`);
+                UIUtils.showWarning(`Se sincronizaron ${syncedCount} registros. Quedan ${remainingPending.length} pendientes.`);
             }
             
         } catch (error) {
@@ -580,4 +488,41 @@ const SyncManager = {
     }
 };
 
-debugLog('sheets-api.js cargado correctamente');
+// ===========================================
+// INICIALIZACIÓN Y CONFIGURACIÓN
+// ===========================================
+
+/**
+ * Configura la URL del Google Apps Script
+ * Esta función se debe llamar una vez que tengas la URL del Web App
+ */
+function configureAppsScriptUrl(url) {
+    SheetsAPI.setWebAppUrl(url);
+    
+    // Guardar en configuración para uso futuro
+    if (window.APP_CONFIG) {
+        window.APP_CONFIG.APPS_SCRIPT_URL = url;
+    }
+    
+    // Probar conexión automáticamente
+    SheetsAPI.testConnection()
+        .then(result => {
+            if (result.success) {
+                UIUtils.showSuccess('Conexión con Google Apps Script establecida');
+            } else {
+                UIUtils.showError('Error al conectar con Google Apps Script');
+            }
+        })
+        .catch(error => {
+            console.error('Error al probar conexión:', error);
+        });
+}
+
+// Intentar configurar URL desde la configuración global
+document.addEventListener('DOMContentLoaded', () => {
+    if (window.APP_CONFIG?.APPS_SCRIPT_URL) {
+        SheetsAPI.setWebAppUrl(window.APP_CONFIG.APPS_SCRIPT_URL);
+    }
+});
+
+debugLog('sheets-api.js (Apps Script version) cargado correctamente');
