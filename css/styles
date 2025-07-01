@@ -1,1 +1,517 @@
+/* ===========================================
+   SISTEMA DE ASISTENCIA TENIS - ESTILOS
+   =========================================== */
 
+/* Variables CSS personalizadas */
+:root {
+    --primary-color: #10b981;
+    --primary-hover: #059669;
+    --secondary-color: #f59e0b;
+    --accent-color: #ef4444;
+    --neutral-color: #6b7280;
+    --success-color: #10b981;
+    --warning-color: #f59e0b;
+    --error-color: #ef4444;
+    --info-color: #3b82f6;
+    
+    /* Sombras */
+    --shadow-sm: 0 1px 2px 0 rgb(0 0 0 / 0.05);
+    --shadow-md: 0 4px 6px -1px rgb(0 0 0 / 0.1);
+    --shadow-lg: 0 10px 15px -3px rgb(0 0 0 / 0.1);
+    
+    /* Transiciones */
+    --transition-fast: 0.15s ease-in-out;
+    --transition-normal: 0.3s ease-in-out;
+}
+
+/* Reset y configuración base */
+* {
+    box-sizing: border-box;
+}
+
+html {
+    font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+    line-height: 1.6;
+    scroll-behavior: smooth;
+}
+
+body {
+    margin: 0;
+    padding: 0;
+    background-color: #f9fafb;
+    color: #374151;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+}
+
+/* ===========================================
+   COMPONENTES REUTILIZABLES
+   =========================================== */
+
+/* Contenedor principal */
+.container {
+    max-width: 1200px;
+    margin: 0 auto;
+    padding: 1rem;
+}
+
+/* Botones optimizados para touch */
+.btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-height: 48px;
+    min-width: 48px;
+    padding: 0.75rem 1.5rem;
+    border: none;
+    border-radius: 0.5rem;
+    font-size: 1rem;
+    font-weight: 500;
+    text-decoration: none;
+    cursor: pointer;
+    transition: all var(--transition-fast);
+    user-select: none;
+    touch-action: manipulation;
+}
+
+.btn:active {
+    transform: scale(0.98);
+}
+
+.btn:focus {
+    outline: 2px solid var(--primary-color);
+    outline-offset: 2px;
+}
+
+/* Variantes de botones */
+.btn-primary {
+    background-color: var(--primary-color);
+    color: white;
+}
+
+.btn-primary:hover {
+    background-color: var(--primary-hover);
+}
+
+.btn-secondary {
+    background-color: var(--secondary-color);
+    color: white;
+}
+
+.btn-secondary:hover {
+    background-color: #d97706;
+}
+
+.btn-danger {
+    background-color: var(--accent-color);
+    color: white;
+}
+
+.btn-danger:hover {
+    background-color: #dc2626;
+}
+
+.btn-neutral {
+    background-color: var(--neutral-color);
+    color: white;
+}
+
+.btn-neutral:hover {
+    background-color: #4b5563;
+}
+
+.btn-outline {
+    background-color: transparent;
+    border: 2px solid var(--primary-color);
+    color: var(--primary-color);
+}
+
+.btn-outline:hover {
+    background-color: var(--primary-color);
+    color: white;
+}
+
+/* Tamaños de botones */
+.btn-sm {
+    min-height: 36px;
+    padding: 0.5rem 1rem;
+    font-size: 0.875rem;
+}
+
+.btn-lg {
+    min-height: 56px;
+    padding: 1rem 2rem;
+    font-size: 1.125rem;
+}
+
+/* Cards */
+.card {
+    background: white;
+    border-radius: 0.75rem;
+    padding: 1.5rem;
+    box-shadow: var(--shadow-sm);
+    border: 1px solid #e5e7eb;
+    transition: all var(--transition-normal);
+}
+
+.card:hover {
+    box-shadow: var(--shadow-md);
+    transform: translateY(-1px);
+}
+
+.card-clickable {
+    cursor: pointer;
+}
+
+.card-clickable:active {
+    transform: translateY(0);
+}
+
+/* ===========================================
+   COMPONENTES ESPECÍFICOS DEL SISTEMA
+   =========================================== */
+
+/* Lista de estudiantes */
+.student-list {
+    background: white;
+    border-radius: 0.75rem;
+    overflow: hidden;
+    box-shadow: var(--shadow-sm);
+    border: 1px solid #e5e7eb;
+}
+
+.student-item {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 1rem 1.5rem;
+    border-bottom: 1px solid #e5e7eb;
+    transition: background-color var(--transition-fast);
+}
+
+.student-item:last-child {
+    border-bottom: none;
+}
+
+.student-item:hover {
+    background-color: #f9fafb;
+}
+
+.student-info h4 {
+    margin: 0;
+    font-weight: 600;
+    color: #1f2937;
+}
+
+.student-info p {
+    margin: 0;
+    font-size: 0.875rem;
+    color: #6b7280;
+}
+
+.student-actions {
+    display: flex;
+    gap: 0.5rem;
+    flex-wrap: wrap;
+}
+
+/* Estados de asistencia */
+.status-presente {
+    background-color: #dcfce7 !important;
+    border-color: #10b981;
+}
+
+.status-ausente {
+    background-color: #fef2f2 !important;
+    border-color: #ef4444;
+}
+
+.status-justificada {
+    background-color: #fef3c7 !important;
+    border-color: #f59e0b;
+}
+
+/* Indicadores de estado */
+.status-indicator {
+    display: inline-flex;
+    align-items: center;
+    padding: 0.25rem 0.75rem;
+    border-radius: 9999px;
+    font-size: 0.75rem;
+    font-weight: 500;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+}
+
+.status-indicator.online {
+    background-color: #dcfce7;
+    color: #166534;
+}
+
+.status-indicator.offline {
+    background-color: #fef2f2;
+    color: #991b1b;
+}
+
+.status-indicator.syncing {
+    background-color: #fef3c7;
+    color: #92400e;
+}
+
+/* Grupos del día */
+.group-card {
+    background: white;
+    border-radius: 0.75rem;
+    padding: 1.5rem;
+    box-shadow: var(--shadow-sm);
+    border: 1px solid #e5e7eb;
+    cursor: pointer;
+    transition: all var(--transition-normal);
+    position: relative;
+    overflow: hidden;
+}
+
+.group-card:hover {
+    box-shadow: var(--shadow-md);
+    transform: translateY(-2px);
+}
+
+.group-card:active {
+    transform: translateY(0);
+}
+
+.group-card::before {
+    content: '';
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    height: 4px;
+    background: linear-gradient(90deg, var(--primary-color), var(--secondary-color));
+}
+
+.group-info h3 {
+    margin: 0 0 0.5rem 0;
+    font-size: 1.25rem;
+    font-weight: 700;
+    color: #1f2937;
+}
+
+.group-details {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 0.5rem;
+    margin-top: 1rem;
+}
+
+.group-detail {
+    display: flex;
+    align-items: center;
+    font-size: 0.875rem;
+    color: #6b7280;
+}
+
+.group-detail .icon {
+    margin-right: 0.5rem;
+    width: 16px;
+    height: 16px;
+}
+
+/* Nivel de bola */
+.ball-level {
+    display: inline-flex;
+    align-items: center;
+    padding: 0.25rem 0.75rem;
+    border-radius: 9999px;
+    font-size: 0.75rem;
+    font-weight: 600;
+    text-transform: uppercase;
+}
+
+.ball-verde {
+    background-color: #dcfce7;
+    color: #166534;
+}
+
+.ball-amarilla {
+    background-color: #fef3c7;
+    color: #92400e;
+}
+
+.ball-naranja {
+    background-color: #fed7aa;
+    color: #9a3412;
+}
+
+.ball-roja {
+    background-color: #fecaca;
+    color: #991b1b;
+}
+
+/* ===========================================
+   NOTIFICACIONES Y MODALES
+   =========================================== */
+
+.notification {
+    padding: 1rem;
+    border-radius: 0.5rem;
+    margin-bottom: 1rem;
+    display: flex;
+    align-items: center;
+}
+
+.notification .icon {
+    margin-right: 0.75rem;
+    flex-shrink: 0;
+}
+
+.notification-success {
+    background-color: #dcfce7;
+    color: #166534;
+    border: 1px solid #10b981;
+}
+
+.notification-warning {
+    background-color: #fef3c7;
+    color: #92400e;
+    border: 1px solid #f59e0b;
+}
+
+.notification-error {
+    background-color: #fef2f2;
+    color: #991b1b;
+    border: 1px solid #ef4444;
+}
+
+.notification-info {
+    background-color: #dbeafe;
+    color: #1e40af;
+    border: 1px solid #3b82f6;
+}
+
+/* Modal overlay */
+.modal-overlay {
+    position: fixed;
+    inset: 0;
+    background-color: rgba(0, 0, 0, 0.5);
+    z-index: 50;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 1rem;
+}
+
+.modal-content {
+    background: white;
+    border-radius: 0.75rem;
+    padding: 1.5rem;
+    max-width: 500px;
+    width: 100%;
+    max-height: 90vh;
+    overflow-y: auto;
+    box-shadow: var(--shadow-lg);
+}
+
+/* ===========================================
+   LOADING Y SPINNER
+   =========================================== */
+
+.spinner {
+    display: inline-block;
+    width: 20px;
+    height: 20px;
+    border: 2px solid #e5e7eb;
+    border-radius: 50%;
+    border-top-color: var(--primary-color);
+    animation: spin 1s ease-in-out infinite;
+}
+
+.spinner-lg {
+    width: 40px;
+    height: 40px;
+    border-width: 3px;
+}
+
+@keyframes spin {
+    to {
+        transform: rotate(360deg);
+    }
+}
+
+/* ===========================================
+   RESPONSIVE DESIGN
+   =========================================== */
+
+/* Tablets */
+@media (min-width: 768px) {
+    .container {
+        padding: 2rem;
+    }
+    
+    .group-details {
+        grid-template-columns: 1fr 1fr 1fr;
+    }
+    
+    .student-actions {
+        flex-wrap: nowrap;
+    }
+}
+
+/* Desktop */
+@media (min-width: 1024px) {
+    .btn {
+        min-height: 44px;
+    }
+    
+    .group-card:hover {
+        transform: translateY(-4px);
+    }
+}
+
+/* Modo oscuro (opcional) */
+@media (prefers-color-scheme: dark) {
+    :root {
+        --bg-color: #111827;
+        --text-color: #f3f4f6;
+        --card-bg: #1f2937;
+    }
+    
+    /* Solo aplicar si el usuario lo prefiere */
+    .dark-mode body {
+        background-color: var(--bg-color);
+        color: var(--text-color);
+    }
+    
+    .dark-mode .card {
+        background-color: var(--card-bg);
+        border-color: #374151;
+    }
+}
+
+/* ===========================================
+   UTILIDADES
+   =========================================== */
+
+.hidden {
+    display: none !important;
+}
+
+.sr-only {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    padding: 0;
+    margin: -1px;
+    overflow: hidden;
+    clip: rect(0, 0, 0, 0);
+    white-space: nowrap;
+    border: 0;
+}
+
+.text-center {
+    text-align: center;
+}
+
+.no-scroll {
+    overflow: hidden;
+}
