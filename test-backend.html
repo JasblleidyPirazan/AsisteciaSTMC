@@ -1,0 +1,393 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Prueba Backend - Sistema Asistencia Tenis</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 800px;
+            margin: 0 auto;
+            padding: 20px;
+            background-color: #f5f5f5;
+        }
+        .container {
+            background: white;
+            padding: 30px;
+            border-radius: 10px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+        }
+        h1 {
+            color: #333;
+            text-align: center;
+            margin-bottom: 30px;
+        }
+        .test-section {
+            margin-bottom: 30px;
+            padding: 20px;
+            border: 1px solid #ddd;
+            border-radius: 8px;
+            background-color: #fafafa;
+        }
+        .test-section h3 {
+            margin-top: 0;
+            color: #10b981;
+        }
+        button {
+            background-color: #10b981;
+            color: white;
+            border: none;
+            padding: 12px 24px;
+            border-radius: 6px;
+            cursor: pointer;
+            margin: 5px;
+            font-size: 14px;
+        }
+        button:hover {
+            background-color: #059669;
+        }
+        button:disabled {
+            background-color: #ccc;
+            cursor: not-allowed;
+        }
+        .result {
+            margin-top: 15px;
+            padding: 15px;
+            border-radius: 6px;
+            font-family: monospace;
+            font-size: 12px;
+            white-space: pre-wrap;
+            max-height: 300px;
+            overflow-y: auto;
+        }
+        .success {
+            background-color: #dcfce7;
+            border: 1px solid #10b981;
+            color: #166534;
+        }
+        .error {
+            background-color: #fef2f2;
+            border: 1px solid #ef4444;
+            color: #991b1b;
+        }
+        .loading {
+            background-color: #fef3c7;
+            border: 1px solid #f59e0b;
+            color: #92400e;
+        }
+        .url-input {
+            width: 100%;
+            padding: 10px;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            margin-bottom: 15px;
+            font-family: monospace;
+            font-size: 12px;
+        }
+        .status {
+            display: inline-block;
+            padding: 4px 8px;
+            border-radius: 4px;
+            font-size: 12px;
+            font-weight: bold;
+        }
+        .status.success {
+            background-color: #dcfce7;
+            color: #166534;
+        }
+        .status.error {
+            background-color: #fef2f2;
+            color: #991b1b;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🧪 Prueba de Backend - Sistema Asistencia Tenis</h1>
+        
+        <!-- Configuración de URL -->
+        <div class="test-section">
+            <h3>📋 Configuración</h3>
+            <label for="script-url"><strong>URL de tu Google Apps Script:</strong></label>
+            <input 
+                type="text" 
+                id="script-url" 
+                class="url-input"
+                placeholder="https://script.google.com/macros/s/AKfycbyEX5_nozYOivyWX35otetoz9unvUCJI2Zqy4r1ov-6GZ6zKrF8dOKDAcONq_18-zDK/exec"
+                value=""
+            >
+            <small style="color: #666;">
+                💡 Pega aquí la URL que obtuviste al desplegar tu Google Apps Script como Web App
+            </small>
+        </div>
+
+        <!-- Test 1: Conectividad -->
+        <div class="test-section">
+            <h3>🔌 Test 1: Conectividad Básica</h3>
+            <p>Verifica que el script esté desplegado y sea accesible.</p>
+            <button onclick="testConnection()">🚀 Probar Conexión</button>
+            <div id="connection-result"></div>
+        </div>
+
+        <!-- Test 2: Test de Grupos -->
+        <div class="test-section">
+            <h3>📚 Test 2: Obtener Grupos</h3>
+            <p>Verifica que se puedan leer los grupos desde Google Sheets.</p>
+            <button onclick="testGetGroups()">📖 Obtener Grupos</button>
+            <button onclick="testGetTodayGroups()">📅 Grupos de Hoy</button>
+            <div id="groups-result"></div>
+        </div>
+
+        <!-- Test 3: Test de Estudiantes -->
+        <div class="test-section">
+            <h3>👥 Test 3: Obtener Estudiantes</h3>
+            <p>Verifica que se puedan leer los estudiantes desde Google Sheets.</p>
+            <button onclick="testGetStudents()">👨‍🎓 Obtener Estudiantes</button>
+            <div id="students-result"></div>
+        </div>
+
+        <!-- Test 4: Información del Spreadsheet -->
+        <div class="test-section">
+            <h3>📊 Test 4: Información del Spreadsheet</h3>
+            <p>Obtiene información detallada del Google Sheets.</p>
+            <button onclick="testSpreadsheetInfo()">📋 Info Spreadsheet</button>
+            <div id="spreadsheet-result"></div>
+        </div>
+
+        <!-- Test 5: Guardar Asistencia -->
+        <div class="test-section">
+            <h3>💾 Test 5: Guardar Asistencia (Simulada)</h3>
+            <p>Prueba guardar un registro de asistencia de prueba.</p>
+            <button onclick="testSaveAttendance()">💾 Guardar Asistencia Test</button>
+            <div id="attendance-result"></div>
+        </div>
+
+        <!-- Resumen -->
+        <div class="test-section">
+            <h3>📈 Resumen de Pruebas</h3>
+            <div id="test-summary">
+                <p>Ejecuta las pruebas para ver el resumen...</p>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // Estado de las pruebas
+        const testResults = {
+            connection: null,
+            groups: null,
+            students: null,
+            spreadsheet: null,
+            attendance: null
+        };
+
+        // Función para obtener la URL del script
+        function getScriptUrl() {
+            const url = document.getElementById('script-url').value.trim();
+            if (!url) {
+                alert('⚠️ Por favor ingresa la URL de tu Google Apps Script');
+                return null;
+            }
+            return url;
+        }
+
+        // Función auxiliar para hacer peticiones
+        async function makeRequest(action, params = {}, method = 'GET') {
+            const scriptUrl = getScriptUrl();
+            if (!scriptUrl) return null;
+
+            const loadingDiv = `<div class="result loading">⏳ Realizando petición...</div>`;
+            
+            try {
+                let url = scriptUrl;
+                let options = {
+                    method: method,
+                    headers: {
+                        'Content-Type': 'application/json',
+                    }
+                };
+
+                if (method === 'GET') {
+                    const urlParams = new URLSearchParams({ action, ...params });
+                    url += '?' + urlParams.toString();
+                } else {
+                    options.body = JSON.stringify({ action, ...params });
+                }
+
+                console.log(`🚀 ${method} ${action}:`, url);
+
+                const response = await fetch(url, options);
+                const data = await response.json();
+                
+                console.log(`✅ Respuesta ${action}:`, data);
+                return data;
+
+            } catch (error) {
+                console.error(`❌ Error ${action}:`, error);
+                return {
+                    success: false,
+                    error: error.message
+                };
+            }
+        }
+
+        // Función para mostrar resultados
+        function showResult(elementId, result, testName) {
+            const element = document.getElementById(elementId);
+            let html = '';
+            
+            if (result.success) {
+                testResults[testName] = true;
+                html = `<div class="result success">
+                    <strong>✅ ÉXITO</strong><br>
+                    ${JSON.stringify(result, null, 2)}
+                </div>`;
+            } else {
+                testResults[testName] = false;
+                html = `<div class="result error">
+                    <strong>❌ ERROR</strong><br>
+                    ${result.error || 'Error desconocido'}<br><br>
+                    <strong>Respuesta completa:</strong><br>
+                    ${JSON.stringify(result, null, 2)}
+                </div>`;
+            }
+            
+            element.innerHTML = html;
+            updateSummary();
+        }
+
+        // Test 1: Conectividad
+        async function testConnection() {
+            document.getElementById('connection-result').innerHTML = 
+                '<div class="result loading">⏳ Probando conexión...</div>';
+            
+            const result = await makeRequest('testConnection');
+            showResult('connection-result', result, 'connection');
+        }
+
+        // Test 2: Grupos
+        async function testGetGroups() {
+            document.getElementById('groups-result').innerHTML = 
+                '<div class="result loading">⏳ Obteniendo grupos...</div>';
+            
+            const result = await makeRequest('getGroups');
+            showResult('groups-result', result, 'groups');
+        }
+
+        async function testGetTodayGroups() {
+            document.getElementById('groups-result').innerHTML = 
+                '<div class="result loading">⏳ Obteniendo grupos de hoy...</div>';
+            
+            const result = await makeRequest('getTodayGroups');
+            showResult('groups-result', result, 'groups');
+        }
+
+        // Test 3: Estudiantes
+        async function testGetStudents() {
+            document.getElementById('students-result').innerHTML = 
+                '<div class="result loading">⏳ Obteniendo estudiantes...</div>';
+            
+            const result = await makeRequest('getStudents');
+            showResult('students-result', result, 'students');
+        }
+
+        // Test 4: Info Spreadsheet
+        async function testSpreadsheetInfo() {
+            document.getElementById('spreadsheet-result').innerHTML = 
+                '<div class="result loading">⏳ Obteniendo información del spreadsheet...</div>';
+            
+            const result = await makeRequest('getSpreadsheetInfo');
+            showResult('spreadsheet-result', result, 'spreadsheet');
+        }
+
+        // Test 5: Guardar Asistencia
+        async function testSaveAttendance() {
+            document.getElementById('attendance-result').innerHTML = 
+                '<div class="result loading">⏳ Guardando asistencia de prueba...</div>';
+            
+            const testData = {
+                attendanceData: [{
+                    id: 'TEST001',
+                    fecha: new Date().toISOString().split('T')[0],
+                    estudiante_id: 'EST_TEST',
+                    grupo_codigo: 'GRUPO_TEST',
+                    tipo_clase: 'Regular',
+                    estado: 'Presente',
+                    justificacion: '',
+                    descripcion: 'Registro de prueba',
+                    enviado_por: 'test_script',
+                    timestamp: new Date().toISOString()
+                }]
+            };
+            
+            const result = await makeRequest('saveAttendance', testData, 'POST');
+            showResult('attendance-result', result, 'attendance');
+        }
+
+        // Actualizar resumen
+        function updateSummary() {
+            const total = Object.keys(testResults).length;
+            const passed = Object.values(testResults).filter(r => r === true).length;
+            const failed = Object.values(testResults).filter(r => r === false).length;
+            const pending = total - passed - failed;
+
+            let summaryHtml = `
+                <div style="display: flex; gap: 20px; flex-wrap: wrap;">
+                    <div>
+                        <strong>Total:</strong> ${total} pruebas
+                    </div>
+                    <div>
+                        <span class="status success">✅ Pasadas: ${passed}</span>
+                    </div>
+                    <div>
+                        <span class="status error">❌ Fallidas: ${failed}</span>
+                    </div>
+                    <div>
+                        <span class="status">⏳ Pendientes: ${pending}</span>
+                    </div>
+                </div>
+                <br>
+                <div>
+                    <strong>Estado por prueba:</strong><br>
+                    🔌 Conectividad: ${getStatusIcon(testResults.connection)}<br>
+                    📚 Grupos: ${getStatusIcon(testResults.groups)}<br>
+                    👥 Estudiantes: ${getStatusIcon(testResults.students)}<br>
+                    📊 Spreadsheet: ${getStatusIcon(testResults.spreadsheet)}<br>
+                    💾 Asistencia: ${getStatusIcon(testResults.attendance)}
+                </div>
+            `;
+
+            if (passed === total) {
+                summaryHtml += '<br><div class="result success"><strong>🎉 ¡Todas las pruebas pasaron! El backend está funcionando correctamente.</strong></div>';
+            } else if (failed > 0) {
+                summaryHtml += '<br><div class="result error"><strong>⚠️ Algunas pruebas fallaron. Revisa la configuración del backend.</strong></div>';
+            }
+
+            document.getElementById('test-summary').innerHTML = summaryHtml;
+        }
+
+        function getStatusIcon(status) {
+            if (status === true) return '✅';
+            if (status === false) return '❌';
+            return '⏳';
+        }
+
+        // Inicialización
+        window.addEventListener('load', () => {
+            updateSummary();
+            
+            // Si hay una URL guardada en localStorage, cargarla
+            const savedUrl = localStorage.getItem('gas_script_url');
+            if (savedUrl) {
+                document.getElementById('script-url').value = savedUrl;
+            }
+            
+            // Guardar URL cuando cambie
+            document.getElementById('script-url').addEventListener('change', (e) => {
+                localStorage.setItem('gas_script_url', e.target.value);
+            });
+        });
+    </script>
+</body>
+</html>
