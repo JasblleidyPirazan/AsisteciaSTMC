@@ -1,7 +1,7 @@
 /**
- * SISTEMA DE ASISTENCIA TENIS - API GOOGLE APPS SCRIPT
- * =====================================================
- * Funciones para interactuar con Google Apps Script como backend
+ * SISTEMA DE ASISTENCIA TENIS - API GOOGLE APPS SCRIPT (CON PROXY)
+ * =================================================================
+ * Funciones para interactuar con Google Apps Script a través de Netlify Functions
  */
 
 // ===========================================
@@ -9,30 +9,31 @@
 // ===========================================
 
 const SheetsAPI = {
-    // URL de tu Google Apps Script Web App
-    webAppUrl: 'https://script.google.com/macros/s/AKfycbyEX5_nozYOivyWX35otetoz9unvUCJI2Zqy4r1ov-6GZ6zKrF8dOKDAcONq_18-zDK/exec',
+    // URL del proxy de Netlify (ya no la URL directa de Apps Script)
+    webAppUrl: '/api/sheets-proxy',
     
     // Configuración
     timeout: 30000, // 30 segundos
     retryAttempts: 3,
 
     /**
-     * Configura la URL del Web App
+     * Configura la URL del Web App (ya no necesario, pero mantenemos compatibilidad)
      */
     setWebAppUrl(url) {
+        // Si es la URL directa de Apps Script, la ignoramos porque usamos proxy
+        if (url.includes('script.google.com')) {
+            debugLog('Usando proxy de Netlify en lugar de URL directa de Apps Script');
+            return;
+        }
         this.webAppUrl = url;
-        debugLog('URL de Apps Script configurada:', url);
+        debugLog('URL de proxy configurada:', url);
     },
 
     /**
-     * Realiza una petición GET al Apps Script
+     * Realiza una petición GET al Apps Script a través del proxy
      */
     async makeGetRequest(action, params = {}) {
-        if (!this.webAppUrl) {
-            throw new Error('URL de Google Apps Script no configurada');
-        }
-
-        const url = new URL(this.webAppUrl);
+        const url = new URL(this.webAppUrl, window.location.origin);
         url.searchParams.append('action', action);
         
         // Agregar parámetros adicionales
@@ -68,13 +69,9 @@ const SheetsAPI = {
     },
 
     /**
-     * Realiza una petición POST al Apps Script
+     * Realiza una petición POST al Apps Script a través del proxy
      */
     async makePostRequest(action, data = {}) {
-        if (!this.webAppUrl) {
-            throw new Error('URL de Google Apps Script no configurada');
-        }
-
         debugLog(`Petición POST: ${action}`, data);
 
         try {
@@ -120,6 +117,13 @@ const SheetsAPI = {
             clearTimeout(timeoutId);
 
             if (!response.ok) {
+                // Si es un error 502 o 504, podría ser temporal, intentar de nuevo
+                if ([502, 504].includes(response.status) && attempt < this.retryAttempts) {
+                    debugLog(`Error ${response.status}, reintentando...`);
+                    await new Promise(resolve => setTimeout(resolve, 1000 * attempt));
+                    return this.fetchWithRetry(url, options, attempt + 1);
+                }
+                
                 throw new Error(`HTTP ${response.status}: ${response.statusText}`);
             }
 
@@ -147,8 +151,14 @@ const SheetsAPI = {
         
         try {
             const groups = await this.makeGetRequest('getGroups');
-            debugLog(`Grupos obtenidos: ${groups.length}`);
-            return groups;
+            debugLog(`Grupos obtenidos: ${groups ? groups.length : 0}`);
+            
+            // Guardar en cache para uso offline
+            if (groups && groups.length > 0) {
+                StorageUtils.save('cached_groups', groups);
+            }
+            
+            return groups || [];
             
         } catch (error) {
             console.error('Error al obtener grupos:', error);
@@ -174,8 +184,8 @@ const SheetsAPI = {
         
         try {
             const result = await this.makeGetRequest('getTodayGroups');
-            debugLog(`Grupos de hoy: ${result.length}`);
-            return result;
+            debugLog(`Grupos de hoy: ${result ? result.length : 0}`);
+            return result || [];
             
         } catch (error) {
             console.error('Error al obtener grupos de hoy:', error);
@@ -199,12 +209,14 @@ const SheetsAPI = {
         
         try {
             const students = await this.makeGetRequest('getStudents');
+            debugLog(`Estudiantes obtenidos: ${students ? students.length : 0}`);
             
             // Guardar en cache para uso offline
-            StorageUtils.save('cached_students', students);
+            if (students && students.length > 0) {
+                StorageUtils.save('cached_students', students);
+            }
             
-            debugLog(`Estudiantes obtenidos: ${students.length}`);
-            return students;
+            return students || [];
             
         } catch (error) {
             console.error('Error al obtener estudiantes:', error);
@@ -230,8 +242,8 @@ const SheetsAPI = {
         
         try {
             const students = await this.makeGetRequest('getStudentsByGroup', { groupCode });
-            debugLog(`Estudiantes del grupo ${groupCode}: ${students.length}`);
-            return students;
+            debugLog(`Estudiantes del grupo ${groupCode}: ${students ? students.length : 0}`);
+            return students || [];
             
         } catch (error) {
             console.error(`Error al obtener estudiantes del grupo ${groupCode}:`, error);
@@ -255,8 +267,8 @@ const SheetsAPI = {
         
         try {
             const professors = await this.makeGetRequest('getProfessors');
-            debugLog(`Profesores obtenidos: ${professors.length}`);
-            return professors;
+            debugLog(`Profesores obtenidos: ${professors ? professors.length : 0}`);
+            return professors || [];
             
         } catch (error) {
             console.error('Error al obtener profesores:', error);
@@ -293,7 +305,7 @@ const SheetsAPI = {
                 attendanceData: formattedData
             });
 
-            debugLog(`Asistencia guardada: ${result.count} registros`);
+            debugLog(`Asistencia guardada: ${result.count || 'desconocido'} registros`);
             return result;
             
         } catch (error) {
@@ -314,8 +326,8 @@ const SheetsAPI = {
                 endDate
             });
             
-            debugLog(`Asistencias filtradas: ${attendances.length}`);
-            return attendances;
+            debugLog(`Asistencias filtradas: ${attendances ? attendances.length : 0}`);
+            return attendances || [];
             
         } catch (error) {
             console.error('Error al obtener asistencias por fecha:', error);
@@ -334,8 +346,8 @@ const SheetsAPI = {
                 studentId
             });
             
-            debugLog(`Asistencias del estudiante ${studentId}: ${attendances.length}`);
-            return attendances;
+            debugLog(`Asistencias del estudiante ${studentId}: ${attendances ? attendances.length : 0}`);
+            return attendances || [];
             
         } catch (error) {
             console.error(`Error al obtener asistencias del estudiante ${studentId}:`, error);
@@ -394,8 +406,8 @@ const SheetsAPI = {
             debugLog('Conexión exitosa:', result);
             return {
                 success: true,
-                message: result.message,
-                timestamp: result.timestamp
+                message: result.message || 'Conexión exitosa',
+                timestamp: result.timestamp || new Date().toISOString()
             };
             
         } catch (error) {
@@ -416,7 +428,7 @@ const SheetsAPI = {
         try {
             const info = await this.makeGetRequest('getSpreadsheetInfo');
             debugLog('Información del spreadsheet:', info);
-            return info;
+            return info || {};
             
         } catch (error) {
             console.error('Error al obtener información del spreadsheet:', error);
@@ -492,37 +504,9 @@ const SyncManager = {
 // INICIALIZACIÓN Y CONFIGURACIÓN
 // ===========================================
 
-/**
- * Configura la URL del Google Apps Script
- * Esta función se debe llamar una vez que tengas la URL del Web App
- */
-function configureAppsScriptUrl(url) {
-    SheetsAPI.setWebAppUrl(url);
-    
-    // Guardar en configuración para uso futuro
-    if (window.APP_CONFIG) {
-        window.APP_CONFIG.APPS_SCRIPT_URL = url;
-    }
-    
-    // Probar conexión automáticamente
-    SheetsAPI.testConnection()
-        .then(result => {
-            if (result.success) {
-                UIUtils.showSuccess('Conexión con Google Apps Script establecida');
-            } else {
-                UIUtils.showError('Error al conectar con Google Apps Script');
-            }
-        })
-        .catch(error => {
-            console.error('Error al probar conexión:', error);
-        });
-}
-
-// Intentar configurar URL desde la configuración global
+// Ya no necesitamos configurar URL externa porque usamos proxy interno
 document.addEventListener('DOMContentLoaded', () => {
-    if (window.APP_CONFIG?.APPS_SCRIPT_URL) {
-        SheetsAPI.setWebAppUrl(window.APP_CONFIG.APPS_SCRIPT_URL);
-    }
+    debugLog('sheets-api.js configurado para usar proxy de Netlify');
 });
 
-debugLog('sheets-api.js (Apps Script version) cargado correctamente');
+debugLog('sheets-api.js (Netlify Proxy version) cargado correctamente');
