@@ -9,8 +9,8 @@
 // ===========================================
 
 const SheetsAPI = {
-    // URL de tu Google Apps Script Web App (se configurará después)
-    webAppUrl: null,
+    // URL de tu Google Apps Script Web App
+    webAppUrl: 'https://script.google.com/macros/s/AKfycbyEX5_nozYOivyWX35otetoz9unvUCJI2Zqy4r1ov-6GZ6zKrF8dOKDAcONq_18-zDK/exec',
     
     // Configuración
     timeout: 30000, // 30 segundos
