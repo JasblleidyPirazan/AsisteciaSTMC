@@ -1,0 +1,276 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Prueba Proxy Netlify - Sistema Asistencia Tenis</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 800px;
+            margin: 0 auto;
+            padding: 20px;
+            background-color: #f5f5f5;
+        }
+        .container {
+            background: white;
+            padding: 30px;
+            border-radius: 10px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+        }
+        h1 {
+            color: #333;
+            text-align: center;
+            margin-bottom: 30px;
+        }
+        .test-section {
+            margin-bottom: 30px;
+            padding: 20px;
+            border: 1px solid #ddd;
+            border-radius: 8px;
+            background-color: #fafafa;
+        }
+        .test-section h3 {
+            margin-top: 0;
+            color: #10b981;
+        }
+        button {
+            background-color: #10b981;
+            color: white;
+            border: none;
+            padding: 12px 24px;
+            border-radius: 6px;
+            cursor: pointer;
+            margin: 5px;
+            font-size: 14px;
+        }
+        button:hover {
+            background-color: #059669;
+        }
+        button:disabled {
+            background-color: #ccc;
+            cursor: not-allowed;
+        }
+        .result {
+            margin-top: 15px;
+            padding: 15px;
+            border-radius: 6px;
+            font-family: monospace;
+            font-size: 12px;
+            white-space: pre-wrap;
+            max-height: 300px;
+            overflow-y: auto;
+        }
+        .success {
+            background-color: #dcfce7;
+            border: 1px solid #10b981;
+            color: #166534;
+        }
+        .error {
+            background-color: #fef2f2;
+            border: 1px solid #ef4444;
+            color: #991b1b;
+        }
+        .loading {
+            background-color: #fef3c7;
+            border: 1px solid #f59e0b;
+            color: #92400e;
+        }
+        .info {
+            background-color: #dbeafe;
+            border: 1px solid #3b82f6;
+            color: #1e40af;
+            padding: 15px;
+            border-radius: 6px;
+            margin-bottom: 20px;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🌐 Prueba del Proxy de Netlify</h1>
+        
+        <div class="info">
+            <strong>ℹ️ Información:</strong><br>
+            Esta prueba verifica que el proxy de Netlify Functions esté funcionando correctamente para evitar errores CORS con Google Apps Script.
+            <br><br>
+            <strong>URL del Proxy:</strong> <code>https://asistenciastmc.netlify.app/api/sheets-proxy</code><br>
+            <strong>URL de Google Apps Script:</strong> <code>https://script.google.com/macros/s/AKfycbyEX5_nozYOivyWX35otetoz9unvUCJI2Zqy4r1ov-6GZ6zKrF8dOKDAcONq_18-zDK/exec</code>
+        </div>
+
+        <!-- Test 1: Conectividad del Proxy -->
+        <div class="test-section">
+            <h3>🔌 Test 1: Conectividad del Proxy</h3>
+            <p>Verifica que el proxy de Netlify esté funcionando.</p>
+            <button onclick="testProxy()">🚀 Probar Proxy</button>
+            <div id="proxy-result"></div>
+        </div>
+
+        <!-- Test 2: Test Connection vía Proxy -->
+        <div class="test-section">
+            <h3>🧪 Test 2: Test Connection vía Proxy</h3>
+            <p>Verifica la conectividad con Google Apps Script a través del proxy.</p>
+            <button onclick="testConnectionViaProxy()">🔗 Test Connection</button>
+            <div id="connection-result"></div>
+        </div>
+
+        <!-- Test 3: Obtener Grupos vía Proxy -->
+        <div class="test-section">
+            <h3>📚 Test 3: Obtener Grupos vía Proxy</h3>
+            <p>Verifica que se puedan obtener grupos a través del proxy.</p>
+            <button onclick="testGetGroupsViaProxy()">📖 Obtener Grupos</button>
+            <div id="groups-result"></div>
+        </div>
+
+        <!-- Test 4: Obtener Estudiantes vía Proxy -->
+        <div class="test-section">
+            <h3>👥 Test 4: Obtener Estudiantes vía Proxy</h3>
+            <p>Verifica que se puedan obtener estudiantes a través del proxy.</p>
+            <button onclick="testGetStudentsViaProxy()">👨‍🎓 Obtener Estudiantes</button>
+            <div id="students-result"></div>
+        </div>
+
+        <!-- Test 5: Guardar Asistencia vía Proxy -->
+        <div class="test-section">
+            <h3>💾 Test 5: Guardar Asistencia vía Proxy</h3>
+            <p>Prueba guardar un registro de asistencia a través del proxy.</p>
+            <button onclick="testSaveAttendanceViaProxy()">💾 Guardar Asistencia Test</button>
+            <div id="attendance-result"></div>
+        </div>
+    </div>
+
+    <script>
+        const PROXY_URL = 'https://asistenciastmc.netlify.app/api/sheets-proxy';
+
+        // Función auxiliar para hacer peticiones al proxy
+        async function makeProxyRequest(action, params = {}, method = 'GET') {
+            try {
+                let options = {
+                    method: method,
+                    headers: {
+                        'Content-Type': 'application/json',
+                    }
+                };
+
+                if (method === 'GET') {
+                    const urlParams = new URLSearchParams({ action, ...params });
+                    const url = `${PROXY_URL}?${urlParams.toString()}`;
+                    console.log(`🚀 GET ${action}:`, url);
+                    options.method = 'GET';
+                    const response = await fetch(url, options);
+                    return await response.json();
+                } else {
+                    console.log(`🚀 POST ${action}:`, { action, ...params });
+                    options.body = JSON.stringify({ action, ...params });
+                    const response = await fetch(PROXY_URL, options);
+                    return await response.json();
+                }
+
+            } catch (error) {
+                console.error(`❌ Error ${action}:`, error);
+                return {
+                    success: false,
+                    error: error.message
+                };
+            }
+        }
+
+        // Función para mostrar resultados
+        function showResult(elementId, result) {
+            const element = document.getElementById(elementId);
+            let html = '';
+            
+            if (result && result.success) {
+                html = `<div class="result success">
+                    <strong>✅ ÉXITO</strong><br>
+                    ${JSON.stringify(result, null, 2)}
+                </div>`;
+            } else {
+                html = `<div class="result error">
+                    <strong>❌ ERROR</strong><br>
+                    ${result?.error || 'Error desconocido'}<br><br>
+                    <strong>Respuesta completa:</strong><br>
+                    ${JSON.stringify(result, null, 2)}
+                </div>`;
+            }
+            
+            element.innerHTML = html;
+        }
+
+        // Test 1: Proxy básico
+        async function testProxy() {
+            document.getElementById('proxy-result').innerHTML = 
+                '<div class="result loading">⏳ Probando proxy...</div>';
+            
+            try {
+                const response = await fetch(PROXY_URL, {
+                    method: 'GET',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    }
+                });
+                
+                const result = await response.json();
+                showResult('proxy-result', result);
+                
+            } catch (error) {
+                showResult('proxy-result', {
+                    success: false,
+                    error: `Error del proxy: ${error.message}`
+                });
+            }
+        }
+
+        // Test 2: Test Connection
+        async function testConnectionViaProxy() {
+            document.getElementById('connection-result').innerHTML = 
+                '<div class="result loading">⏳ Probando conexión vía proxy...</div>';
+            
+            const result = await makeProxyRequest('testConnection');
+            showResult('connection-result', result);
+        }
+
+        // Test 3: Grupos
+        async function testGetGroupsViaProxy() {
+            document.getElementById('groups-result').innerHTML = 
+                '<div class="result loading">⏳ Obteniendo grupos vía proxy...</div>';
+            
+            const result = await makeProxyRequest('getGroups');
+            showResult('groups-result', result);
+        }
+
+        // Test 4: Estudiantes
+        async function testGetStudentsViaProxy() {
+            document.getElementById('students-result').innerHTML = 
+                '<div class="result loading">⏳ Obteniendo estudiantes vía proxy...</div>';
+            
+            const result = await makeProxyRequest('getStudents');
+            showResult('students-result', result);
+        }
+
+        // Test 5: Guardar Asistencia
+        async function testSaveAttendanceViaProxy() {
+            document.getElementById('attendance-result').innerHTML = 
+                '<div class="result loading">⏳ Guardando asistencia vía proxy...</div>';
+            
+            const testData = {
+                attendanceData: [{
+                    id: 'TEST001',
+                    fecha: new Date().toISOString().split('T')[0],
+                    estudiante_id: 'EST_TEST',
+                    grupo_codigo: 'GRUPO_TEST',
+                    tipo_clase: 'Regular',
+                    estado: 'Presente',
+                    justificacion: '',
+                    descripcion: 'Registro de prueba vía proxy',
+                    enviado_por: 'test_proxy',
+                    timestamp: new Date().toISOString()
+                }]
+            };
+            
+            const result = await makeProxyRequest('saveAttendance', testData, 'POST');
+            showResult('attendance-result', result);
+        }
+    </script>
+</body>
+</html>
