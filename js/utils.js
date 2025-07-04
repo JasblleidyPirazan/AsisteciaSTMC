@@ -1,4 +1,3 @@
-
 /**
  * SISTEMA DE ASISTENCIA TENIS - UTILIDADES
  * ==========================================
@@ -33,10 +32,19 @@ const DateUtils = {
     },
 
     /**
+     * Obtiene el día de la semana de una fecha específica
+     */
+    getDayFromDate(dateString) {
+        const days = ['domingo', 'lunes', 'martes', 'miércoles', 'jueves', 'viernes', 'sábado'];
+        const date = new Date(dateString + 'T12:00:00'); // Agregar tiempo para evitar problemas de zona horaria
+        return days[date.getDay()];
+    },
+
+    /**
      * Convierte fecha a formato legible en español
      */
     formatDate(dateString) {
-        const date = new Date(dateString);
+        const date = new Date(dateString + 'T12:00:00'); // Agregar tiempo para evitar problemas de zona horaria
         const options = { 
             weekday: 'long', 
             year: 'numeric', 
@@ -106,6 +114,19 @@ const DataUtils = {
     },
 
     /**
+     * Filtra grupos por un día específico
+     */
+    getGroupsByDay(allGroups, dayName) {
+        if (!Array.isArray(allGroups)) return [];
+        
+        return allGroups.filter(group => {
+            if (!group.dias) return false;
+            const groupDays = DateUtils.parseDays(group.dias);
+            return groupDays.includes(dayName.toLowerCase());
+        }).filter(group => group.activo === true || group.activo === 'TRUE');
+    },
+
+    /**
      * Filtra estudiantes por código de grupo
      */
     getStudentsByGroup(allStudents, groupCode) {
@@ -118,12 +139,30 @@ const DataUtils = {
     },
 
     /**
-     * Formatea datos de asistencia para Google Sheets
+     * Formatea datos de asistencia para Google Sheets (fecha actual)
      */
     formatAttendanceData(studentId, groupCode, status, justification = '', description = '') {
         return [
             this.generateId('AST'),
             DateUtils.getCurrentDate(),
+            studentId,
+            groupCode,
+            'Regular',
+            status,
+            justification,
+            description,
+            window.AppState.user?.email || 'usuario',
+            DateUtils.getCurrentTimestamp()
+        ];
+    },
+
+    /**
+     * Formatea datos de asistencia para Google Sheets con fecha específica
+     */
+    formatAttendanceDataForDate(studentId, groupCode, status, justification = '', description = '', dateString) {
+        return [
+            this.generateId('AST'),
+            dateString, // Usar fecha específica
             studentId,
             groupCode,
             'Regular',
@@ -148,7 +187,7 @@ const DataUtils = {
         return dataRows.map(row => {
             const obj = {};
             headerRow.forEach((header, index) => {
-                // Convertir header a formato camelCase y limpiar
+                // Convertir header a formato snake_case y limpiar
                 const key = header.toLowerCase()
                     .replace(/[^a-z0-9]/g, '_')
                     .replace(/_+/g, '_')
@@ -170,6 +209,28 @@ const DataUtils = {
             }
         });
         return missing;
+    },
+
+    /**
+     * Obtiene estadísticas de asistencia
+     */
+    getAttendanceStats(attendanceRecords) {
+        if (!Array.isArray(attendanceRecords)) return { total: 0, presente: 0, ausente: 0, justificada: 0 };
+        
+        const stats = {
+            total: attendanceRecords.length,
+            presente: 0,
+            ausente: 0,
+            justificada: 0
+        };
+        
+        attendanceRecords.forEach(record => {
+            if (record.status === 'Presente') stats.presente++;
+            else if (record.status === 'Ausente') stats.ausente++;
+            else if (record.status === 'Justificada') stats.justificada++;
+        });
+        
+        return stats;
     }
 };
 
@@ -224,14 +285,19 @@ const UIUtils = {
     },
 
     /**
-     * Sistema de notificaciones
+     * Sistema de notificaciones mejorado
      */
     showNotification(message, type = 'info', duration = 3000) {
+        // Remover notificación existente si existe
+        this.closeNotification();
+        
         const modal = document.getElementById('notification-modal');
         const content = document.getElementById('notification-content');
         
         if (!modal || !content) {
             console.warn('Modal de notificaciones no encontrado');
+            // Fallback: usar console
+            console.log(`${type.toUpperCase()}: ${message}`);
             return;
         }
 
@@ -242,11 +308,20 @@ const UIUtils = {
             info: 'ℹ️'
         };
 
+        const colors = {
+            success: 'border-green-200 bg-green-50 text-green-800',
+            error: 'border-red-200 bg-red-50 text-red-800',
+            warning: 'border-yellow-200 bg-yellow-50 text-yellow-800',
+            info: 'border-blue-200 bg-blue-50 text-blue-800'
+        };
+
         content.innerHTML = `
-            <div class="notification notification-${type}">
-                <span class="icon">${icons[type]}</span>
-                <div>
-                    <p class="font-medium">${message}</p>
+            <div class="notification ${colors[type]} border rounded-lg p-4">
+                <div class="flex items-center">
+                    <span class="text-2xl mr-3">${icons[type]}</span>
+                    <div>
+                        <p class="font-medium">${message}</p>
+                    </div>
                 </div>
             </div>
         `;
@@ -320,6 +395,7 @@ const UIUtils = {
                 <div class="student-info">
                     <h4>${student.nombre || 'Sin nombre'}</h4>
                     <p>ID: ${studentId}</p>
+                    ${student.grupo_secundario ? `<p class="text-xs text-gray-500">También en: ${student.grupo_secundario}</p>` : ''}
                 </div>
                 <div class="student-actions">
                     <button class="btn btn-sm ${currentStatus?.status === 'Presente' ? 'btn-primary' : 'btn-outline'}" 
@@ -356,6 +432,35 @@ const UIUtils = {
         });
 
         window.AppState.connectionStatus = status;
+    },
+
+    /**
+     * Crea elemento de carga inline
+     */
+    createInlineLoader(text = 'Cargando...') {
+        return `
+            <div class="inline-flex items-center">
+                <div class="spinner mr-2"></div>
+                <span>${text}</span>
+            </div>
+        `;
+    },
+
+    /**
+     * Formatea estadísticas de asistencia
+     */
+    formatAttendanceStats(stats) {
+        const total = stats.total || 0;
+        if (total === 0) return 'Sin datos';
+        
+        const percentage = total > 0 ? Math.round((stats.presente / total) * 100) : 0;
+        
+        return `
+            <div class="text-sm">
+                <span class="font-medium">${stats.presente}/${total} presentes</span>
+                <span class="text-gray-500">(${percentage}%)</span>
+            </div>
+        `;
     }
 };
 
@@ -365,11 +470,16 @@ const UIUtils = {
 
 const StorageUtils = {
     /**
+     * Prefijo para las claves del sistema
+     */
+    PREFIX: 'tennis_',
+
+    /**
      * Guarda datos en localStorage
      */
     save(key, data) {
         try {
-            localStorage.setItem(key, JSON.stringify(data));
+            localStorage.setItem(this.PREFIX + key, JSON.stringify(data));
             return true;
         } catch (error) {
             console.error('Error al guardar en localStorage:', error);
@@ -382,7 +492,7 @@ const StorageUtils = {
      */
     get(key, defaultValue = null) {
         try {
-            const item = localStorage.getItem(key);
+            const item = localStorage.getItem(this.PREFIX + key);
             return item ? JSON.parse(item) : defaultValue;
         } catch (error) {
             console.error('Error al leer de localStorage:', error);
@@ -395,7 +505,7 @@ const StorageUtils = {
      */
     remove(key) {
         try {
-            localStorage.removeItem(key);
+            localStorage.removeItem(this.PREFIX + key);
             return true;
         } catch (error) {
             console.error('Error al eliminar de localStorage:', error);
@@ -410,7 +520,7 @@ const StorageUtils = {
         try {
             const keys = Object.keys(localStorage);
             keys.forEach(key => {
-                if (key.startsWith('tennis_')) {
+                if (key.startsWith(this.PREFIX)) {
                     localStorage.removeItem(key);
                 }
             });
@@ -425,20 +535,20 @@ const StorageUtils = {
      * Guarda datos de asistencia pendientes
      */
     savePendingAttendance(data) {
-        const pending = this.get('tennis_pending_attendance', []);
+        const pending = this.get('pending_attendance', []);
         pending.push({
             ...data,
             id: DataUtils.generateId('PENDING'),
             timestamp: DateUtils.getCurrentTimestamp()
         });
-        return this.save('tennis_pending_attendance', pending);
+        return this.save('pending_attendance', pending);
     },
 
     /**
      * Obtiene asistencias pendientes de sincronizar
      */
     getPendingAttendance() {
-        return this.get('tennis_pending_attendance', []);
+        return this.get('pending_attendance', []);
     },
 
     /**
@@ -447,7 +557,25 @@ const StorageUtils = {
     removePendingAttendance(pendingId) {
         const pending = this.getPendingAttendance();
         const filtered = pending.filter(item => item.id !== pendingId);
-        return this.save('tennis_pending_attendance', filtered);
+        return this.save('pending_attendance', filtered);
+    },
+
+    /**
+     * Guarda configuración de usuario
+     */
+    saveUserSettings(settings) {
+        return this.save('user_settings', settings);
+    },
+
+    /**
+     * Obtiene configuración de usuario
+     */
+    getUserSettings() {
+        return this.get('user_settings', {
+            autoSync: true,
+            notifications: true,
+            lastSelectedDate: null
+        });
     }
 };
 
@@ -483,6 +611,19 @@ const ValidationUtils = {
     },
 
     /**
+     * Valida que la fecha no sea futura (para asistencias)
+     */
+    isValidAttendanceDate(dateString) {
+        if (!this.isValidDate(dateString)) return false;
+        
+        const inputDate = new Date(dateString);
+        const today = new Date();
+        today.setHours(23, 59, 59, 999); // Fin del día actual
+        
+        return inputDate <= today;
+    },
+
+    /**
      * Valida estructura de grupo
      */
     validateGroup(group) {
@@ -496,6 +637,23 @@ const ValidationUtils = {
     validateStudent(student) {
         const required = ['id', 'nombre', 'grupo_principal'];
         return DataUtils.validateRequiredFields(student, required);
+    },
+
+    /**
+     * Valida datos de asistencia
+     */
+    validateAttendanceData(attendance) {
+        const required = ['studentId', 'status'];
+        const missing = DataUtils.validateRequiredFields(attendance, required);
+        
+        if (missing.length > 0) return { valid: false, errors: missing };
+        
+        const validStatuses = ['Presente', 'Ausente', 'Justificada'];
+        if (!validStatuses.includes(attendance.status)) {
+            return { valid: false, errors: ['Estado de asistencia inválido'] };
+        }
+        
+        return { valid: true, errors: [] };
     }
 };
 
@@ -551,8 +709,44 @@ function checkConnection() {
     return navigator.onLine;
 }
 
+/**
+ * Función para obtener información del dispositivo
+ */
+function getDeviceInfo() {
+    return {
+        isMobile: isMobileDevice(),
+        isOnline: checkConnection(),
+        userAgent: navigator.userAgent,
+        language: navigator.language,
+        platform: navigator.platform
+    };
+}
+
+/**
+ * Función para generar colores aleatorios (para gráficos)
+ */
+function generateColors(count) {
+    const colors = [
+        '#10b981', '#f59e0b', '#ef4444', '#3b82f6', '#8b5cf6',
+        '#06b6d4', '#84cc16', '#f97316', '#ec4899', '#6366f1'
+    ];
+    
+    if (count <= colors.length) {
+        return colors.slice(0, count);
+    }
+    
+    // Generar colores adicionales si se necesitan más
+    const additionalColors = [];
+    for (let i = colors.length; i < count; i++) {
+        const hue = (i * 137.508) % 360; // Golden angle
+        additionalColors.push(`hsl(${hue}, 70%, 50%)`);
+    }
+    
+    return [...colors, ...additionalColors];
+}
+
 // ===========================================
-// EVENTOS DE CONEXIÓN
+// EVENTOS DE CONEXIÓN Y SINCRONIZACIÓN
 // ===========================================
 
 // Detectar cambios en la conexión
@@ -562,7 +756,9 @@ window.addEventListener('online', () => {
     
     // Intentar sincronizar datos pendientes
     if (window.SyncManager && typeof window.SyncManager.syncPendingData === 'function') {
-        window.SyncManager.syncPendingData();
+        setTimeout(() => {
+            window.SyncManager.syncPendingData();
+        }, 1000); // Esperar un segundo antes de sincronizar
     }
 });
 
@@ -571,8 +767,38 @@ window.addEventListener('offline', () => {
     UIUtils.showWarning('Sin conexión a internet. Los datos se guardarán localmente.');
 });
 
+// Detectar cuando la página pierde/gana el foco (para pausar/reanudar sincronización)
+document.addEventListener('visibilitychange', () => {
+    if (!document.hidden && checkConnection()) {
+        // La página volvió a estar visible y hay conexión
+        debugLog('Página visible, verificando sincronización...');
+        
+        if (window.SyncManager && typeof window.SyncManager.syncPendingData === 'function') {
+            setTimeout(() => {
+                window.SyncManager.syncPendingData();
+            }, 2000);
+        }
+    }
+});
+
 // Inicializar estado de conexión
 document.addEventListener('DOMContentLoaded', () => {
     const status = checkConnection() ? 'online' : 'offline';
     UIUtils.updateConnectionStatus(status);
+    
+    debugLog('Sistema inicializado:', {
+        conexion: status,
+        dispositivo: getDeviceInfo(),
+        pendientes: StorageUtils.getPendingAttendance().length
+    });
 });
+
+// Manejar errores de red globalmente
+window.addEventListener('unhandledrejection', (event) => {
+    if (event.reason && event.reason.message && event.reason.message.includes('fetch')) {
+        debugLog('Error de red detectado:', event.reason);
+        UIUtils.updateConnectionStatus('offline');
+    }
+});
+
+debugLog('utils.js cargado correctamente');
