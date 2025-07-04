@@ -18,49 +18,29 @@ async function initApp() {
         // Mostrar loading inicial
         UIUtils.showLoading('app', 'Inicializando Sistema de Asistencia...');
         
-        // Configurar URL de Apps Script si está disponible
-        if (window.APP_CONFIG?.APPS_SCRIPT_URL && !window.APP_CONFIG.USE_DEMO_MODE) {
-            SheetsAPI.setWebAppUrl(window.APP_CONFIG.APPS_SCRIPT_URL);
-            
-            // Probar conexión con Apps Script
-            const connectionTest = await SheetsAPI.testConnection();
-            if (connectionTest.success) {
-                debugLog('Conexión con Apps Script exitosa');
-                UIUtils.showSuccess('Conectado con Google Sheets');
-            } else {
-                debugLog('Error de conexión, usando modo demo');
-                window.APP_CONFIG.USE_DEMO_MODE = true;
-            }
+        // Configurar URL de Apps Script
+        SheetsAPI.setWebAppUrl(window.APP_CONFIG.APPS_SCRIPT_URL);
+        
+        // Probar conexión con Apps Script
+        const connectionTest = await SheetsAPI.testConnection();
+        if (connectionTest.success) {
+            debugLog('Conexión con Apps Script exitosa');
+            UIUtils.showSuccess('Conectado con Google Sheets');
+        } else {
+            debugLog('Error de conexión:', connectionTest.error);
+            UIUtils.showError('Error de conexión. Verifica la configuración.');
         }
         
-        // Mostrar pantalla de inicio (ya no necesitamos autenticación)
-        showWelcomeScreen();
+        // Cargar datos iniciales
+        await loadUserData();
+        
+        // Ir directamente al selector de fecha
+        showDateSelector();
         
     } catch (error) {
         console.error('Error al inicializar aplicación:', error);
-        showErrorScreen('Error al inicializar la aplicación. Usando modo demo.');
-        // En caso de error, usar modo demo
-        window.APP_CONFIG.USE_DEMO_MODE = true;
-        setTimeout(() => showWelcomeScreen(), 2000);
+        showErrorScreen('Error al inicializar la aplicación. Verifica la configuración del backend.');
     }
-}
-
-/**
- * Inicializa las APIs de Google
- */
-async function initGoogleAPIs() {
-    return new Promise((resolve, reject) => {
-        gapi.load('auth2', {
-            callback: () => {
-                debugLog('Google Auth2 cargado');
-                resolve();
-            },
-            onerror: () => {
-                console.error('Error al cargar Google Auth2');
-                reject(new Error('Error al cargar Google Auth2'));
-            }
-        });
-    });
 }
 
 // ===========================================
@@ -68,77 +48,97 @@ async function initGoogleAPIs() {
 // ===========================================
 
 /**
- * Muestra la pantalla de bienvenida (reemplaza login)
+ * Muestra el selector de fecha para reportar asistencia
  */
-function showWelcomeScreen() {
-    debugLog('Mostrando pantalla de bienvenida');
+function showDateSelector() {
+    debugLog('Mostrando selector de fecha');
+    
+    const today = DateUtils.getCurrentDate();
+    const currentDay = DateUtils.getCurrentDay();
     
     const app = document.getElementById('app');
     app.innerHTML = `
-        <div class="min-h-screen flex items-center justify-center bg-gradient-to-br from-primary-50 to-primary-100">
-            <div class="max-w-lg w-full bg-white rounded-xl shadow-lg p-8">
-                <div class="text-center mb-8">
-                    <div class="mx-auto w-20 h-20 bg-primary-500 rounded-full flex items-center justify-center mb-6">
-                        <span class="text-3xl">🎾</span>
-                    </div>
-                    <h1 class="text-3xl font-bold text-gray-900 mb-3">Sistema de Asistencia</h1>
-                    <p class="text-gray-600 text-lg">Academia de Tenis</p>
-                    <p class="text-sm text-gray-500 mt-2">Gestión simple y eficiente de asistencias</p>
+        <div class="container">
+            <!-- Header -->
+            <header class="bg-white rounded-lg p-6 shadow-sm mb-6">
+                <div class="text-center">
+                    <h1 class="text-3xl font-bold text-gray-900 mb-2">Sistema de Asistencia Tenis</h1>
+                    <p class="text-gray-600">Selecciona la fecha para reportar asistencias</p>
                 </div>
+            </header>
+
+            <!-- Selector de Fecha -->
+            <div class="bg-white rounded-lg p-6 shadow-sm mb-6">
+                <h2 class="text-xl font-semibold mb-4">Seleccionar Fecha de Reporte</h2>
                 
-                <div class="space-y-4">
-                    ${!window.APP_CONFIG.USE_DEMO_MODE ? `
-                        <button 
-                            onclick="startWithRealData()" 
-                            class="w-full btn btn-primary btn-lg flex items-center justify-center"
-                        >
-                            <span class="text-xl mr-3">📊</span>
-                            Acceder al Sistema
-                            <div class="text-xs mt-1 opacity-75">Conectado con Google Sheets</div>
-                        </button>
-                        
-                        <button 
-                            onclick="showDemoMode()" 
-                            class="w-full btn btn-outline btn-lg flex items-center justify-center"
-                        >
-                            <span class="text-xl mr-3">🧪</span>
-                            Modo Demo
-                            <div class="text-xs mt-1 opacity-75">Solo para pruebas</div>
-                        </button>
-                    ` : `
-                        <button 
-                            onclick="showDemoMode()" 
-                            class="w-full btn btn-primary btn-lg flex items-center justify-center"
-                        >
-                            <span class="text-xl mr-3">🚀</span>
-                            Empezar Demo
-                            <div class="text-xs mt-1 opacity-75">Datos de prueba</div>
-                        </button>
-                        
-                        <div class="text-center">
-                            <p class="text-sm text-gray-500 mb-2">¿Quieres conectar con Google Sheets?</p>
-                            <button 
-                                onclick="showSetupInstructions()" 
-                                class="text-sm text-primary-600 hover:text-primary-800 underline"
-                            >
-                                Ver instrucciones de configuración
-                            </button>
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+                    <!-- Fecha personalizada -->
+                    <div>
+                        <label class="block text-sm font-medium text-gray-700 mb-3">
+                            Fecha específica:
+                        </label>
+                        <input 
+                            type="date" 
+                            id="selected-date"
+                            value="${today}"
+                            class="w-full border border-gray-300 rounded-md px-4 py-3 text-lg"
+                            onchange="updateDateSelection()"
+                        />
+                    </div>
+                    
+                    <!-- Información del día seleccionado -->
+                    <div>
+                        <label class="block text-sm font-medium text-gray-700 mb-3">
+                            Información del día:
+                        </label>
+                        <div id="date-info" class="bg-gray-50 rounded-md p-4">
+                            <p class="font-semibold" id="selected-day-name">${capitalize(currentDay)}</p>
+                            <p class="text-sm text-gray-600" id="selected-date-formatted">${DateUtils.formatDate(today)}</p>
+                            <p class="text-sm text-gray-500 mt-2" id="groups-count">Cargando grupos...</p>
                         </div>
-                    `}
+                    </div>
                 </div>
                 
-                <div class="mt-8 text-center text-sm text-gray-500 border-t pt-6">
-                    <p><strong>Características:</strong></p>
-                    <div class="grid grid-cols-2 gap-2 mt-2 text-xs">
-                        <div>✅ Registro rápido</div>
-                        <div>✅ Funciona offline</div>
-                        <div>✅ Reportes automáticos</div>
-                        <div>✅ Optimizado tablets</div>
-                    </div>
+                <!-- Botón para continuar -->
+                <div class="mt-6">
+                    <button 
+                        onclick="loadGroupsForSelectedDate()" 
+                        class="btn btn-primary btn-lg w-full"
+                        id="continue-btn"
+                    >
+                        📋 Ver Grupos de este Día
+                    </button>
+                </div>
+            </div>
+
+            <!-- Accesos rápidos a fechas comunes -->
+            <div class="bg-white rounded-lg p-6 shadow-sm">
+                <h3 class="text-lg font-semibold mb-4">Accesos Rápidos</h3>
+                <div class="grid grid-cols-2 md:grid-cols-4 gap-3">
+                    <button onclick="selectQuickDate('today')" class="btn btn-outline p-4 text-center">
+                        <div class="text-lg mb-1">📅</div>
+                        <div class="text-sm">Hoy</div>
+                        <div class="text-xs text-gray-500">${capitalize(currentDay)}</div>
+                    </button>
+                    <button onclick="selectQuickDate('yesterday')" class="btn btn-outline p-4 text-center">
+                        <div class="text-lg mb-1">⏮️</div>
+                        <div class="text-sm">Ayer</div>
+                    </button>
+                    <button onclick="selectQuickDate('tomorrow')" class="btn btn-outline p-4 text-center">
+                        <div class="text-lg mb-1">⏭️</div>
+                        <div class="text-sm">Mañana</div>
+                    </button>
+                    <button onclick="showReports()" class="btn btn-secondary p-4 text-center">
+                        <div class="text-lg mb-1">📊</div>
+                        <div class="text-sm">Reportes</div>
+                    </button>
                 </div>
             </div>
         </div>
     `;
+    
+    // Cargar información inicial del día
+    updateDateSelection();
 }
 
 /**
@@ -150,12 +150,13 @@ async function showDashboard() {
     try {
         UIUtils.showLoading('app', 'Cargando dashboard...');
         
-        // Cargar datos de grupos
-        await loadGroupsData();
+        // Usar fecha seleccionada o fecha actual
+        const selectedDate = window.AppState.selectedDate || DateUtils.getCurrentDate();
+        const selectedDay = DateUtils.getDayFromDate(selectedDate);
+        const formattedDate = DateUtils.formatDate(selectedDate);
         
-        const todayGroups = DataUtils.getTodayGroups(window.AppState.grupos);
-        const today = DateUtils.formatDate(DateUtils.getCurrentDate());
-        const todayName = DateUtils.getCurrentDay();
+        // Obtener grupos para el día seleccionado
+        const dayGroups = DataUtils.getGroupsByDay(window.AppState.grupos, selectedDay);
         
         const app = document.getElementById('app');
         app.innerHTML = `
@@ -163,18 +164,18 @@ async function showDashboard() {
                 <!-- Header -->
                 <header class="flex flex-col sm:flex-row justify-between items-start sm:items-center mb-8 bg-white rounded-lg p-6 shadow-sm">
                     <div>
-                        <h1 class="text-3xl font-bold text-gray-900 mb-2">Dashboard</h1>
-                        <p class="text-gray-600">${today}</p>
+                        <h1 class="text-3xl font-bold text-gray-900 mb-2">Dashboard de Asistencias</h1>
+                        <p class="text-gray-600">${formattedDate}</p>
                         <div class="connection-status status-indicator ${window.AppState.connectionStatus} mt-2">
                             ${window.AppState.connectionStatus === 'online' ? 'En línea' : 'Sin conexión'}
                         </div>
                     </div>
                     <div class="flex gap-3 mt-4 sm:mt-0">
-                        <button onclick="showSettings()" class="btn btn-neutral">
-                            ⚙️ Configuración
+                        <button onclick="showDateSelector()" class="btn btn-outline">
+                            📅 Cambiar Fecha
                         </button>
-                        <button onclick="handleSignOut()" class="btn btn-outline">
-                            🚪 Cerrar Sesión
+                        <button onclick="showReports()" class="btn btn-secondary">
+                            📊 Reportes
                         </button>
                     </div>
                 </header>
@@ -187,8 +188,8 @@ async function showDashboard() {
                                 <span class="text-2xl">📅</span>
                             </div>
                             <div class="ml-4">
-                                <p class="text-sm text-gray-600">Grupos Hoy</p>
-                                <p class="text-2xl font-bold text-gray-900">${todayGroups.length}</p>
+                                <p class="text-sm text-gray-600">Grupos ${capitalize(selectedDay)}</p>
+                                <p class="text-2xl font-bold text-gray-900">${dayGroups.length}</p>
                             </div>
                         </div>
                     </div>
@@ -208,7 +209,7 @@ async function showDashboard() {
                     <div class="bg-white rounded-lg p-6 shadow-sm border border-gray-200">
                         <div class="flex items-center">
                             <div class="p-3 bg-accent-100 rounded-lg">
-                                <span class="text-2xl">✅</span>
+                                <span class="text-2xl">⏳</span>
                             </div>
                             <div class="ml-4">
                                 <p class="text-sm text-gray-600">Pendientes Sync</p>
@@ -218,11 +219,11 @@ async function showDashboard() {
                     </div>
                 </div>
 
-                <!-- Grupos del día -->
+                <!-- Grupos del día seleccionado -->
                 <div class="mb-8">
                     <div class="flex justify-between items-center mb-6">
                         <h2 class="text-2xl font-bold text-gray-900">
-                            Grupos de ${capitalize(todayName)}
+                            Grupos - ${capitalize(selectedDay)} ${selectedDate === DateUtils.getCurrentDate() ? '(Hoy)' : ''}
                         </h2>
                         <button onclick="refreshData()" class="btn btn-outline">
                             🔄 Actualizar
@@ -230,15 +231,18 @@ async function showDashboard() {
                     </div>
                     
                     <div id="groups-container">
-                        ${todayGroups.length > 0 ? `
+                        ${dayGroups.length > 0 ? `
                             <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-                                ${todayGroups.map(group => UIUtils.createGroupCard(group)).join('')}
+                                ${dayGroups.map(group => UIUtils.createGroupCard(group)).join('')}
                             </div>
                         ` : `
                             <div class="text-center py-12 bg-white rounded-lg shadow-sm">
                                 <span class="text-6xl mb-4 block">📅</span>
-                                <h3 class="text-xl font-semibold text-gray-700 mb-2">No hay clases programadas hoy</h3>
-                                <p class="text-gray-500">Los ${todayName}s no hay grupos programados</p>
+                                <h3 class="text-xl font-semibold text-gray-700 mb-2">No hay clases programadas</h3>
+                                <p class="text-gray-500 mb-4">Los ${selectedDay}s no hay grupos programados</p>
+                                <button onclick="showDateSelector()" class="btn btn-primary">
+                                    📅 Seleccionar Otra Fecha
+                                </button>
                             </div>
                         `}
                     </div>
@@ -299,139 +303,115 @@ function showErrorScreen(message) {
 }
 
 // ===========================================
-// GESTIÓN DE AUTENTICACIÓN
+// FUNCIONES DEL SELECTOR DE FECHA
 // ===========================================
 
 /**
- * Inicia con datos reales de Google Sheets
+ * Actualiza la información cuando cambia la fecha seleccionada
  */
-async function startWithRealData() {
-    debugLog('Iniciando con datos reales...');
+function updateDateSelection() {
+    const dateInput = document.getElementById('selected-date');
+    const selectedDate = dateInput.value;
     
-    // Simular usuario para el sistema
-    window.AppState.user = {
-        email: 'usuario@academia-tenis.com',
-        name: 'Usuario del Sistema',
-        picture: null
-    };
-    window.AppState.isAuthenticated = true;
+    if (!selectedDate) return;
+    
+    // Actualizar información del día
+    const dayName = DateUtils.getDayFromDate(selectedDate);
+    const formattedDate = DateUtils.formatDate(selectedDate);
+    
+    document.getElementById('selected-day-name').textContent = capitalize(dayName);
+    document.getElementById('selected-date-formatted').textContent = formattedDate;
+    
+    // Contar grupos para ese día
+    updateGroupsCount(selectedDate);
+}
+
+/**
+ * Actualiza el conteo de grupos para la fecha seleccionada
+ */
+function updateGroupsCount(selectedDate) {
+    const dayName = DateUtils.getDayFromDate(selectedDate);
+    const groupsForDay = DataUtils.getGroupsByDay(window.AppState.grupos, dayName);
+    
+    const countElement = document.getElementById('groups-count');
+    if (groupsForDay.length > 0) {
+        countElement.innerHTML = `
+            <span class="text-green-600 font-medium">${groupsForDay.length} grupos programados</span>
+        `;
+    } else {
+        countElement.innerHTML = `
+            <span class="text-gray-500">No hay grupos programados para ${dayName}s</span>
+        `;
+    }
+    
+    // Habilitar/deshabilitar botón continuar
+    const continueBtn = document.getElementById('continue-btn');
+    if (continueBtn) {
+        continueBtn.disabled = groupsForDay.length === 0;
+        if (groupsForDay.length === 0) {
+            continueBtn.classList.add('opacity-50');
+            continueBtn.innerHTML = '❌ No hay grupos este día';
+        } else {
+            continueBtn.classList.remove('opacity-50');
+            continueBtn.innerHTML = `📋 Ver ${groupsForDay.length} Grupos de este Día`;
+        }
+    }
+}
+
+/**
+ * Selecciona fecha rápida (hoy, ayer, mañana)
+ */
+function selectQuickDate(type) {
+    const dateInput = document.getElementById('selected-date');
+    const today = new Date();
+    let targetDate;
+    
+    switch (type) {
+        case 'today':
+            targetDate = today;
+            break;
+        case 'yesterday':
+            targetDate = new Date(today);
+            targetDate.setDate(today.getDate() - 1);
+            break;
+        case 'tomorrow':
+            targetDate = new Date(today);
+            targetDate.setDate(today.getDate() + 1);
+            break;
+        default:
+            return;
+    }
+    
+    const dateString = targetDate.toISOString().split('T')[0];
+    dateInput.value = dateString;
+    updateDateSelection();
+}
+
+/**
+ * Carga los grupos para la fecha seleccionada y muestra el dashboard
+ */
+async function loadGroupsForSelectedDate() {
+    const dateInput = document.getElementById('selected-date');
+    const selectedDate = dateInput.value;
+    
+    if (!selectedDate) {
+        UIUtils.showError('Por favor selecciona una fecha');
+        return;
+    }
     
     try {
-        UIUtils.showLoading('app', 'Conectando con Google Sheets...');
+        UIUtils.showLoading('app', 'Cargando grupos...');
         
-        // Probar conexión
-        const connectionTest = await SheetsAPI.testConnection();
-        if (!connectionTest.success) {
-            throw new Error('No se pudo conectar con Google Sheets');
-        }
+        // Guardar la fecha seleccionada en el estado global
+        window.AppState.selectedDate = selectedDate;
         
-        // Cargar datos reales
-        await loadUserData();
+        // Mostrar dashboard con grupos de la fecha seleccionada
         showDashboard();
         
-        UIUtils.showSuccess('¡Conectado con Google Sheets! Datos reales cargados.');
-        
     } catch (error) {
-        console.error('Error al conectar con datos reales:', error);
-        UIUtils.showError('Error al conectar. Cambiando a modo demo.');
-        
-        // Fallback a modo demo
-        setTimeout(() => showDemoMode(), 2000);
+        console.error('Error al cargar grupos:', error);
+        UIUtils.showError('Error al cargar los grupos');
     }
-}
-
-/**
- * Muestra instrucciones de configuración
- */
-function showSetupInstructions() {
-    const modal = document.getElementById('notification-modal');
-    const content = document.getElementById('notification-content');
-    
-    if (modal && content) {
-        content.innerHTML = `
-            <h3 class="text-lg font-bold mb-4">📋 Configuración de Google Apps Script</h3>
-            
-            <div class="space-y-4 text-sm">
-                <div class="bg-blue-50 p-3 rounded-lg">
-                    <p class="font-semibold text-blue-800">Pasos rápidos:</p>
-                    <ol class="list-decimal list-inside mt-2 space-y-1 text-blue-700">
-                        <li>Abre tu Google Sheets</li>
-                        <li>Ve a <strong>Extensiones → Apps Script</strong></li>
-                        <li>Copia el código del backend</li>
-                        <li>Despliega como Web App</li>
-                        <li>Copia la URL en index.html</li>
-                    </ol>
-                </div>
-                
-                <div class="bg-green-50 p-3 rounded-lg">
-                    <p class="font-semibold text-green-800">💡 Beneficios:</p>
-                    <ul class="list-disc list-inside mt-2 space-y-1 text-green-700">
-                        <li>Datos reales en Google Sheets</li>
-                        <li>Sin configuración compleja</li>
-                        <li>Completamente gratis</li>
-                        <li>Fácil de mantener</li>
-                    </ul>
-                </div>
-                
-                <div class="text-center">
-                    <p class="text-gray-600">Tiempo estimado: <strong>10-15 minutos</strong></p>
-                </div>
-            </div>
-        `;
-        
-        modal.classList.remove('hidden');
-        document.body.classList.add('no-scroll');
-    }
-}
-
-/**
- * Maneja el cierre de sesión (simplificado)
- */
-async function handleSignOut() {
-    debugLog('Cerrando sesión...');
-    
-    try {
-        // Limpiar estado de la aplicación
-        window.AppState = {
-            user: null,
-            isAuthenticated: false,
-            currentPage: 'welcome',
-            grupos: [],
-            estudiantes: [],
-            currentAttendance: {},
-            connectionStatus: checkConnection() ? 'online' : 'offline'
-        };
-        
-        // Mostrar pantalla de bienvenida
-        showWelcomeScreen();
-        
-        UIUtils.showSuccess('Sesión cerrada correctamente');
-        
-    } catch (error) {
-        console.error('Error al cerrar sesión:', error);
-        UIUtils.showError('Error al cerrar sesión');
-    }
-}
-
-/**
- * Modo demo para desarrollo
- */
-function showDemoMode() {
-    debugLog('Activando modo demo');
-    
-    // Simular usuario demo
-    window.AppState.user = {
-        email: 'demo@academia-tenis.com',
-        name: 'Usuario Demo',
-        picture: null
-    };
-    window.AppState.isAuthenticated = true;
-    
-    UIUtils.showInfo('Modo demo activado - Los datos no se guardarán realmente');
-    
-    // Cargar datos demo
-    loadDemoData();
-    showDashboard();
 }
 
 // ===========================================
@@ -439,45 +419,36 @@ function showDemoMode() {
 // ===========================================
 
 /**
- * Carga los datos del usuario (desde Apps Script o demo)
+ * Carga los datos del usuario desde Apps Script
  */
 async function loadUserData() {
     debugLog('Cargando datos del usuario...');
     
     try {
-        if (window.APP_CONFIG.USE_DEMO_MODE) {
-            // Cargar datos demo
-            loadDemoData();
-        } else {
-            // Cargar datos reales desde Apps Script
-            await loadGroupsData();
-            await loadStudentsData();
-        }
+        // Cargar datos reales desde Apps Script
+        await loadGroupsData();
+        await loadStudentsData();
         
     } catch (error) {
         console.error('Error al cargar datos del usuario:', error);
-        UIUtils.showWarning('Error al cargar algunos datos. Usando modo demo.');
-        loadDemoData();
+        UIUtils.showWarning('Error al cargar algunos datos.');
+        throw error;
     }
 }
 
 /**
- * Carga datos de grupos (Apps Script o demo)
+ * Carga datos de grupos desde Apps Script
  */
 async function loadGroupsData() {
     debugLog('Cargando datos de grupos...');
     
     try {
-        if (window.APP_CONFIG.USE_DEMO_MODE) {
-            loadDemoGroups();
-        } else {
-            // Cargar desde Apps Script
-            const groupsData = await SheetsAPI.getGroups();
-            window.AppState.grupos = groupsData || [];
-            
-            // Guardar en cache para uso offline
-            StorageUtils.save('cached_groups', groupsData);
-        }
+        // Cargar desde Apps Script
+        const groupsData = await SheetsAPI.getGroups();
+        window.AppState.grupos = groupsData || [];
+        
+        // Guardar en cache para uso offline
+        StorageUtils.save('cached_groups', groupsData);
         
         debugLog(`Grupos cargados: ${window.AppState.grupos.length}`);
         
@@ -490,29 +461,24 @@ async function loadGroupsData() {
             window.AppState.grupos = cachedGroups;
             UIUtils.showWarning('Usando datos de grupos guardados localmente');
         } else {
-            // Último recurso: datos demo
-            loadDemoGroups();
+            throw error;
         }
     }
 }
 
 /**
- * Carga datos de estudiantes (Apps Script o demo)
+ * Carga datos de estudiantes desde Apps Script
  */
 async function loadStudentsData() {
     debugLog('Cargando datos de estudiantes...');
     
     try {
-        if (window.APP_CONFIG.USE_DEMO_MODE) {
-            loadDemoStudents();
-        } else {
-            // Cargar desde Apps Script
-            const studentsData = await SheetsAPI.getStudents();
-            window.AppState.estudiantes = studentsData || [];
-            
-            // Guardar en cache para uso offline
-            StorageUtils.save('cached_students', studentsData);
-        }
+        // Cargar desde Apps Script
+        const studentsData = await SheetsAPI.getStudents();
+        window.AppState.estudiantes = studentsData || [];
+        
+        // Guardar en cache para uso offline
+        StorageUtils.save('cached_students', studentsData);
         
         debugLog(`Estudiantes cargados: ${window.AppState.estudiantes.length}`);
         
@@ -525,105 +491,9 @@ async function loadStudentsData() {
             window.AppState.estudiantes = cachedStudents;
             UIUtils.showWarning('Usando datos de estudiantes guardados localmente');
         } else {
-            // Último recurso: datos demo
-            loadDemoStudents();
+            throw error;
         }
     }
-}
-
-/**
- * Carga datos demo para desarrollo
- */
-function loadDemoData() {
-    loadDemoGroups();
-    loadDemoStudents();
-}
-
-function loadDemoGroups() {
-    window.AppState.grupos = [
-        {
-            codigo: 'LM-15:45-Brayan-Verde',
-            días: 'lunes,miércoles',
-            hora: '15:45-16:30',
-            profe: 'Brayan',
-            cancha: '2',
-            frecuencia_semanal: '2',
-            bola: 'Verde',
-            descriptor: 'Lunes,Miércoles 15:45-16:30 - Prof. Brayan - Verde',
-            activo: true
-        },
-        {
-            codigo: 'MJ-16:30-Ricardo-Amarilla',
-            días: 'martes,jueves',
-            hora: '16:30-17:15',
-            profe: 'Ricardo',
-            cancha: '1',
-            frecuencia_semanal: '2',
-            bola: 'Amarilla',
-            descriptor: 'Martes,Jueves 16:30-17:15 - Prof. Ricardo - Amarilla',
-            activo: true
-        },
-        {
-            codigo: 'VSD-09:00-Carlos-Naranja',
-            días: 'viernes,sábado,domingo',
-            hora: '09:00-10:30',
-            profe: 'Carlos',
-            cancha: '3',
-            frecuencia_semanal: '3',
-            bola: 'Naranja',
-            descriptor: 'Fin de Semana 09:00-10:30 - Prof. Carlos - Naranja',
-            activo: true
-        }
-    ];
-    
-    debugLog('Datos demo de grupos cargados');
-}
-
-function loadDemoStudents() {
-    window.AppState.estudiantes = [
-        {
-            id: 'EST001',
-            nombre: 'Juan Pérez Martínez',
-            grupo_principal: 'LM-15:45-Brayan-Verde',
-            grupo_secundario: '',
-            max_clases: '40',
-            activo: true
-        },
-        {
-            id: 'EST002',
-            nombre: 'María González López',
-            grupo_principal: 'LM-15:45-Brayan-Verde',
-            grupo_secundario: '',
-            max_clases: '40',
-            activo: true
-        },
-        {
-            id: 'EST003',
-            nombre: 'Carlos Rodríguez Sánchez',
-            grupo_principal: 'MJ-16:30-Ricardo-Amarilla',
-            grupo_secundario: '',
-            max_clases: '40',
-            activo: true
-        },
-        {
-            id: 'EST004',
-            nombre: 'Ana Sofía Méndez',
-            grupo_principal: 'VSD-09:00-Carlos-Naranja',
-            grupo_secundario: '',
-            max_clases: '60',
-            activo: true
-        },
-        {
-            id: 'EST005',
-            nombre: 'Luis Alberto Torres',
-            grupo_principal: 'LM-15:45-Brayan-Verde',
-            grupo_secundario: 'MJ-16:30-Ricardo-Amarilla',
-            max_clases: '80',
-            activo: true
-        }
-    ];
-    
-    debugLog('Datos demo de estudiantes cargados');
 }
 
 // ===========================================
@@ -699,7 +569,8 @@ async function refreshData() {
 function showAttendanceForm(group, students) {
     debugLog(`Mostrando formulario de asistencia para grupo: ${group.codigo}`);
     
-    const today = DateUtils.formatDate(DateUtils.getCurrentDate());
+    const selectedDate = window.AppState.selectedDate || DateUtils.getCurrentDate();
+    const formattedDate = DateUtils.formatDate(selectedDate);
     const studentCount = students.length;
     
     const app = document.getElementById('app');
@@ -713,7 +584,7 @@ function showAttendanceForm(group, students) {
                     </button>
                     <div>
                         <h1 class="text-2xl font-bold text-gray-900">Registro de Asistencia</h1>
-                        <p class="text-gray-600">${today}</p>
+                        <p class="text-gray-600">${formattedDate}</p>
                     </div>
                 </div>
                 <div class="connection-status status-indicator ${window.AppState.connectionStatus}">
@@ -1092,7 +963,7 @@ function updateAttendanceSummary() {
 }
 
 /**
- * Guarda los datos de asistencia (Apps Script o localStorage)
+ * Guarda los datos de asistencia con la fecha seleccionada
  */
 async function saveAttendanceData(groupCode) {
     debugLog('Guardando datos de asistencia...');
@@ -1112,37 +983,35 @@ async function saveAttendanceData(groupCode) {
     }
     
     try {
+        // Usar la fecha seleccionada en lugar de la fecha actual
+        const selectedDate = window.AppState.selectedDate || DateUtils.getCurrentDate();
+        
         // Convertir asistencia a formato para backend
         const attendanceData = Object.values(attendance).map(record => {
-            return DataUtils.formatAttendanceData(
+            return DataUtils.formatAttendanceDataForDate(
                 record.studentId,
                 groupCode,
                 record.status,
                 record.justification,
-                record.description
+                record.description,
+                selectedDate // Usar fecha seleccionada
             );
         });
         
-        if (window.APP_CONFIG.USE_DEMO_MODE) {
-            // Modo demo: solo simular guardado
-            UIUtils.showSuccess(`Asistencia guardada en modo demo (${attendanceCount} registros)`);
-            debugLog('Datos que se guardarían:', attendanceData);
+        // Guardar en Google Sheets via Apps Script
+        if (window.AppState.connectionStatus === 'online') {
+            await SheetsAPI.saveAttendance(attendanceData);
+            UIUtils.showSuccess(`Asistencia guardada en Google Sheets (${attendanceCount} registros)`);
         } else {
-            // Guardar en Google Sheets via Apps Script
-            if (window.AppState.connectionStatus === 'online') {
-                await SheetsAPI.saveAttendance(attendanceData);
-                UIUtils.showSuccess(`Asistencia guardada en Google Sheets (${attendanceCount} registros)`);
-            } else {
-                // Guardar offline
-                attendanceData.forEach(record => {
-                    StorageUtils.savePendingAttendance({
-                        data: record,
-                        groupCode: groupCode,
-                        date: DateUtils.getCurrentDate()
-                    });
+            // Guardar offline
+            attendanceData.forEach(record => {
+                StorageUtils.savePendingAttendance({
+                    data: record,
+                    groupCode: groupCode,
+                    date: selectedDate
                 });
-                UIUtils.showWarning(`Asistencia guardada offline (${attendanceCount} registros). Se sincronizará cuando haya conexión.`);
-            }
+            });
+            UIUtils.showWarning(`Asistencia guardada offline (${attendanceCount} registros). Se sincronizará cuando haya conexión.`);
         }
         
         // Limpiar asistencia actual
@@ -1157,13 +1026,15 @@ async function saveAttendanceData(groupCode) {
         console.error('Error al guardar asistencia:', error);
         
         // En caso de error, guardar offline como backup
+        const selectedDate = window.AppState.selectedDate || DateUtils.getCurrentDate();
         const attendanceData = Object.values(attendance).map(record => {
-            return DataUtils.formatAttendanceData(
+            return DataUtils.formatAttendanceDataForDate(
                 record.studentId,
                 groupCode,
                 record.status,
                 record.justification,
-                record.description
+                record.description,
+                selectedDate
             );
         });
         
@@ -1171,7 +1042,7 @@ async function saveAttendanceData(groupCode) {
             StorageUtils.savePendingAttendance({
                 data: record,
                 groupCode: groupCode,
-                date: DateUtils.getCurrentDate()
+                date: selectedDate
             });
         });
         
@@ -1196,9 +1067,11 @@ function previewAttendance(groupCode) {
         return;
     }
     
+    const selectedDate = window.AppState.selectedDate || DateUtils.getCurrentDate();
+    
     let preview = `<h3 class="font-bold mb-4">Vista Previa de Asistencia</h3>`;
     preview += `<p class="mb-4"><strong>Grupo:</strong> ${groupCode}</p>`;
-    preview += `<p class="mb-4"><strong>Fecha:</strong> ${DateUtils.formatDate(DateUtils.getCurrentDate())}</p>`;
+    preview += `<p class="mb-4"><strong>Fecha:</strong> ${DateUtils.formatDate(selectedDate)}</p>`;
     preview += `<div class="space-y-2">`;
     
     Object.values(attendance).forEach(record => {
@@ -1230,20 +1103,6 @@ function previewAttendance(groupCode) {
 }
 
 /**
- * Exporta asistencia (placeholder)
- */
-function exportAttendance(groupCode) {
-    UIUtils.showInfo('Función de exportación en desarrollo');
-}
-
-/**
- * Muestra estadísticas de asistencia (placeholder)
- */
-function showAttendanceStats() {
-    UIUtils.showInfo('Función de estadísticas en desarrollo');
-}
-
-/**
  * Obtiene el código del grupo actual
  */
 function getCurrentGroupCode() {
@@ -1255,6 +1114,14 @@ function getCurrentGroupCode() {
 // ===========================================
 // FUNCIONES PLACEHOLDER PARA DESARROLLO
 // ===========================================
+
+function exportAttendance(groupCode) {
+    UIUtils.showInfo('Función de exportación en desarrollo');
+}
+
+function showAttendanceStats() {
+    UIUtils.showInfo('Función de estadísticas en desarrollo');
+}
 
 function showAllGroups() {
     UIUtils.showInfo('Función de todos los grupos en desarrollo');
@@ -1275,10 +1142,6 @@ function showPendingSync() {
     } else {
         UIUtils.showInfo(`Hay ${pending.length} registros pendientes de sincronización`);
     }
-}
-
-function showSettings() {
-    UIUtils.showInfo('Función de configuración en desarrollo');
 }
 
 // ===========================================
