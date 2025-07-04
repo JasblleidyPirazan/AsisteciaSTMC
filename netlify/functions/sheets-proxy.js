@@ -35,7 +35,7 @@ exports.handler = async (event, context) => {
                 action,
                 ...event.queryStringParameters
             };
-            delete requestData.action; // Evitar duplicado
+            //delete requestData.action; // Evitar duplicado
             requestData.action = action; // Asegurar que action esté al inicio
             
         } else if (event.httpMethod === 'POST') {
