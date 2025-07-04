@@ -8,8 +8,7 @@
     <!-- Tailwind CSS CDN -->
     <script src="https://cdn.tailwindcss.com"></script>
     
-    <!-- No necesitamos Google APIs para Apps Script -->
-    
+      
     <!-- Configuración personalizada de Tailwind -->
     <script>
         tailwind.config = {
@@ -77,19 +76,19 @@
     <script>
         // Configuración global para Google Apps Script
         window.APP_CONFIG = {
-            // URL de tu Google Apps Script Web App (reemplazar con la tuya)
-            APPS_SCRIPT_URL: 'https://script.google.com/macros/s/AKfycbxxJCh932yKVgUdY0nY5lN-wkRgCgjTq9fFbhSCiwP5ODnbsef9ouNE7gjSQnQF1ktR/exec',
-            
-            // ID de tu Google Sheets (ya configurado)
-            SPREADSHEET_ID: '17V4XZMYxc9wzzlc9JWXdoZgTmxhlM8I_p9ZUYoJn7OI',
-            
-            // Configuración del entorno
-            ENVIRONMENT: 'development',
-            DEBUG: true,
-            
-            // Configuración de modo demo (para desarrollo sin Apps Script)
-            USE_DEMO_MODE: false  // Cambiar a false cuando tengas Apps Script configurado
-        };
+                // URL de tu Google Apps Script Web App
+                APPS_SCRIPT_URL: 'https://script.google.com/macros/s/AKfycbyEX5_nozYOivyWX35otetoz9unvUCJI2Zqy4r1ov-6GZ6zKrF8dOKDAcONq_18-zDK/exec',
+                
+                // ID de tu Google Sheets (reemplazar con el tuyo cuando lo tengas)
+                SPREADSHEET_ID: '17V4XZMYxc9wzzlc9JWXdoZgTmxhlM8I_p9ZUYoJn7OI',
+                
+                // Configuración del entorno
+                ENVIRONMENT: 'production',  // Cambiado de 'development' a 'production'
+                DEBUG: false,               // Cambiado de true a false para producción
+                
+                // Desactivar modo demo ahora que tienes backend real
+                USE_DEMO_MODE: false        // ¡Importante! Cambiado de true a false
+            };
         
         // Variable global para el estado de la aplicación
         window.AppState = {
