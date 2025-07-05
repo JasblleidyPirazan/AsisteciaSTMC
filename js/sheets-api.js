@@ -437,6 +437,27 @@ const SheetsAPI = {
     }
 };
 
+
+/**
+ * Guarda una clase programada/realizada/cancelada
+ */
+async saveScheduledClass(classData) {
+    debugLog('Guardando clase programada:', classData);
+    
+    try {
+        const result = await this.makePostRequest('saveScheduledClass', {
+            classData
+        });
+        
+        debugLog('Clase guardada correctamente');
+        return result;
+        
+    } catch (error) {
+        console.error('Error al guardar clase:', error);
+        throw error;
+    }
+};
+
 // ===========================================
 // MANAGER DE SINCRONIZACIÓN ACTUALIZADO
 // ===========================================
