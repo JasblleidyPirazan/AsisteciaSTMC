@@ -168,10 +168,30 @@
                 { name: 'initApp', object: window.initApp }
             ];
             
-            const missing = dependencies.filter(dep => !dep.object);
+            console.log('🔍 Verificando dependencias...');
+            
+            // Las dependencias están definidas como const, no como window.objeto
+            // Verificamos que existan en el scope global de manera diferente
+            const availableDependencies = [];
+            
+            try {
+                if (typeof DateUtils !== 'undefined') availableDependencies.push('DateUtils');
+                if (typeof DataUtils !== 'undefined') availableDependencies.push('DataUtils');
+                if (typeof UIUtils !== 'undefined') availableDependencies.push('UIUtils');
+                if (typeof StorageUtils !== 'undefined') availableDependencies.push('StorageUtils');
+                if (typeof SheetsAPI !== 'undefined') availableDependencies.push('SheetsAPI');
+                if (typeof initApp !== 'undefined') availableDependencies.push('initApp');
+            } catch (e) {
+                console.log('⚠️ Error verificando dependencias:', e.message);
+            }
+            
+            console.log('✅ Dependencias disponibles:', availableDependencies);
+            
+            const expectedDependencies = ['DateUtils', 'DataUtils', 'UIUtils', 'StorageUtils', 'SheetsAPI', 'initApp'];
+            const missing = expectedDependencies.filter(dep => !availableDependencies.includes(dep));
             
             if (missing.length > 0) {
-                console.error('❌ Dependencias faltantes:', missing.map(m => m.name));
+                console.error('❌ Dependencias faltantes:', missing);
                 document.getElementById('app').innerHTML = `
                     <div class="min-h-screen flex items-center justify-center">
                         <div class="text-center max-w-md">
@@ -179,8 +199,9 @@
                             <h2 class="text-2xl font-bold text-gray-900 mb-4">Error de Carga</h2>
                             <p class="text-gray-600 mb-6">No se pudieron cargar algunos archivos necesarios:</p>
                             <ul class="text-left text-red-600 mb-6">
-                                ${missing.map(m => `<li>• ${m.name}</li>`).join('')}
+                                ${missing.map(m => `<li>• ${m}</li>`).join('')}
                             </ul>
+                            <p class="text-sm text-gray-500 mb-4">Dependencias cargadas: ${availableDependencies.join(', ')}</p>
                             <button onclick="location.reload()" class="px-4 py-2 bg-primary-500 text-white rounded hover:bg-primary-600">
                                 🔄 Recargar Página
                             </button>
