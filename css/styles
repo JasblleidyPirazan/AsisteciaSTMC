@@ -515,3 +515,33 @@ body {
 .no-scroll {
     overflow: hidden;
 }
+
+/* Estado cancelado */
+.status-cancelada {
+    background-color: #fef2f2 !important;
+    border-color: #ef4444;
+    opacity: 0.7;
+}
+
+/* Estilos para estudiantes adicionales */
+.additional-student-badge {
+    display: inline-block;
+    background-color: #dbeafe;
+    color: #1e40af;
+    font-size: 0.75rem;
+    padding: 0.25rem 0.5rem;
+    border-radius: 0.375rem;
+    margin-left: 0.5rem;
+}
+
+/* Mejoras para modales en móviles */
+@media (max-width: 768px) {
+    .modal-content {
+        margin: 1rem;
+        max-height: 85vh;
+    }
+    
+    #add-student-modal .modal-content {
+        max-height: 80vh;
+    }
+}
