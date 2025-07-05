@@ -346,44 +346,9 @@ function updateGroupsCount(selectedDate) {
     debugLog(`📅 Día: ${dayName}`);
     debugLog(`📊 Total grupos disponibles: ${window.AppState.grupos.length}`);
     
-    // DEBUG: Verificar algunos grupos manualmente
-    if (window.AppState.grupos.length > 0) {
-        debugLog(`🔍 Verificando primeros 3 grupos:`);
-        window.AppState.grupos.slice(0, 3).forEach((group, index) => {
-            debugLog(`  Grupo ${index + 1}: ${group.codigo}`);
-            debugLog(`    - Dias (texto): ${group.dias || 'No tiene'}`);
-            debugLog(`    - Lunes: ${group.lunes || 'No tiene'}`);
-            debugLog(`    - ${dayName}: ${group[dayName] || 'No tiene'}`);
-            debugLog(`    - Activo: ${group.activo}`);
-        });
-    }
-    
     const groupsForDay = DataUtils.getGroupsByDay(window.AppState.grupos, dayName);
     
     debugLog(`Actualizando conteo para ${selectedDate} (${dayName}): ${groupsForDay.length} grupos`);
-    debugLog(`Total grupos en AppState: ${window.AppState.grupos.length}`);
-    
-    // DEBUG: Verificar estructura de datos del primer grupo
-    if (window.AppState.grupos.length > 0) {
-        const firstGroup = window.AppState.grupos[0];
-        debugLog('Estructura del primer grupo:', Object.keys(firstGroup));
-        debugLog('Datos del primer grupo:', firstGroup);
-        
-        // Verificar si tiene el formato anterior (dias) o nuevo (columnas)
-        if (firstGroup.dias) {
-            debugLog('Formato anterior detectado (columna "dias")');
-        } else if (firstGroup.lunes !== undefined) {
-            debugLog('Nuevo formato detectado (columnas individuales)');
-        } else {
-            debugLog('⚠️ Formato de datos no reconocido');
-        }
-    }
-    
-    groupsForDay.forEach(g => {
-        // Mostrar tanto el formato anterior (dias) como las nuevas columnas
-        const daysInfo = g.dias ? g.dias : `L:${g.lunes} M:${g.martes} Mi:${g.miercoles} J:${g.jueves} V:${g.viernes} S:${g.sabado}`;
-        debugLog(`- ${g.codigo}: ${daysInfo}`);
-    });
     
     const countElement = document.getElementById('groups-count');
     if (!countElement) {
@@ -525,15 +490,6 @@ async function loadGroupsData() {
         
         debugLog(`Grupos cargados en AppState: ${window.AppState.grupos.length}`);
         
-        // Verificar grupos de lunes específicamente
-        const gruposLunes = DataUtils.getGroupsByDay(window.AppState.grupos, 'lunes');
-        debugLog(`Grupos de lunes encontrados: ${gruposLunes.length}`);
-        gruposLunes.forEach(g => {
-            // Mostrar tanto el formato anterior (dias) como las nuevas columnas
-            const daysInfo = g.dias ? g.dias : `L:${g.lunes} M:${g.martes} Mi:${g.miercoles} J:${g.jueves} V:${g.viernes} S:${g.sabado}`;
-            debugLog(`- Lunes: ${g.codigo} - ${daysInfo}`);
-        });
-        
     } catch (error) {
         console.error('Error al cargar grupos:', error);
         
@@ -591,10 +547,124 @@ async function loadStudentsData() {
 // ===========================================
 
 /**
- * Selecciona un grupo para registro de asistencia
+ * Selecciona un grupo y pregunta si la clase se realizó
  */
 async function selectGroup(groupCode) {
     debugLog(`Seleccionando grupo: ${groupCode}`);
+    
+    try {
+        // Encontrar el grupo
+        const group = window.AppState.grupos.find(g => g.codigo === groupCode);
+        if (!group) {
+            throw new Error('Grupo no encontrado');
+        }
+        
+        // Mostrar pregunta inicial: ¿Se realizó la clase?
+        showClassStatusQuestion(group);
+        
+    } catch (error) {
+        console.error('Error al seleccionar grupo:', error);
+        UIUtils.showError('Error al cargar el grupo');
+        showDashboard();
+    }
+}
+
+/**
+ * Muestra la pregunta sobre el estado de la clase
+ */
+function showClassStatusQuestion(group) {
+    debugLog(`Preguntando estado de clase para grupo: ${group.codigo}`);
+    
+    const selectedDate = window.AppState.selectedDate || DateUtils.getCurrentDate();
+    const formattedDate = DateUtils.formatDate(selectedDate);
+    
+    const app = document.getElementById('app');
+    app.innerHTML = `
+        <div class="container">
+            <!-- Header -->
+            <header class="flex items-center justify-between mb-6 bg-white rounded-lg p-6 shadow-sm">
+                <div class="flex items-center">
+                    <button onclick="showDashboard()" class="btn btn-neutral mr-4">
+                        ← Volver al Dashboard
+                    </button>
+                    <div>
+                        <h1 class="text-2xl font-bold text-gray-900">Estado de la Clase</h1>
+                        <p class="text-gray-600">${formattedDate}</p>
+                    </div>
+                </div>
+            </header>
+
+            <!-- Información del Grupo -->
+            <div class="bg-gradient-to-r from-primary-500 to-primary-600 rounded-lg p-6 mb-8 text-white">
+                <div class="text-center">
+                    <h2 class="text-2xl font-bold mb-2">${group.descriptor}</h2>
+                    <div class="grid grid-cols-2 md:grid-cols-4 gap-4 text-sm mt-4">
+                        <div class="flex items-center justify-center">
+                            <span class="mr-2">👨‍🏫</span>
+                            <span>Prof. ${group.profe}</span>
+                        </div>
+                        <div class="flex items-center justify-center">
+                            <span class="mr-2">🕐</span>
+                            <span>${group.hora}</span>
+                        </div>
+                        <div class="flex items-center justify-center">
+                            <span class="mr-2">🎾</span>
+                            <span>Cancha ${group.cancha}</span>
+                        </div>
+                        <div class="flex items-center justify-center">
+                            <span class="mr-2">🏆</span>
+                            <span>Nivel ${group.bola}</span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Pregunta Principal -->
+            <div class="bg-white rounded-lg p-8 shadow-sm text-center">
+                <div class="max-w-md mx-auto">
+                    <div class="text-6xl mb-6">❓</div>
+                    <h3 class="text-2xl font-bold text-gray-900 mb-4">
+                        ¿Se realizó esta clase?
+                    </h3>
+                    <p class="text-gray-600 mb-8">
+                        Indica si la clase se llevó a cabo normalmente o si fue cancelada
+                    </p>
+                    
+                    <!-- Opciones -->
+                    <div class="space-y-4">
+                        <button 
+                            onclick="classWasHeld('${group.codigo}')" 
+                            class="w-full btn btn-primary btn-lg p-6 flex items-center justify-center"
+                        >
+                            <span class="text-3xl mr-4">✅</span>
+                            <div class="text-left">
+                                <div class="font-bold">Sí, se realizó</div>
+                                <div class="text-sm opacity-90">Registrar asistencia de estudiantes</div>
+                            </div>
+                        </button>
+                        
+                        <button 
+                            onclick="classWasCancelled('${group.codigo}')" 
+                            class="w-full btn btn-danger btn-lg p-6 flex items-center justify-center"
+                        >
+                            <span class="text-3xl mr-4">❌</span>
+                            <div class="text-left">
+                                <div class="font-bold">No, fue cancelada</div>
+                                <div class="text-sm opacity-90">Registrar motivo de cancelación</div>
+                            </div>
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    `;
+}
+
+/**
+ * La clase se realizó - proceder con registro de asistencia
+ */
+async function classWasHeld(groupCode) {
+    debugLog(`Clase realizada para grupo: ${groupCode}`);
     
     try {
         UIUtils.showLoading('app', 'Cargando estudiantes...');
@@ -614,15 +684,245 @@ async function selectGroup(groupCode) {
             return;
         }
         
-        // Limpiar asistencia actual
+        // Limpiar asistencia actual e inicializar estado
         window.AppState.currentAttendance = {};
+        window.AppState.additionalStudents = [];
+        window.AppState.classStatus = 'realizada';
         
         showAttendanceForm(group, students);
         
     } catch (error) {
-        console.error('Error al seleccionar grupo:', error);
-        UIUtils.showError('Error al cargar el grupo');
+        console.error('Error al cargar estudiantes:', error);
+        UIUtils.showError('Error al cargar estudiantes');
+        showClassStatusQuestion(window.AppState.grupos.find(g => g.codigo === groupCode));
+    }
+}
+
+/**
+ * La clase fue cancelada - registrar cancelación
+ */
+async function classWasCancelled(groupCode) {
+    debugLog(`Clase cancelada para grupo: ${groupCode}`);
+    
+    try {
+        // Encontrar el grupo
+        const group = window.AppState.grupos.find(g => g.codigo === groupCode);
+        if (!group) {
+            throw new Error('Grupo no encontrado');
+        }
+        
+        showCancellationForm(group);
+        
+    } catch (error) {
+        console.error('Error al mostrar formulario de cancelación:', error);
+        UIUtils.showError('Error al procesar cancelación');
         showDashboard();
+    }
+}
+
+/**
+ * Muestra el formulario para registrar una cancelación
+ */
+function showCancellationForm(group) {
+    debugLog(`Mostrando formulario de cancelación para grupo: ${group.codigo}`);
+    
+    const selectedDate = window.AppState.selectedDate || DateUtils.getCurrentDate();
+    const formattedDate = DateUtils.formatDate(selectedDate);
+    
+    const app = document.getElementById('app');
+    app.innerHTML = `
+        <div class="container">
+            <!-- Header -->
+            <header class="flex items-center justify-between mb-6 bg-white rounded-lg p-6 shadow-sm">
+                <div class="flex items-center">
+                    <button onclick="showClassStatusQuestion(${JSON.stringify(group).replace(/"/g, '&quot;')})" class="btn btn-neutral mr-4">
+                        ← Volver
+                    </button>
+                    <div>
+                        <h1 class="text-2xl font-bold text-gray-900">Registrar Cancelación</h1>
+                        <p class="text-gray-600">${formattedDate}</p>
+                    </div>
+                </div>
+            </header>
+
+            <!-- Información del Grupo -->
+            <div class="bg-gradient-to-r from-red-500 to-red-600 rounded-lg p-6 mb-6 text-white">
+                <div class="text-center">
+                    <h2 class="text-xl font-bold mb-2">${group.descriptor}</h2>
+                    <p class="opacity-90">Clase cancelada</p>
+                </div>
+            </div>
+
+            <!-- Formulario de Cancelación -->
+            <div class="bg-white rounded-lg p-6 shadow-sm">
+                <h3 class="text-lg font-semibold mb-4">Motivo de la Cancelación</h3>
+                
+                <div class="space-y-6">
+                    <!-- Motivos predefinidos -->
+                    <div>
+                        <label class="block text-sm font-medium text-gray-700 mb-3">
+                            Seleccionar motivo:
+                        </label>
+                        <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
+                            <label class="flex items-center p-3 border border-gray-300 rounded-lg cursor-pointer hover:bg-gray-50">
+                                <input type="radio" name="cancellation-reason" value="Lluvia" class="mr-3">
+                                <div>
+                                    <div class="font-medium">🌧️ Lluvia</div>
+                                    <div class="text-sm text-gray-500">Condiciones climáticas</div>
+                                </div>
+                            </label>
+                            
+                            <label class="flex items-center p-3 border border-gray-300 rounded-lg cursor-pointer hover:bg-gray-50">
+                                <input type="radio" name="cancellation-reason" value="Festivo" class="mr-3">
+                                <div>
+                                    <div class="font-medium">🎉 Festivo</div>
+                                    <div class="text-sm text-gray-500">Día feriado</div>
+                                </div>
+                            </label>
+                            
+                            <label class="flex items-center p-3 border border-gray-300 rounded-lg cursor-pointer hover:bg-gray-50">
+                                <input type="radio" name="cancellation-reason" value="Mantenimiento" class="mr-3">
+                                <div>
+                                    <div class="font-medium">🔧 Mantenimiento</div>
+                                    <div class="text-sm text-gray-500">Cancha en reparación</div>
+                                </div>
+                            </label>
+                            
+                            <label class="flex items-center p-3 border border-gray-300 rounded-lg cursor-pointer hover:bg-gray-50">
+                                <input type="radio" name="cancellation-reason" value="Enfermedad Profesor" class="mr-3">
+                                <div>
+                                    <div class="font-medium">🤒 Profesor enfermo</div>
+                                    <div class="text-sm text-gray-500">Incapacidad médica</div>
+                                </div>
+                            </label>
+                            
+                            <label class="flex items-center p-3 border border-gray-300 rounded-lg cursor-pointer hover:bg-gray-50">
+                                <input type="radio" name="cancellation-reason" value="Emergencia" class="mr-3">
+                                <div>
+                                    <div class="font-medium">🚨 Emergencia</div>
+                                    <div class="text-sm text-gray-500">Situación imprevista</div>
+                                </div>
+                            </label>
+                            
+                            <label class="flex items-center p-3 border border-gray-300 rounded-lg cursor-pointer hover:bg-gray-50">
+                                <input type="radio" name="cancellation-reason" value="Otro" class="mr-3">
+                                <div>
+                                    <div class="font-medium">📝 Otro motivo</div>
+                                    <div class="text-sm text-gray-500">Especificar abajo</div>
+                                </div>
+                            </label>
+                        </div>
+                    </div>
+                    
+                    <!-- Descripción adicional -->
+                    <div>
+                        <label class="block text-sm font-medium text-gray-700 mb-2">
+                            Descripción adicional (opcional):
+                        </label>
+                        <textarea 
+                            id="cancellation-description" 
+                            class="w-full border border-gray-300 rounded-md px-3 py-2 h-24"
+                            placeholder="Detalles adicionales sobre la cancelación..."></textarea>
+                    </div>
+                    
+                    <!-- Información de estudiantes afectados -->
+                    <div class="bg-yellow-50 border border-yellow-200 rounded-lg p-4">
+                        <h4 class="font-medium text-yellow-800 mb-2">ℹ️ Información importante</h4>
+                        <p class="text-sm text-yellow-700">
+                            Esta cancelación se aplicará automáticamente a todos los estudiantes del grupo. 
+                            No contará como clase cumplida para ningún estudiante.
+                        </p>
+                    </div>
+                </div>
+                
+                <!-- Botones -->
+                <div class="mt-8 flex flex-col md:flex-row gap-4">
+                    <button 
+                        onclick="saveCancellation('${group.codigo}')" 
+                        class="btn btn-danger flex-1 btn-lg"
+                        id="save-cancellation-btn"
+                    >
+                        💾 Registrar Cancelación
+                    </button>
+                    <button 
+                        onclick="showClassStatusQuestion(${JSON.stringify(group).replace(/"/g, '&quot;')})" 
+                        class="btn btn-neutral"
+                    >
+                        ❌ Cancelar
+                    </button>
+                </div>
+            </div>
+        </div>
+    `;
+}
+
+/**
+ * Guarda el registro de cancelación
+ */
+async function saveCancellation(groupCode) {
+    debugLog('Guardando cancelación...');
+    
+    const selectedReason = document.querySelector('input[name="cancellation-reason"]:checked');
+    if (!selectedReason) {
+        UIUtils.showWarning('Por favor selecciona un motivo de cancelación');
+        return;
+    }
+    
+    const reason = selectedReason.value;
+    const description = document.getElementById('cancellation-description').value.trim();
+    const selectedDate = window.AppState.selectedDate || DateUtils.getCurrentDate();
+    
+    const saveBtn = document.getElementById('save-cancellation-btn');
+    if (saveBtn) {
+        saveBtn.disabled = true;
+        saveBtn.innerHTML = '<div class="spinner mr-3"></div>Guardando...';
+    }
+    
+    try {
+        // Obtener estudiantes del grupo para registrar la cancelación
+        const students = DataUtils.getStudentsByGroup(window.AppState.estudiantes, groupCode);
+        
+        // Crear registros de asistencia como "Cancelada" para cada estudiante
+        const attendanceData = students.map(student => {
+            return DataUtils.formatAttendanceDataForDate(
+                student.id,
+                groupCode,
+                'Cancelada',
+                reason,
+                description,
+                selectedDate
+            );
+        });
+        
+        if (window.AppState.connectionStatus === 'online') {
+            await SheetsAPI.saveAttendance(attendanceData);
+            UIUtils.showSuccess(`Cancelación registrada para ${students.length} estudiantes`);
+        } else {
+            // Guardar offline
+            attendanceData.forEach(record => {
+                StorageUtils.savePendingAttendance({
+                    data: record,
+                    groupCode: groupCode,
+                    date: selectedDate,
+                    type: 'cancellation'
+                });
+            });
+            UIUtils.showWarning(`Cancelación guardada offline (${students.length} estudiantes). Se sincronizará cuando haya conexión.`);
+        }
+        
+        // Volver al dashboard después de un momento
+        setTimeout(() => {
+            showDashboard();
+        }, 2000);
+        
+    } catch (error) {
+        console.error('Error al guardar cancelación:', error);
+        UIUtils.showError('Error al guardar la cancelación');
+        
+        if (saveBtn) {
+            saveBtn.disabled = false;
+            saveBtn.innerHTML = '💾 Registrar Cancelación';
+        }
     }
 }
 
@@ -663,14 +963,19 @@ function showAttendanceForm(group, students) {
     const formattedDate = DateUtils.formatDate(selectedDate);
     const studentCount = students.length;
     
+    // Inicializar lista de estudiantes adicionales
+    if (!window.AppState.additionalStudents) {
+        window.AppState.additionalStudents = [];
+    }
+    
     const app = document.getElementById('app');
     app.innerHTML = `
         <div class="container">
             <!-- Header -->
             <header class="flex items-center justify-between mb-6 bg-white rounded-lg p-6 shadow-sm">
                 <div class="flex items-center">
-                    <button onclick="showDashboard()" class="btn btn-neutral mr-4">
-                        ← Volver al Dashboard
+                    <button onclick="showClassStatusQuestion(${JSON.stringify(group).replace(/"/g, '&quot;')})" class="btn btn-neutral mr-4">
+                        ← Volver
                     </button>
                     <div>
                         <h1 class="text-2xl font-bold text-gray-900">Registro de Asistencia</h1>
@@ -707,7 +1012,7 @@ function showAttendanceForm(group, students) {
                         </div>
                     </div>
                     <div class="text-right">
-                        <div class="text-3xl font-bold">${studentCount}</div>
+                        <div class="text-3xl font-bold" id="total-students-count">${studentCount}</div>
                         <div class="text-sm opacity-90">Estudiantes</div>
                     </div>
                 </div>
@@ -715,7 +1020,12 @@ function showAttendanceForm(group, students) {
 
             <!-- Controles de Asistencia Masiva -->
             <div class="bg-white rounded-lg p-6 mb-6 shadow-sm">
-                <h3 class="text-lg font-semibold mb-4">Controles Rápidos</h3>
+                <div class="flex justify-between items-center mb-4">
+                    <h3 class="text-lg font-semibold">Controles Rápidos</h3>
+                    <button onclick="showAddStudentModal()" class="btn btn-secondary">
+                        ➕ Agregar Estudiante de Otro Grupo
+                    </button>
+                </div>
                 <div class="flex flex-wrap gap-3">
                     <button onclick="markAllAttendance('Presente')" class="btn btn-primary">
                         ✅ Marcar Todos Presentes
@@ -743,8 +1053,26 @@ function showAttendanceForm(group, students) {
                     </div>
                 </div>
                 
-                <div id="students-list" class="divide-y divide-gray-200">
-                    ${students.map(student => UIUtils.createStudentItem(student)).join('')}
+                <!-- Estudiantes del grupo -->
+                <div class="divide-y divide-gray-200">
+                    <div class="p-4 bg-gray-50">
+                        <h4 class="font-medium text-gray-700 text-sm">Estudiantes del Grupo Principal</h4>
+                    </div>
+                    <div id="main-students-list">
+                        ${students.map(student => UIUtils.createStudentItem(student)).join('')}
+                    </div>
+                </div>
+                
+                <!-- Estudiantes adicionales -->
+                <div id="additional-students-section" class="hidden">
+                    <div class="divide-y divide-gray-200">
+                        <div class="p-4 bg-blue-50">
+                            <h4 class="font-medium text-blue-700 text-sm">Estudiantes de Otros Grupos</h4>
+                        </div>
+                        <div id="additional-students-list">
+                            <!-- Se llenan dinámicamente -->
+                        </div>
+                    </div>
                 </div>
             </div>
 
@@ -813,10 +1141,44 @@ function showAttendanceForm(group, students) {
                 </div>
             </div>
         </div>
+
+        <!-- Modal para Agregar Estudiantes -->
+        <div id="add-student-modal" class="fixed inset-0 bg-black bg-opacity-50 hidden z-50">
+            <div class="flex items-center justify-center min-h-screen p-4">
+                <div class="bg-white rounded-lg p-6 max-w-lg w-full max-h-90vh overflow-y-auto">
+                    <h3 class="text-lg font-semibold mb-4">Agregar Estudiante de Otro Grupo</h3>
+                    
+                    <!-- Buscador -->
+                    <div class="mb-4">
+                        <input 
+                            type="text" 
+                            id="student-search" 
+                            placeholder="Buscar por nombre o ID..."
+                            class="w-full border border-gray-300 rounded-md px-3 py-2"
+                            onkeyup="filterAvailableStudents()"
+                        />
+                    </div>
+                    
+                    <!-- Lista de estudiantes disponibles -->
+                    <div class="max-h-60 overflow-y-auto border border-gray-200 rounded-lg">
+                        <div id="available-students-list">
+                            <!-- Se llena dinámicamente -->
+                        </div>
+                    </div>
+                    
+                    <div class="mt-6 flex gap-3">
+                        <button onclick="closeAddStudentModal()" class="btn btn-neutral flex-1">
+                            ❌ Cerrar
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </div>
     `;
     
     // Actualizar resumen inicial
     updateAttendanceSummary();
+    updateTotalStudentsCount();
 }
 
 /**
@@ -856,17 +1218,22 @@ function markAttendance(studentId, status) {
 }
 
 /**
- * Marca asistencia masiva
+ * Marca asistencia masiva (incluye estudiantes adicionales)
  */
 function markAllAttendance(status) {
     debugLog(`Marcando todos como: ${status}`);
     
-    const students = DataUtils.getStudentsByGroup(
-        window.AppState.estudiantes, 
-        getCurrentGroupCode()
-    );
+    // Obtener estudiantes del grupo principal
+    const currentGroupCode = getCurrentGroupCode();
+    const mainStudents = DataUtils.getStudentsByGroup(window.AppState.estudiantes, currentGroupCode);
     
-    students.forEach(student => {
+    // Obtener estudiantes adicionales
+    const additionalStudents = window.AppState.additionalStudents || [];
+    
+    // Combinar ambas listas
+    const allStudents = [...mainStudents, ...additionalStudents];
+    
+    allStudents.forEach(student => {
         if (status !== 'Justificada') {
             window.AppState.currentAttendance[student.id] = {
                 studentId: student.id,
@@ -880,11 +1247,11 @@ function markAllAttendance(status) {
     });
     
     updateAttendanceSummary();
-    UIUtils.showSuccess(`Todos los estudiantes marcados como ${status.toLowerCase()}`);
+    UIUtils.showSuccess(`${allStudents.length} estudiantes marcados como ${status.toLowerCase()}`);
 }
 
 /**
- * Limpia toda la asistencia
+ * Limpia toda la asistencia (incluye estudiantes adicionales)
  */
 function clearAllAttendance() {
     debugLog('Limpiando toda la asistencia');
@@ -897,11 +1264,11 @@ function clearAllAttendance() {
     if (confirm('¿Estás seguro de que quieres limpiar toda la asistencia registrada?')) {
         window.AppState.currentAttendance = {};
         
-        // Actualizar UI de todos los estudiantes
+        // Actualizar UI de todos los estudiantes (principales y adicionales)
         const studentItems = document.querySelectorAll('.student-item');
         studentItems.forEach(item => {
             item.className = 'student-item';
-            const buttons = item.querySelectorAll('button');
+            const buttons = item.querySelectorAll('button:not([onclick*="removeAdditionalStudent"])');
             buttons.forEach(btn => {
                 btn.classList.remove('btn-primary', 'btn-danger', 'btn-secondary');
                 btn.classList.add('btn-outline');
@@ -911,6 +1278,248 @@ function clearAllAttendance() {
         updateAttendanceSummary();
         UIUtils.showSuccess('Asistencia limpiada');
     }
+}
+
+/**
+ * Muestra el modal para agregar estudiantes de otros grupos
+ */
+function showAddStudentModal() {
+    debugLog('Mostrando modal para agregar estudiantes');
+    
+    const modal = document.getElementById('add-student-modal');
+    if (modal) {
+        // Cargar lista de estudiantes disponibles
+        loadAvailableStudents();
+        
+        modal.classList.remove('hidden');
+        document.body.classList.add('no-scroll');
+        
+        // Enfocar el buscador
+        setTimeout(() => {
+            const searchInput = document.getElementById('student-search');
+            if (searchInput) searchInput.focus();
+        }, 100);
+    }
+}
+
+/**
+ * Cierra el modal de agregar estudiantes
+ */
+function closeAddStudentModal() {
+    const modal = document.getElementById('add-student-modal');
+    if (modal) {
+        modal.classList.add('hidden');
+        document.body.classList.remove('no-scroll');
+        
+        // Limpiar búsqueda
+        const searchInput = document.getElementById('student-search');
+        if (searchInput) searchInput.value = '';
+    }
+}
+
+/**
+ * Carga la lista de estudiantes disponibles (que no están ya en la clase)
+ */
+function loadAvailableStudents() {
+    const currentGroupCode = getCurrentGroupCode();
+    
+    // Obtener estudiantes del grupo principal
+    const mainGroupStudents = DataUtils.getStudentsByGroup(window.AppState.estudiantes, currentGroupCode);
+    const mainGroupStudentIds = mainGroupStudents.map(s => s.id);
+    
+    // Obtener estudiantes adicionales ya agregados
+    const additionalStudentIds = (window.AppState.additionalStudents || []).map(s => s.id);
+    
+    // Filtrar estudiantes disponibles (activos, no en grupo principal, no ya agregados)
+    const availableStudents = window.AppState.estudiantes.filter(student => {
+        return (student.activo === true || student.activo === 'TRUE') &&
+               !mainGroupStudentIds.includes(student.id) &&
+               !additionalStudentIds.includes(student.id);
+    });
+    
+    displayAvailableStudents(availableStudents);
+}
+
+/**
+ * Muestra la lista de estudiantes disponibles
+ */
+function displayAvailableStudents(students) {
+    const container = document.getElementById('available-students-list');
+    if (!container) return;
+    
+    if (students.length === 0) {
+        container.innerHTML = `
+            <div class="p-4 text-center text-gray-500">
+                <p>No hay estudiantes disponibles para agregar</p>
+            </div>
+        `;
+        return;
+    }
+    
+    container.innerHTML = students.map(student => `
+        <div class="p-3 border-b border-gray-100 hover:bg-gray-50 cursor-pointer" 
+             onclick="addStudentToClass('${student.id}')">
+            <div class="flex justify-between items-center">
+                <div>
+                    <h4 class="font-medium">${student.nombre}</h4>
+                    <p class="text-sm text-gray-500">ID: ${student.id}</p>
+                    <p class="text-sm text-gray-500">Grupo: ${student.grupo_principal}</p>
+                    ${student.grupo_secundario ? `<p class="text-xs text-gray-400">También en: ${student.grupo_secundario}</p>` : ''}
+                </div>
+                <button class="btn btn-sm btn-primary">
+                    ➕ Agregar
+                </button>
+            </div>
+        </div>
+    `).join('');
+}
+
+/**
+ * Filtra estudiantes disponibles según búsqueda
+ */
+function filterAvailableStudents() {
+    const searchTerm = document.getElementById('student-search').value.toLowerCase();
+    const currentGroupCode = getCurrentGroupCode();
+    
+    // Obtener estudiantes del grupo principal
+    const mainGroupStudents = DataUtils.getStudentsByGroup(window.AppState.estudiantes, currentGroupCode);
+    const mainGroupStudentIds = mainGroupStudents.map(s => s.id);
+    
+    // Obtener estudiantes adicionales ya agregados
+    const additionalStudentIds = (window.AppState.additionalStudents || []).map(s => s.id);
+    
+    // Filtrar estudiantes disponibles
+    const availableStudents = window.AppState.estudiantes.filter(student => {
+        const isActive = student.activo === true || student.activo === 'TRUE';
+        const notInMainGroup = !mainGroupStudentIds.includes(student.id);
+        const notAlreadyAdded = !additionalStudentIds.includes(student.id);
+        const matchesSearch = !searchTerm || 
+                            student.nombre.toLowerCase().includes(searchTerm) ||
+                            student.id.toLowerCase().includes(searchTerm);
+        
+        return isActive && notInMainGroup && notAlreadyAdded && matchesSearch;
+    });
+    
+    displayAvailableStudents(availableStudents);
+}
+
+/**
+ * Agrega un estudiante a la clase
+ */
+function addStudentToClass(studentId) {
+    debugLog(`Agregando estudiante ${studentId} a la clase`);
+    
+    const student = window.AppState.estudiantes.find(s => s.id === studentId);
+    if (!student) {
+        UIUtils.showError('Estudiante no encontrado');
+        return;
+    }
+    
+    // Agregar a la lista de estudiantes adicionales
+    if (!window.AppState.additionalStudents) {
+        window.AppState.additionalStudents = [];
+    }
+    
+    window.AppState.additionalStudents.push(student);
+    
+    // Actualizar UI
+    updateAdditionalStudentsList();
+    updateTotalStudentsCount();
+    
+    // Cerrar modal
+    closeAddStudentModal();
+    
+    UIUtils.showSuccess(`${student.nombre} agregado a la clase`);
+}
+
+/**
+ * Actualiza la lista de estudiantes adicionales en la UI
+ */
+function updateAdditionalStudentsList() {
+    const section = document.getElementById('additional-students-section');
+    const container = document.getElementById('additional-students-list');
+    
+    if (!section || !container) return;
+    
+    const additionalStudents = window.AppState.additionalStudents || [];
+    
+    if (additionalStudents.length === 0) {
+        section.classList.add('hidden');
+        return;
+    }
+    
+    section.classList.remove('hidden');
+    container.innerHTML = additionalStudents.map(student => {
+        const studentItemHtml = UIUtils.createStudentItem(student);
+        // Agregar botón para remover estudiante adicional
+        return studentItemHtml.replace(
+            '</div>',
+            `<button onclick="removeAdditionalStudent('${student.id}')" 
+                     class="btn btn-sm btn-outline text-red-600 border-red-300 hover:bg-red-50 ml-2">
+                🗑️ Remover
+            </button></div>`
+        );
+    }).join('');
+}
+
+/**
+ * Remueve un estudiante adicional
+ */
+function removeAdditionalStudent(studentId) {
+    debugLog(`Removiendo estudiante adicional: ${studentId}`);
+    
+    const student = window.AppState.estudiantes.find(s => s.id === studentId);
+    
+    if (confirm(`¿Remover a ${student?.nombre || studentId} de esta clase?`)) {
+        // Remover de lista de estudiantes adicionales
+        window.AppState.additionalStudents = (window.AppState.additionalStudents || [])
+            .filter(s => s.id !== studentId);
+        
+        // Remover asistencia si ya estaba marcada
+        if (window.AppState.currentAttendance[studentId]) {
+            delete window.AppState.currentAttendance[studentId];
+        }
+        
+        // Actualizar UI
+        updateAdditionalStudentsList();
+        updateTotalStudentsCount();
+        updateAttendanceSummary();
+        
+        UIUtils.showSuccess(`${student?.nombre || studentId} removido de la clase`);
+    }
+}
+
+/**
+ * Actualiza el contador total de estudiantes
+ */
+function updateTotalStudentsCount() {
+    const counter = document.getElementById('total-students-count');
+    if (!counter) return;
+    
+    const currentGroupCode = getCurrentGroupCode();
+    const mainGroupStudents = DataUtils.getStudentsByGroup(window.AppState.estudiantes, currentGroupCode);
+    const additionalStudents = window.AppState.additionalStudents || [];
+    
+    const totalCount = mainGroupStudents.length + additionalStudents.length;
+    counter.textContent = totalCount;
+}
+
+/**
+ * Obtiene el código del grupo actual desde la UI
+ */
+function getCurrentGroupCode() {
+    // Buscar en el título del grupo
+    const groupTitle = document.querySelector('h2');
+    if (groupTitle) {
+        const titleText = groupTitle.textContent;
+        // Extraer código del grupo del formato "Descriptor del grupo"
+        // Por ahora, buscaremos en los grupos cargados
+        const currentGroup = window.AppState.grupos.find(g => 
+            titleText.includes(g.descriptor) || titleText.includes(g.codigo)
+        );
+        return currentGroup ? currentGroup.codigo : '';
+    }
+    return '';
 }
 
 /**
@@ -994,7 +1603,7 @@ function updateStudentItemUI(studentId, status) {
     studentItem.classList.add(`status-${status.toLowerCase()}`);
     
     // Actualizar botones
-    const buttons = studentItem.querySelectorAll('button');
+    const buttons = studentItem.querySelectorAll('button:not([onclick*="removeAdditionalStudent"])');
     buttons.forEach(btn => {
         btn.classList.remove('btn-primary', 'btn-danger', 'btn-secondary');
         btn.classList.add('btn-outline');
@@ -1053,7 +1662,7 @@ function updateAttendanceSummary() {
 }
 
 /**
- * Guarda los datos de asistencia con la fecha seleccionada
+ * Guarda los datos de asistencia con la fecha seleccionada (incluye estudiantes adicionales)
  */
 async function saveAttendanceData(groupCode) {
     debugLog('Guardando datos de asistencia...');
@@ -1088,9 +1697,32 @@ async function saveAttendanceData(groupCode) {
             );
         });
         
+        // Crear registro de clase realizada
+        const classData = {
+            id: DataUtils.generateId('CLS'),
+            fecha: selectedDate,
+            grupo_codigo: groupCode,
+            estado: 'Realizada',
+            motivo_cancelacion: '',
+            descripcion: `Clase realizada con ${attendanceCount} estudiantes registrados`,
+            creado_por: window.AppState.user?.email || 'usuario',
+            timestamp: DateUtils.getCurrentTimestamp()
+        };
+        
+        // Información adicional para logs
+        const mainGroupStudents = DataUtils.getStudentsByGroup(window.AppState.estudiantes, groupCode);
+        const additionalStudents = window.AppState.additionalStudents || [];
+        const totalStudents = mainGroupStudents.length + additionalStudents.length;
+        
+        debugLog(`Guardando asistencia para ${totalStudents} estudiantes (${mainGroupStudents.length} principales + ${additionalStudents.length} adicionales)`);
+        
         // Guardar en Google Sheets via Apps Script
         if (window.AppState.connectionStatus === 'online') {
             await SheetsAPI.saveAttendance(attendanceData);
+            
+            // TODO: También guardar el registro de clase realizada si el backend lo soporta
+            // await SheetsAPI.saveScheduledClass(classData);
+            
             UIUtils.showSuccess(`Asistencia guardada en Google Sheets (${attendanceCount} registros)`);
         } else {
             // Guardar offline
@@ -1098,19 +1730,59 @@ async function saveAttendanceData(groupCode) {
                 StorageUtils.savePendingAttendance({
                     data: record,
                     groupCode: groupCode,
-                    date: selectedDate
+                    date: selectedDate,
+                    type: 'attendance'
                 });
             });
+            
+            // También guardar registro de clase offline
+            StorageUtils.savePendingAttendance({
+                data: classData,
+                groupCode: groupCode,
+                date: selectedDate,
+                type: 'class_realized'
+            });
+            
             UIUtils.showWarning(`Asistencia guardada offline (${attendanceCount} registros). Se sincronizará cuando haya conexión.`);
         }
         
-        // Limpiar asistencia actual
+        // Limpiar estado actual
         window.AppState.currentAttendance = {};
+        window.AppState.additionalStudents = [];
+        window.AppState.classStatus = null;
         
-        // Volver al dashboard después de un momento
+        // Mostrar resumen final
         setTimeout(() => {
-            showDashboard();
-        }, 2000);
+            const modal = document.getElementById('notification-modal');
+            const content = document.getElementById('notification-content');
+            
+            if (modal && content) {
+                content.innerHTML = `
+                    <div class="text-center">
+                        <div class="text-6xl mb-4">✅</div>
+                        <h3 class="text-xl font-bold mb-4">Asistencia Guardada</h3>
+                        <div class="space-y-2 text-left">
+                            <p><strong>Grupo:</strong> ${groupCode}</p>
+                            <p><strong>Fecha:</strong> ${DateUtils.formatDate(selectedDate)}</p>
+                            <p><strong>Registros guardados:</strong> ${attendanceCount}</p>
+                            <p><strong>Estudiantes principales:</strong> ${mainGroupStudents.length}</p>
+                            ${additionalStudents.length > 0 ? `<p><strong>Estudiantes adicionales:</strong> ${additionalStudents.length}</p>` : ''}
+                        </div>
+                        <div class="mt-6">
+                            <button onclick="closeNotification(); showDashboard();" class="btn btn-primary">
+                                ✅ Continuar
+                            </button>
+                        </div>
+                    </div>
+                `;
+                modal.classList.remove('hidden');
+            } else {
+                // Fallback si no hay modal
+                setTimeout(() => {
+                    showDashboard();
+                }, 1000);
+            }
+        }, 1000);
         
     } catch (error) {
         console.error('Error al guardar asistencia:', error);
@@ -1132,7 +1804,8 @@ async function saveAttendanceData(groupCode) {
             StorageUtils.savePendingAttendance({
                 data: record,
                 groupCode: groupCode,
-                date: selectedDate
+                date: selectedDate,
+                type: 'attendance_backup'
             });
         });
         
@@ -1146,7 +1819,7 @@ async function saveAttendanceData(groupCode) {
 }
 
 /**
- * Muestra vista previa de la asistencia
+ * Muestra vista previa de la asistencia (incluye estudiantes adicionales)
  */
 function previewAttendance(groupCode) {
     const attendance = window.AppState.currentAttendance;
@@ -1158,29 +1831,96 @@ function previewAttendance(groupCode) {
     }
     
     const selectedDate = window.AppState.selectedDate || DateUtils.getCurrentDate();
+    const mainGroupStudents = DataUtils.getStudentsByGroup(window.AppState.estudiantes, groupCode);
+    const additionalStudents = window.AppState.additionalStudents || [];
     
     let preview = `<h3 class="font-bold mb-4">Vista Previa de Asistencia</h3>`;
-    preview += `<p class="mb-4"><strong>Grupo:</strong> ${groupCode}</p>`;
-    preview += `<p class="mb-4"><strong>Fecha:</strong> ${DateUtils.formatDate(selectedDate)}</p>`;
-    preview += `<div class="space-y-2">`;
+    preview += `<p class="mb-2"><strong>Grupo:</strong> ${groupCode}</p>`;
+    preview += `<p class="mb-2"><strong>Fecha:</strong> ${DateUtils.formatDate(selectedDate)}</p>`;
+    preview += `<p class="mb-4"><strong>Total registros:</strong> ${count}</p>`;
     
-    Object.values(attendance).forEach(record => {
-        const student = window.AppState.estudiantes.find(s => s.id === record.studentId);
-        const statusIcon = record.status === 'Presente' ? '✅' : record.status === 'Ausente' ? '❌' : '📝';
-        
-        preview += `
-            <div class="flex justify-between items-center p-2 bg-gray-50 rounded">
-                <span>${student?.nombre || record.studentId}</span>
-                <span>${statusIcon} ${record.status}</span>
+    // Estadísticas
+    const stats = {
+        presente: Object.values(attendance).filter(r => r.status === 'Presente').length,
+        ausente: Object.values(attendance).filter(r => r.status === 'Ausente').length,
+        justificada: Object.values(attendance).filter(r => r.status === 'Justificada').length
+    };
+    
+    preview += `
+        <div class="grid grid-cols-3 gap-4 mb-6 text-center">
+            <div class="bg-green-100 p-3 rounded">
+                <div class="font-bold text-green-800">${stats.presente}</div>
+                <div class="text-sm text-green-600">Presentes</div>
             </div>
-        `;
-        
-        if (record.justification) {
-            preview += `<div class="text-sm text-gray-600 ml-4">Justificación: ${record.justification}</div>`;
-        }
-    });
+            <div class="bg-red-100 p-3 rounded">
+                <div class="font-bold text-red-800">${stats.ausente}</div>
+                <div class="text-sm text-red-600">Ausentes</div>
+            </div>
+            <div class="bg-yellow-100 p-3 rounded">
+                <div class="font-bold text-yellow-800">${stats.justificada}</div>
+                <div class="text-sm text-yellow-600">Justificadas</div>
+            </div>
+        </div>
+    `;
     
-    preview += `</div>`;
+    // Estudiantes del grupo principal
+    const mainStudentsWithAttendance = Object.values(attendance).filter(record => 
+        mainGroupStudents.some(s => s.id === record.studentId)
+    );
+    
+    if (mainStudentsWithAttendance.length > 0) {
+        preview += `<h4 class="font-semibold mb-3 text-gray-700">Estudiantes del Grupo Principal (${mainStudentsWithAttendance.length})</h4>`;
+        preview += `<div class="space-y-2 mb-4">`;
+        
+        mainStudentsWithAttendance.forEach(record => {
+            const student = window.AppState.estudiantes.find(s => s.id === record.studentId);
+            const statusIcon = record.status === 'Presente' ? '✅' : record.status === 'Ausente' ? '❌' : '📝';
+            
+            preview += `
+                <div class="flex justify-between items-center p-2 bg-gray-50 rounded">
+                    <span>${student?.nombre || record.studentId}</span>
+                    <span>${statusIcon} ${record.status}</span>
+                </div>
+            `;
+            
+            if (record.justification) {
+                preview += `<div class="text-sm text-gray-600 ml-4">Justificación: ${record.justification}</div>`;
+            }
+        });
+        
+        preview += `</div>`;
+    }
+    
+    // Estudiantes adicionales
+    const additionalStudentsWithAttendance = Object.values(attendance).filter(record => 
+        additionalStudents.some(s => s.id === record.studentId)
+    );
+    
+    if (additionalStudentsWithAttendance.length > 0) {
+        preview += `<h4 class="font-semibold mb-3 text-blue-700">Estudiantes de Otros Grupos (${additionalStudentsWithAttendance.length})</h4>`;
+        preview += `<div class="space-y-2 mb-4">`;
+        
+        additionalStudentsWithAttendance.forEach(record => {
+            const student = window.AppState.estudiantes.find(s => s.id === record.studentId);
+            const statusIcon = record.status === 'Presente' ? '✅' : record.status === 'Ausente' ? '❌' : '📝';
+            
+            preview += `
+                <div class="flex justify-between items-center p-2 bg-blue-50 rounded border border-blue-200">
+                    <div>
+                        <span>${student?.nombre || record.studentId}</span>
+                        <div class="text-xs text-blue-600">Grupo original: ${student?.grupo_principal}</div>
+                    </div>
+                    <span>${statusIcon} ${record.status}</span>
+                </div>
+            `;
+            
+            if (record.justification) {
+                preview += `<div class="text-sm text-blue-600 ml-4">Justificación: ${record.justification}</div>`;
+            }
+        });
+        
+        preview += `</div>`;
+    }
     
     const modal = document.getElementById('notification-modal');
     const content = document.getElementById('notification-content');
@@ -1190,15 +1930,6 @@ function previewAttendance(groupCode) {
         modal.classList.remove('hidden');
         document.body.classList.add('no-scroll');
     }
-}
-
-/**
- * Obtiene el código del grupo actual
- */
-function getCurrentGroupCode() {
-    // Esta función será útil para operaciones que necesiten el código del grupo actual
-    const groupHeader = document.querySelector('h2');
-    return groupHeader?.textContent || '';
 }
 
 // ===========================================
