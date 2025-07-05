@@ -27,12 +27,28 @@
                             900: '#064e3b',
                         },
                         secondary: {
+                            50: '#fffbeb',
+                            100: '#fef3c7',
+                            200: '#fde68a',
+                            300: '#fcd34d',
+                            400: '#fbbf24',
                             500: '#f59e0b',
                             600: '#d97706',
+                            700: '#b45309',
+                            800: '#92400e',
+                            900: '#78350f',
                         },
                         accent: {
+                            50: '#fef2f2',
+                            100: '#fee2e2',
+                            200: '#fecaca',
+                            300: '#fca5a5',
+                            400: '#f87171',
                             500: '#ef4444',
                             600: '#dc2626',
+                            700: '#b91c1c',
+                            800: '#991b1b',
+                            900: '#7f1d1d',
                         }
                     }
                 }
@@ -51,6 +67,7 @@
             <div class="text-center">
                 <div class="animate-spin rounded-full h-12 w-12 border-b-2 border-primary-500 mx-auto mb-4"></div>
                 <p class="text-gray-600 text-lg">Cargando Sistema de Asistencia...</p>
+                <p class="text-gray-500 text-sm mt-2">Inicializando conexión con Google Sheets...</p>
             </div>
         </div>
     </div>
@@ -63,7 +80,7 @@
                     <!-- Contenido del modal -->
                 </div>
                 <div class="mt-4 text-right">
-                    <button onclick="closeNotification()" class="px-4 py-2 bg-gray-500 text-white rounded hover:bg-gray-600">
+                    <button onclick="closeNotification()" class="px-4 py-2 bg-gray-500 text-white rounded hover:bg-gray-600 transition-colors">
                         Cerrar
                     </button>
                 </div>
@@ -82,11 +99,15 @@
             SPREADSHEET_ID: '17V4XZMYxc9wzzlc9JWXdoZgTmxhlM8I_p9ZUYoJn7OI',
             
             // Configuración del entorno
-            ENVIRONMENT: 'production',
-            DEBUG: false,
+            ENVIRONMENT: 'development', // Cambiado a development para debugging
+            DEBUG: true, // ACTIVADO para ver todos los logs de debug
             
             // Sistema ya no usa modo demo
-            USE_DEMO_MODE: false
+            USE_DEMO_MODE: false,
+            
+            // Configuración adicional para debugging
+            VERBOSE_LOGGING: true,
+            LOG_API_REQUESTS: true
         };
         
         // Variable global para el estado de la aplicación
@@ -98,22 +119,160 @@
             estudiantes: [],
             currentAttendance: {},
             connectionStatus: 'online',
-            selectedDate: null  // Nueva: fecha seleccionada para reportar
+            selectedDate: null,  // Nueva: fecha seleccionada para reportar
+            
+            // Estado de depuración
+            debugInfo: {
+                appStartTime: new Date().toISOString(),
+                lastDataLoad: null,
+                apiCallCount: 0,
+                errors: []
+            }
         };
+        
+        // Función para capturar errores de carga de scripts
+        window.addEventListener('error', function(e) {
+            console.error('🔥 Error de carga:', e.filename, e.lineno, e.message);
+            if (window.AppState && window.AppState.debugInfo) {
+                window.AppState.debugInfo.errors.push({
+                    type: 'script_error',
+                    message: e.message,
+                    filename: e.filename,
+                    line: e.lineno,
+                    timestamp: new Date().toISOString()
+                });
+            }
+        });
+        
+        // Log inicial
+        console.log('🎾 Sistema de Asistencia Tenis - Iniciando...');
+        console.log('📋 Configuración:', window.APP_CONFIG);
+        console.log('🕐 Timestamp de inicio:', new Date().toISOString());
     </script>
 
-    <!-- Scripts principales -->
-    <script src="js/utils.js"></script>
-    <script src="js/sheets-api.js"></script>
-    <script src="js/main.js"></script>
+    <!-- Scripts principales en orden de dependencia -->
+    <script src="js/utils.js" onload="console.log('✅ utils.js cargado')" onerror="console.error('❌ Error cargando utils.js')"></script>
+    <script src="js/sheets-api.js" onload="console.log('✅ sheets-api.js cargado')" onerror="console.error('❌ Error cargando sheets-api.js')"></script>
+    <script src="js/main.js" onload="console.log('✅ main.js cargado')" onerror="console.error('❌ Error cargando main.js')"></script>
 
-    <!-- Inicializar la aplicación -->
+    <!-- Inicializar la aplicación con manejo de errores mejorado -->
     <script>
+        // Verificar que todos los scripts se hayan cargado correctamente
+        function checkDependencies() {
+            const dependencies = [
+                { name: 'DateUtils', object: window.DateUtils },
+                { name: 'DataUtils', object: window.DataUtils },
+                { name: 'UIUtils', object: window.UIUtils },
+                { name: 'StorageUtils', object: window.StorageUtils },
+                { name: 'SheetsAPI', object: window.SheetsAPI },
+                { name: 'initApp', object: window.initApp }
+            ];
+            
+            const missing = dependencies.filter(dep => !dep.object);
+            
+            if (missing.length > 0) {
+                console.error('❌ Dependencias faltantes:', missing.map(m => m.name));
+                document.getElementById('app').innerHTML = `
+                    <div class="min-h-screen flex items-center justify-center">
+                        <div class="text-center max-w-md">
+                            <span class="text-6xl mb-4 block">⚠️</span>
+                            <h2 class="text-2xl font-bold text-gray-900 mb-4">Error de Carga</h2>
+                            <p class="text-gray-600 mb-6">No se pudieron cargar algunos archivos necesarios:</p>
+                            <ul class="text-left text-red-600 mb-6">
+                                ${missing.map(m => `<li>• ${m.name}</li>`).join('')}
+                            </ul>
+                            <button onclick="location.reload()" class="px-4 py-2 bg-primary-500 text-white rounded hover:bg-primary-600">
+                                🔄 Recargar Página
+                            </button>
+                        </div>
+                    </div>
+                `;
+                return false;
+            }
+            
+            console.log('✅ Todas las dependencias cargadas correctamente');
+            return true;
+        }
+        
         // Inicializar cuando el DOM esté listo
         document.addEventListener('DOMContentLoaded', function() {
-            console.log('🚀 Iniciando Sistema de Asistencia Tenis...');
-            initApp();
+            console.log('🚀 DOM listo - Iniciando Sistema de Asistencia Tenis...');
+            
+            // Verificar dependencias
+            if (!checkDependencies()) {
+                return;
+            }
+            
+            // Verificar configuración crítica
+            if (!window.APP_CONFIG.APPS_SCRIPT_URL || !window.APP_CONFIG.SPREADSHEET_ID) {
+                console.error('❌ Configuración incompleta');
+                document.getElementById('app').innerHTML = `
+                    <div class="min-h-screen flex items-center justify-center">
+                        <div class="text-center max-w-md">
+                            <span class="text-6xl mb-4 block">⚙️</span>
+                            <h2 class="text-2xl font-bold text-gray-900 mb-4">Error de Configuración</h2>
+                            <p class="text-gray-600 mb-6">Faltan configuraciones críticas del sistema.</p>
+                            <button onclick="location.reload()" class="px-4 py-2 bg-primary-500 text-white rounded hover:bg-primary-600">
+                                🔄 Recargar Página
+                            </button>
+                        </div>
+                    </div>
+                `;
+                return;
+            }
+            
+            // Todo listo, inicializar la aplicación
+            try {
+                console.log('🎯 Iniciando aplicación principal...');
+                initApp();
+            } catch (error) {
+                console.error('💥 Error fatal al inicializar:', error);
+                document.getElementById('app').innerHTML = `
+                    <div class="min-h-screen flex items-center justify-center">
+                        <div class="text-center max-w-md">
+                            <span class="text-6xl mb-4 block">💥</span>
+                            <h2 class="text-2xl font-bold text-gray-900 mb-4">Error Fatal</h2>
+                            <p class="text-gray-600 mb-4">Error al inicializar la aplicación:</p>
+                            <p class="text-red-600 text-sm mb-6">${error.message}</p>
+                            <button onclick="location.reload()" class="px-4 py-2 bg-primary-500 text-white rounded hover:bg-primary-600">
+                                🔄 Recargar Página
+                            </button>
+                        </div>
+                    </div>
+                `;
+            }
         });
+        
+        // Capturar errores no manejados
+        window.addEventListener('unhandledrejection', function(event) {
+            console.error('🚨 Promise rechazada:', event.reason);
+            if (window.AppState && window.AppState.debugInfo) {
+                window.AppState.debugInfo.errors.push({
+                    type: 'unhandled_rejection',
+                    reason: event.reason.toString(),
+                    timestamp: new Date().toISOString()
+                });
+            }
+        });
+        
+        // Función de utilidad para mostrar información de debug en consola
+        window.showDebugInfo = function() {
+            console.log('🐛 INFORMACIÓN DE DEBUG:');
+            console.log('📊 Estado de la aplicación:', window.AppState);
+            console.log('⚙️ Configuración:', window.APP_CONFIG);
+            console.log('🌐 Información del navegador:', {
+                userAgent: navigator.userAgent,
+                language: navigator.language,
+                online: navigator.onLine,
+                url: window.location.href
+            });
+            
+            if (window.AppState.debugInfo) {
+                console.log('🔍 Errores capturados:', window.AppState.debugInfo.errors);
+            }
+        };
+        
+        console.log('💡 Tip: Ejecuta showDebugInfo() en la consola para ver información de debug');
     </script>
 </body>
 </html>
