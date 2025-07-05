@@ -52,9 +52,12 @@ async function initApp() {
  */
 function showDateSelector() {
     debugLog('Mostrando selector de fecha');
+    debugLog(`Grupos disponibles en AppState: ${window.AppState.grupos.length}`);
     
     const today = DateUtils.getCurrentDate();
     const currentDay = DateUtils.getCurrentDay();
+    
+    debugLog(`Fecha actual: ${today} (${currentDay})`);
     
     const app = document.getElementById('app');
     app.innerHTML = `
@@ -137,8 +140,11 @@ function showDateSelector() {
         </div>
     `;
     
-    // Cargar información inicial del día
-    updateDateSelection();
+    // Cargar información inicial del día después de que el DOM se actualice
+    setTimeout(() => {
+        debugLog('DOM actualizado, ejecutando updateDateSelection...');
+        updateDateSelection();
+    }, 100);
 }
 
 /**
@@ -239,7 +245,7 @@ async function showDashboard() {
                             <div class="text-center py-12 bg-white rounded-lg shadow-sm">
                                 <span class="text-6xl mb-4 block">📅</span>
                                 <h3 class="text-xl font-semibold text-gray-700 mb-2">No hay clases programadas</h3>
-                                <p class="text-gray-500 mb-4">Los ${selectedDay}s no hay grupos programados</p>
+                                <p class="text-gray-500 mb-4">Los ${selectedDay} no hay grupos programados</p>
                                 <button onclick="showDateSelector()" class="btn btn-primary">
                                     📅 Seleccionar Otra Fecha
                                 </button>
@@ -319,6 +325,9 @@ function updateDateSelection() {
     const dayName = DateUtils.getDayFromDate(selectedDate);
     const formattedDate = DateUtils.formatDate(selectedDate);
     
+    debugLog(`Fecha seleccionada: ${selectedDate} -> ${dayName}`);
+    debugLog(`Grupos en AppState: ${window.AppState.grupos.length}`);
+    
     document.getElementById('selected-day-name').textContent = capitalize(dayName);
     document.getElementById('selected-date-formatted').textContent = formattedDate;
     
@@ -333,15 +342,27 @@ function updateGroupsCount(selectedDate) {
     const dayName = DateUtils.getDayFromDate(selectedDate);
     const groupsForDay = DataUtils.getGroupsByDay(window.AppState.grupos, dayName);
     
+    debugLog(`Actualizando conteo para ${selectedDate} (${dayName}): ${groupsForDay.length} grupos`);
+    debugLog(`Total grupos en AppState: ${window.AppState.grupos.length}`);
+    groupsForDay.forEach(g => debugLog(`- ${g.codigo}: ${g.dias}`));
+    
     const countElement = document.getElementById('groups-count');
+    if (!countElement) {
+        debugLog('ERROR: Elemento groups-count no encontrado');
+        return;
+    }
+    
     if (groupsForDay.length > 0) {
         countElement.innerHTML = `
             <span class="text-green-600 font-medium">${groupsForDay.length} grupos programados</span>
         `;
+        debugLog(`✅ Mostrando ${groupsForDay.length} grupos programados`);
     } else {
+        // CORREGIDO: No agregar 's' extra al día
         countElement.innerHTML = `
-            <span class="text-gray-500">No hay grupos programados para ${dayName}s</span>
+            <span class="text-gray-500">No hay grupos programados para los ${dayName}</span>
         `;
+        debugLog(`❌ No hay grupos para ${dayName}`);
     }
     
     // Habilitar/deshabilitar botón continuar
@@ -355,6 +376,9 @@ function updateGroupsCount(selectedDate) {
             continueBtn.classList.remove('opacity-50');
             continueBtn.innerHTML = `📋 Ver ${groupsForDay.length} Grupos de este Día`;
         }
+        debugLog(`Botón continuar: ${groupsForDay.length === 0 ? 'deshabilitado' : 'habilitado'}`);
+    } else {
+        debugLog('WARNING: Botón continue-btn no encontrado');
     }
 }
 
@@ -445,12 +469,23 @@ async function loadGroupsData() {
     try {
         // Cargar desde Apps Script
         const groupsData = await SheetsAPI.getGroups();
+        
+        debugLog(`Grupos recibidos desde API: ${groupsData ? groupsData.length : 0}`);
+        if (groupsData && groupsData.length > 0) {
+            debugLog('Primeros 3 grupos:', groupsData.slice(0, 3));
+        }
+        
         window.AppState.grupos = groupsData || [];
         
         // Guardar en cache para uso offline
         StorageUtils.save('cached_groups', groupsData);
         
-        debugLog(`Grupos cargados: ${window.AppState.grupos.length}`);
+        debugLog(`Grupos cargados en AppState: ${window.AppState.grupos.length}`);
+        
+        // Verificar grupos de lunes específicamente
+        const gruposLunes = DataUtils.getGroupsByDay(window.AppState.grupos, 'lunes');
+        debugLog(`Grupos de lunes encontrados: ${gruposLunes.length}`);
+        gruposLunes.forEach(g => debugLog(`- Lunes: ${g.codigo} - ${g.dias}`));
         
     } catch (error) {
         console.error('Error al cargar grupos:', error);
@@ -459,6 +494,7 @@ async function loadGroupsData() {
         const cachedGroups = StorageUtils.get('cached_groups', []);
         if (cachedGroups.length > 0) {
             window.AppState.grupos = cachedGroups;
+            debugLog(`Usando grupos en cache: ${cachedGroups.length}`);
             UIUtils.showWarning('Usando datos de grupos guardados localmente');
         } else {
             throw error;
@@ -475,12 +511,18 @@ async function loadStudentsData() {
     try {
         // Cargar desde Apps Script
         const studentsData = await SheetsAPI.getStudents();
+        
+        debugLog(`Estudiantes recibidos desde API: ${studentsData ? studentsData.length : 0}`);
+        if (studentsData && studentsData.length > 0) {
+            debugLog('Primeros 3 estudiantes:', studentsData.slice(0, 3));
+        }
+        
         window.AppState.estudiantes = studentsData || [];
         
         // Guardar en cache para uso offline
         StorageUtils.save('cached_students', studentsData);
         
-        debugLog(`Estudiantes cargados: ${window.AppState.estudiantes.length}`);
+        debugLog(`Estudiantes cargados en AppState: ${window.AppState.estudiantes.length}`);
         
     } catch (error) {
         console.error('Error al cargar estudiantes:', error);
@@ -489,6 +531,7 @@ async function loadStudentsData() {
         const cachedStudents = StorageUtils.get('cached_students', []);
         if (cachedStudents.length > 0) {
             window.AppState.estudiantes = cachedStudents;
+            debugLog(`Usando estudiantes en cache: ${cachedStudents.length}`);
             UIUtils.showWarning('Usando datos de estudiantes guardados localmente');
         } else {
             throw error;
