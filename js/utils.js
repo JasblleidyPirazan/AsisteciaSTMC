@@ -24,27 +24,34 @@ const DateUtils = {
     },
 
     /**
-     * Obtiene el día de la semana actual en español
+     * Obtiene el día de la semana actual en español (zona horaria local, SIN TILDES)
      */
     getCurrentDay() {
-        const days = ['domingo', 'lunes', 'martes', 'miércoles', 'jueves', 'viernes', 'sábado'];
-        return days[new Date().getDay()];
+        // SIN TILDES para coincidir con los datos del maestro
+        const days = ['domingo', 'lunes', 'martes', 'miercoles', 'jueves', 'viernes', 'sabado'];
+        const now = new Date();
+        // Usar zona horaria local en lugar de UTC
+        return days[now.getDay()];
     },
 
     /**
-     * Obtiene el día de la semana de una fecha específica
+     * Obtiene el día de la semana de una fecha específica (zona horaria local, SIN TILDES)
      */
     getDayFromDate(dateString) {
-        const days = ['domingo', 'lunes', 'martes', 'miércoles', 'jueves', 'viernes', 'sábado'];
-        const date = new Date(dateString + 'T12:00:00'); // Agregar tiempo para evitar problemas de zona horaria
+        // SIN TILDES para coincidir con los datos del maestro
+        const days = ['domingo', 'lunes', 'martes', 'miercoles', 'jueves', 'viernes', 'sabado'];
+        // Crear fecha en zona horaria local
+        const [year, month, day] = dateString.split('-');
+        const date = new Date(year, month - 1, day); // month es 0-indexado
         return days[date.getDay()];
     },
 
     /**
-     * Convierte fecha a formato legible en español
+     * Convierte fecha a formato legible en español (zona horaria local)
      */
     formatDate(dateString) {
-        const date = new Date(dateString + 'T12:00:00'); // Agregar tiempo para evitar problemas de zona horaria
+        const [year, month, day] = dateString.split('-');
+        const date = new Date(year, month - 1, day); // Crear en zona horaria local
         const options = { 
             weekday: 'long', 
             year: 'numeric', 
@@ -62,25 +69,71 @@ const DateUtils = {
     },
 
     /**
-     * Obtiene los días de la semana que contiene una cadena
+     * Obtiene los días de la semana de un grupo usando columnas booleanas
+     * Maneja estructura: Lunes | Martes | Miercoles | Jueves | Viernes | Sabado | Domingo
+     */
+    getGroupDays(group) {
+        if (!group) return [];
+        
+        const days = [];
+        const dayColumns = [
+            { key: 'lunes', name: 'lunes' },
+            { key: 'martes', name: 'martes' },
+            { key: 'miercoles', name: 'miercoles' },
+            { key: 'jueves', name: 'jueves' },
+            { key: 'viernes', name: 'viernes' },
+            { key: 'sabado', name: 'sabado' },
+            { key: 'domingo', name: 'domingo' }
+        ];
+        
+        dayColumns.forEach(day => {
+            const value = group[day.key];
+            // Verificar si está marcado: X, x, YES, yes, TRUE, true, 1
+            if (value && (
+                value.toString().toLowerCase() === 'x' ||
+                value.toString().toLowerCase() === 'yes' ||
+                value.toString().toLowerCase() === 'true' ||
+                value.toString() === '1'
+            )) {
+                days.push(day.name);
+            }
+        });
+        
+        return days;
+    },
+
+    /**
+     * DEPRECATED: Mantener por compatibilidad, pero ahora usa getGroupDays
+     * Obtiene los días de la semana que contiene una cadena (SIN TILDES)
      */
     parseDays(daysString) {
         if (!daysString) return [];
         
+        // Si es un objeto (nuevo formato), usar getGroupDays
+        if (typeof daysString === 'object') {
+            return this.getGroupDays(daysString);
+        }
+        
+        // Fallback para formato anterior (string con comas)
         const dayMap = {
             'lunes': 'lunes',
             'martes': 'martes',
-            'miércoles': 'miércoles',
-            'miercoles': 'miércoles', // Sin tilde
+            'miercoles': 'miercoles',
+            'miércoles': 'miercoles',
             'jueves': 'jueves',
             'viernes': 'viernes',
-            'sábado': 'sábado',
-            'sabado': 'sábado', // Sin tilde
+            'sabado': 'sabado',
+            'sábado': 'sabado',
             'domingo': 'domingo'
         };
 
-        const days = daysString.toLowerCase().split(',').map(day => day.trim());
-        return days.map(day => dayMap[day]).filter(Boolean);
+        const days = daysString.toLowerCase()
+            .split(',')
+            .map(day => day.trim())
+            .map(day => dayMap[day])
+            .filter(Boolean);
+            
+        return days;
     }
 };
 
@@ -107,22 +160,54 @@ const DataUtils = {
         const today = DateUtils.getCurrentDay();
         
         return allGroups.filter(group => {
-            if (!group.dias) return false;
-            const groupDays = DateUtils.parseDays(group.dias);
-            return groupDays.includes(today);
-        });
+            // NUEVO: Si el grupo tiene columnas por día (lunes, martes, etc.)
+            if (group.hasOwnProperty(today.toLowerCase())) {
+                const dayValue = group[today.toLowerCase()];
+                return dayValue && (
+                    dayValue.toString().toLowerCase() === 'x' ||
+                    dayValue.toString().toLowerCase() === 'yes' ||
+                    dayValue.toString().toLowerCase() === 'true' ||
+                    dayValue.toString() === '1'
+                );
+            }
+            
+            // FALLBACK: Formato anterior con columna "dias"
+            if (group.dias) {
+                const groupDays = DateUtils.parseDays(group.dias);
+                return groupDays.includes(today);
+            }
+            
+            return false;
+        }).filter(group => group.activo === true || group.activo === 'TRUE');
     },
 
     /**
-     * Filtra grupos por un día específico
+     * Filtra grupos por un día específico (NUEVO: soporta columnas booleanas)
      */
     getGroupsByDay(allGroups, dayName) {
         if (!Array.isArray(allGroups)) return [];
         
         return allGroups.filter(group => {
-            if (!group.dias) return false;
-            const groupDays = DateUtils.parseDays(group.dias);
-            return groupDays.includes(dayName.toLowerCase());
+            if (!group) return false;
+            
+            // NUEVO: Si el grupo tiene columnas por día (lunes, martes, etc.)
+            if (group.hasOwnProperty(dayName.toLowerCase())) {
+                const dayValue = group[dayName.toLowerCase()];
+                return dayValue && (
+                    dayValue.toString().toLowerCase() === 'x' ||
+                    dayValue.toString().toLowerCase() === 'yes' ||
+                    dayValue.toString().toLowerCase() === 'true' ||
+                    dayValue.toString() === '1'
+                );
+            }
+            
+            // FALLBACK: Formato anterior con columna "dias"
+            if (group.dias) {
+                const groupDays = DateUtils.parseDays(group.dias);
+                return groupDays.includes(dayName.toLowerCase());
+            }
+            
+            return false;
         }).filter(group => group.activo === true || group.activo === 'TRUE');
     },
 
