@@ -728,18 +728,19 @@ const ValidationUtils = {
      * Valida datos de asistencia
      */
     validateAttendanceData(attendance) {
-    const required = ['studentId', 'status'];
-    const missing = DataUtils.validateRequiredFields(attendance, required);
-    
-    if (missing.length > 0) return { valid: false, errors: missing };
-    
-    // ACTUALIZAR: Agregar "Cancelada" a los estados válidos
-    const validStatuses = ['Presente', 'Ausente', 'Justificada', 'Cancelada'];
-    if (!validStatuses.includes(attendance.status)) {
-        return { valid: false, errors: ['Estado de asistencia inválido'] };
+        const required = ['studentId', 'status'];
+        const missing = DataUtils.validateRequiredFields(attendance, required);
+        
+        if (missing.length > 0) return { valid: false, errors: missing };
+        
+        // ACTUALIZAR: Agregar "Cancelada" a los estados válidos
+        const validStatuses = ['Presente', 'Ausente', 'Justificada', 'Cancelada'];
+        if (!validStatuses.includes(attendance.status)) {
+            return { valid: false, errors: ['Estado de asistencia inválido'] };
+        }
+        
+        return { valid: true, errors: [] };
     }
-    
-    return { valid: true, errors: [] };
 };
 
 // ===========================================
