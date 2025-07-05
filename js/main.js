@@ -340,11 +340,50 @@ function updateDateSelection() {
  */
 function updateGroupsCount(selectedDate) {
     const dayName = DateUtils.getDayFromDate(selectedDate);
+    
+    debugLog(`\n🔍 DEBUGGING updateGroupsCount:`);
+    debugLog(`📅 Fecha: ${selectedDate}`);
+    debugLog(`📅 Día: ${dayName}`);
+    debugLog(`📊 Total grupos disponibles: ${window.AppState.grupos.length}`);
+    
+    // DEBUG: Verificar algunos grupos manualmente
+    if (window.AppState.grupos.length > 0) {
+        debugLog(`🔍 Verificando primeros 3 grupos:`);
+        window.AppState.grupos.slice(0, 3).forEach((group, index) => {
+            debugLog(`  Grupo ${index + 1}: ${group.codigo}`);
+            debugLog(`    - Dias (texto): ${group.dias || 'No tiene'}`);
+            debugLog(`    - Lunes: ${group.lunes || 'No tiene'}`);
+            debugLog(`    - ${dayName}: ${group[dayName] || 'No tiene'}`);
+            debugLog(`    - Activo: ${group.activo}`);
+        });
+    }
+    
     const groupsForDay = DataUtils.getGroupsByDay(window.AppState.grupos, dayName);
     
     debugLog(`Actualizando conteo para ${selectedDate} (${dayName}): ${groupsForDay.length} grupos`);
     debugLog(`Total grupos en AppState: ${window.AppState.grupos.length}`);
-    groupsForDay.forEach(g => debugLog(`- ${g.codigo}: ${g.dias}`));
+    
+    // DEBUG: Verificar estructura de datos del primer grupo
+    if (window.AppState.grupos.length > 0) {
+        const firstGroup = window.AppState.grupos[0];
+        debugLog('Estructura del primer grupo:', Object.keys(firstGroup));
+        debugLog('Datos del primer grupo:', firstGroup);
+        
+        // Verificar si tiene el formato anterior (dias) o nuevo (columnas)
+        if (firstGroup.dias) {
+            debugLog('Formato anterior detectado (columna "dias")');
+        } else if (firstGroup.lunes !== undefined) {
+            debugLog('Nuevo formato detectado (columnas individuales)');
+        } else {
+            debugLog('⚠️ Formato de datos no reconocido');
+        }
+    }
+    
+    groupsForDay.forEach(g => {
+        // Mostrar tanto el formato anterior (dias) como las nuevas columnas
+        const daysInfo = g.dias ? g.dias : `L:${g.lunes} M:${g.martes} Mi:${g.miercoles} J:${g.jueves} V:${g.viernes} S:${g.sabado}`;
+        debugLog(`- ${g.codigo}: ${daysInfo}`);
+    });
     
     const countElement = document.getElementById('groups-count');
     if (!countElement) {
@@ -358,9 +397,13 @@ function updateGroupsCount(selectedDate) {
         `;
         debugLog(`✅ Mostrando ${groupsForDay.length} grupos programados`);
     } else {
-        // CORREGIDO: No agregar 's' extra al día
+        // Mostrar nombre del día legible (con tildes) para el usuario
+        const readableDayName = dayName === 'miercoles' ? 'miércoles' : 
+                               dayName === 'sabado' ? 'sábados' : 
+                               dayName + 's';
+        
         countElement.innerHTML = `
-            <span class="text-gray-500">No hay grupos programados para los ${dayName}</span>
+            <span class="text-gray-500">No hay grupos programados para los ${readableDayName}</span>
         `;
         debugLog(`❌ No hay grupos para ${dayName}`);
     }
@@ -485,7 +528,11 @@ async function loadGroupsData() {
         // Verificar grupos de lunes específicamente
         const gruposLunes = DataUtils.getGroupsByDay(window.AppState.grupos, 'lunes');
         debugLog(`Grupos de lunes encontrados: ${gruposLunes.length}`);
-        gruposLunes.forEach(g => debugLog(`- Lunes: ${g.codigo} - ${g.dias}`));
+        gruposLunes.forEach(g => {
+            // Mostrar tanto el formato anterior (dias) como las nuevas columnas
+            const daysInfo = g.dias ? g.dias : `L:${g.lunes} M:${g.martes} Mi:${g.miercoles} J:${g.jueves} V:${g.viernes} S:${g.sabado}`;
+            debugLog(`- Lunes: ${g.codigo} - ${daysInfo}`);
+        });
         
     } catch (error) {
         console.error('Error al cargar grupos:', error);
