@@ -396,6 +396,26 @@ const SheetsAPI = {
     },
     
     /**
+     * Guarda una clase programada/realizada/cancelada
+     */
+    async saveScheduledClass(classData) {
+        debugLog('Guardando clase programada:', classData);
+        
+        try {
+            const result = await this.makePostRequest('saveScheduledClass', {
+                classData
+            });
+            
+            debugLog('Clase guardada correctamente');
+            return result;
+            
+        } catch (error) {
+            console.error('Error al guardar clase:', error);
+            throw error;
+        }
+    },
+    
+    /**
      * Verifica la conectividad con Google Apps Script
      */
     async testConnection() {
@@ -434,27 +454,6 @@ const SheetsAPI = {
             console.error('Error al obtener información del spreadsheet:', error);
             throw error;
         }
-    }
-};
-
-
-/**
- * Guarda una clase programada/realizada/cancelada
- */
-async saveScheduledClass(classData) {
-    debugLog('Guardando clase programada:', classData);
-    
-    try {
-        const result = await this.makePostRequest('saveScheduledClass', {
-            classData
-        });
-        
-        debugLog('Clase guardada correctamente');
-        return result;
-        
-    } catch (error) {
-        console.error('Error al guardar clase:', error);
-        throw error;
     }
 };
 
