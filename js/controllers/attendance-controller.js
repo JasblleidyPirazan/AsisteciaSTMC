@@ -63,7 +63,7 @@ const AttendanceController = {
     },
 
     /**
-     * La clase se realizó - proceder con registro de asistencia
+     * La clase se realizó - proceder con registro de asistencia (MEJORADO)
      */
     async classWasHeld(groupCode) {
         debugLog(`AttendanceController: Clase realizada para grupo ${groupCode}`);
@@ -77,6 +77,9 @@ const AttendanceController = {
             const group = await GroupService.getGroupByCode(groupCode);
             const students = await StudentService.getStudentsByGroup(groupCode);
             
+            debugLog(`AttendanceController: Grupo obtenido:`, group);
+            debugLog(`AttendanceController: ${students.length} estudiantes obtenidos:`, students);
+            
             if (students.length === 0) {
                 UIUtils.showWarning('No hay estudiantes registrados en este grupo');
                 await this.showClassStatusQuestion(groupCode);
@@ -89,6 +92,23 @@ const AttendanceController = {
                 currentStudents: students,
                 attendanceData: {}
             });
+            
+            debugLog(`AttendanceController: Estado actualizado con ${students.length} estudiantes`);
+            
+            // Actualizar también el estado global
+            window.AppState.estudiantes = window.AppState.estudiantes || [];
+            
+            // Asegurar que los estudiantes del grupo estén en el estado global
+            students.forEach(student => {
+                const existingIndex = window.AppState.estudiantes.findIndex(s => s.id === student.id);
+                if (existingIndex >= 0) {
+                    window.AppState.estudiantes[existingIndex] = student;
+                } else {
+                    window.AppState.estudiantes.push(student);
+                }
+            });
+            
+            debugLog(`AttendanceController: Estado global actualizado`);
             
             // Mostrar formulario de asistencia
             await this._showAttendanceForm(group, students, 'regular');
@@ -127,18 +147,28 @@ const AttendanceController = {
     },
 
     /**
-     * Marca la asistencia de un estudiante individual
+     * Marca la asistencia de un estudiante individual (MEJORADO)
      */
     markAttendance(studentId, status) {
         debugLog(`AttendanceController: Marcando ${studentId} como ${status}`);
         
         try {
+            // Validar parámetros de entrada
+            if (!studentId || !status) {
+                UIUtils.showError('Parámetros inválidos para marcar asistencia');
+                return;
+            }
+            
             // Buscar información del estudiante
             const student = this._findStudent(studentId);
             if (!student) {
-                UIUtils.showError('Estudiante no encontrado');
+                debugLog(`AttendanceController: ❌ Estudiante ${studentId} no encontrado`);
+                debugLog(`AttendanceController: currentStudents disponibles:`, this._state.currentStudents);
+                UIUtils.showError(`Estudiante ${studentId} no encontrado. Intenta recargar la página.`);
                 return;
             }
+            
+            debugLog(`AttendanceController: ✅ Estudiante encontrado:`, student);
             
             // Si es justificada, abrir modal
             if (status === 'Justificada') {
@@ -156,6 +186,8 @@ const AttendanceController = {
             // Feedback
             UIUtils.showSuccess(`${student.nombre} marcado como ${status.toLowerCase()}`);
             
+            debugLog(`AttendanceController: ✅ Asistencia registrada para ${studentId}`);
+            
         } catch (error) {
             console.error('AttendanceController: Error al marcar asistencia:', error);
             UIUtils.showError('Error al registrar asistencia');
@@ -163,7 +195,7 @@ const AttendanceController = {
     },
 
     /**
-     * Marca asistencia masiva para todos los estudiantes
+     * Marca asistencia masiva para todos los estudiantes (MEJORADO)
      */
     markAllAttendance(status) {
         debugLog(`AttendanceController: Marcando todos como ${status}`);
@@ -175,9 +207,17 @@ const AttendanceController = {
             }
             
             const students = this._state.currentStudents;
+            debugLog(`AttendanceController: Marcando ${students.length} estudiantes`);
+            
+            if (students.length === 0) {
+                UIUtils.showWarning('No hay estudiantes cargados');
+                return;
+            }
+            
             let markedCount = 0;
             
             students.forEach(student => {
+                debugLog(`AttendanceController: Marcando individualmente ${student.id} como ${status}`);
                 this._recordAttendance(student.id, status);
                 this._updateStudentUI(student.id, status);
                 markedCount++;
@@ -185,6 +225,8 @@ const AttendanceController = {
             
             this._updateAttendanceSummary();
             UIUtils.showSuccess(`${markedCount} estudiantes marcados como ${status.toLowerCase()}`);
+            
+            debugLog(`AttendanceController: Marcado masivo completado - ${markedCount} estudiantes`);
             
         } catch (error) {
             console.error('AttendanceController: Error en marcado masivo:', error);
@@ -487,6 +529,47 @@ const AttendanceController = {
         UIUtils.showInfo('Función de exportación en desarrollo');
     },
 
+    /**
+     * Obtiene el estado actual del controlador
+     */
+    getState() {
+        return { ...this._state };
+    },
+
+    /**
+     * Función de debug temporal para verificar estudiantes
+     */
+    debugStudentsInfo() {
+        debugLog('=== DEBUG ESTUDIANTES ===');
+        debugLog('currentStudents:', this._state.currentStudents);
+        debugLog('AppState.estudiantes:', window.AppState.estudiantes);
+        debugLog('attendanceData:', this._state.attendanceData);
+        
+        // Crear función global temporal para debugging
+        window.debugAttendanceController = () => {
+            console.log('=== ESTADO DEL ATTENDANCE CONTROLLER ===');
+            console.log('currentStudents:', this._state.currentStudents);
+            console.log('currentGroup:', this._state.currentGroup);
+            console.log('attendanceData:', this._state.attendanceData);
+            console.log('AppState.estudiantes:', window.AppState.estudiantes);
+            
+            // Verificar discrepancias en IDs
+            const currentIds = this._state.currentStudents.map(s => s.id);
+            const globalIds = window.AppState.estudiantes.map(s => s.id);
+            console.log('IDs en currentStudents:', currentIds);
+            console.log('IDs en AppState:', globalIds);
+            
+            return {
+                currentStudents: this._state.currentStudents,
+                currentGroup: this._state.currentGroup,
+                attendanceData: this._state.attendanceData,
+                globalStudents: window.AppState.estudiantes
+            };
+        };
+        
+        debugLog('Función debugAttendanceController() creada. Ejecútala en la consola para más info.');
+    },
+
     // ===========================================
     // MÉTODOS PRIVADOS
     // ===========================================
@@ -500,9 +583,11 @@ const AttendanceController = {
     },
 
     /**
-     * Muestra el formulario de asistencia
+     * Muestra el formulario de asistencia (MEJORADO CON DEBUG)
      */
     async _showAttendanceForm(group, students, type) {
+        debugLog(`AttendanceController: Mostrando formulario para ${students.length} estudiantes`);
+        
         const html = AttendanceFormView.renderAttendanceForm({
             group,
             students,
@@ -514,15 +599,20 @@ const AttendanceController = {
         
         // Agregar modales necesarios
         document.body.insertAdjacentHTML('beforeend', ModalsView.renderJustificationModal());
+        
+        // TEMPORAL: Ejecutar debug info después de renderizar
+        this.debugStudentsInfo();
     },
 
     /**
-     * Registra un dato de asistencia
+     * Registra un dato de asistencia (MEJORADO)
      */
     _recordAttendance(studentId, status, justification = '', description = '') {
+        debugLog(`AttendanceController: Registrando asistencia - ${studentId}: ${status}`);
+        
         const attendanceData = { ...this._state.attendanceData };
         
-        attendanceData[studentId] = {
+        const record = {
             studentId,
             status,
             justification,
@@ -530,15 +620,50 @@ const AttendanceController = {
             timestamp: DateUtils.getCurrentTimestamp()
         };
         
+        attendanceData[studentId] = record;
+        
+        debugLog(`AttendanceController: Registro creado:`, record);
+        debugLog(`AttendanceController: Total registros:`, Object.keys(attendanceData).length);
+        
         this._setState({ attendanceData });
     },
 
     /**
-     * Busca un estudiante por ID
+     * Busca un estudiante por ID (MEJORADO)
      */
     _findStudent(studentId) {
-        return this._state.currentStudents.find(s => s.id === studentId) ||
-               window.AppState.estudiantes.find(s => s.id === studentId);
+        debugLog(`AttendanceController: Buscando estudiante ${studentId}`);
+        debugLog(`AttendanceController: Estudiantes en current state:`, this._state.currentStudents.map(s => s.id));
+        debugLog(`AttendanceController: Estudiantes en global state:`, window.AppState.estudiantes.map(s => s.id));
+        
+        // Primero buscar en estudiantes actuales del controlador
+        let student = this._state.currentStudents.find(s => s.id === studentId);
+        
+        if (student) {
+            debugLog(`AttendanceController: Estudiante encontrado en currentStudents:`, student);
+            return student;
+        }
+        
+        // Luego buscar en estado global
+        student = window.AppState.estudiantes.find(s => s.id === studentId);
+        
+        if (student) {
+            debugLog(`AttendanceController: Estudiante encontrado en AppState.estudiantes:`, student);
+            return student;
+        }
+        
+        // Buscar por ID convertido a string por si acaso
+        const studentIdStr = studentId.toString();
+        student = this._state.currentStudents.find(s => s.id.toString() === studentIdStr) ||
+                  window.AppState.estudiantes.find(s => s.id.toString() === studentIdStr);
+        
+        if (student) {
+            debugLog(`AttendanceController: Estudiante encontrado con conversión a string:`, student);
+            return student;
+        }
+        
+        debugLog(`AttendanceController: ❌ Estudiante ${studentId} NO encontrado`);
+        return null;
     },
 
     /**
