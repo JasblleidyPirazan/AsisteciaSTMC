@@ -92,8 +92,8 @@
     <script>
         // Configuración global para Google Apps Script
         window.APP_CONFIG = {
-            // URL de tu Google Apps Script Web App
-            APPS_SCRIPT_URL: 'https://script.google.com/macros/s/AKfycbyEX5_nozYOivyWX35otetoz9unvUCJI2Zqy4r1ov-6GZ6zKrF8dOKDAcONq_18-zDK/exec',
+            // URL del proxy interno de Netlify (NO la URL directa de Apps Script)
+            APPS_SCRIPT_URL: '/api/sheets-proxy',
             
             // ID de tu Google Sheets
             SPREADSHEET_ID: '17V4XZMYxc9wzzlc9JWXdoZgTmxhlM8I_p9ZUYoJn7OI',
@@ -129,6 +129,22 @@
                 errors: []
             }
         };
+
+        // FUNCIÓN DEBUG TEMPRANA (antes de cargar utils.js)
+        function debugLog(...args) {
+            if (window.APP_CONFIG?.DEBUG) {
+                console.log('🐛 DEBUG:', ...args);
+            }
+        }
+
+        // FUNCIÓN closeNotification TEMPRANA
+        function closeNotification() {
+            const modal = document.getElementById('notification-modal');
+            if (modal) {
+                modal.classList.add('hidden');
+                document.body.classList.remove('no-scroll');
+            }
+        }
         
         // Log inicial
         console.log('🎾 Sistema de Asistencia Tenis - MVP Modular');
@@ -136,6 +152,10 @@
         console.log('🕐 Iniciando:', new Date().toISOString());
     </script>
 
+    <!-- UTILIDADES Y APIs PRIMERO (para que debugLog esté disponible) -->
+    <script src="js/utils.js" onload="console.log('✅ Utils cargado')" onerror="console.error('❌ Error: utils.js')"></script>
+    <script src="js/sheets-api.js" onload="console.log('✅ SheetsAPI cargado')" onerror="console.error('❌ Error: sheets-api.js')"></script>
+    
     <!-- SERVICIOS DE DATOS (Capa de datos) -->
     <script src="js/services/group-service.js" onload="console.log('✅ GroupService cargado')" onerror="console.error('❌ Error: group-service.js')"></script>
     <script src="js/services/student-service.js" onload="console.log('✅ StudentService cargado')" onerror="console.error('❌ Error: student-service.js')"></script>
@@ -152,10 +172,6 @@
     <script src="js/controllers/date-controller.js" onload="console.log('✅ DateController cargado')" onerror="console.error('❌ Error: date-controller.js')"></script>
     <script src="js/controllers/attendance-controller.js" onload="console.log('✅ AttendanceController cargado')" onerror="console.error('❌ Error: attendance-controller.js')"></script>
     <script src="js/controllers/group-controller.js" onload="console.log('✅ GroupController cargado')" onerror="console.error('❌ Error: group-controller.js')"></script>
-
-    <!-- UTILIDADES Y APIs (Capa base) -->
-    <script src="js/utils.js" onload="console.log('✅ Utils cargado')" onerror="console.error('❌ Error: utils.js')"></script>
-    <script src="js/sheets-api.js" onload="console.log('✅ SheetsAPI cargado')" onerror="console.error('❌ Error: sheets-api.js')"></script>
 
     <!-- APLICACIÓN PRINCIPAL (Inicialización y routing) -->
     <script src="js/main.js" onload="console.log('✅ Main (refactorizado) cargado')" onerror="console.error('❌ Error: main.js')"></script>
@@ -177,7 +193,7 @@
             'AppController', 'DateController', 'AttendanceController', 'GroupController',
             
             // Funciones principales
-            'initApp', 'closeNotification'
+            'initApp', 'debugLog', 'closeNotification'
         ];
         
         /**
