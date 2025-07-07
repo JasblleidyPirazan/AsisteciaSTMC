@@ -287,13 +287,6 @@ const SyncController = {
 // ===========================================
 
 /**
- * Función global para cerrar notificaciones
- */
-function closeNotification() {
-    UIUtils.closeNotification();
-}
-
-/**
  * Muestra error fatal de inicialización
  */
 function showFatalError(error) {
@@ -381,35 +374,6 @@ document.addEventListener('visibilitychange', () => {
 });
 
 // ===========================================
-// INICIALIZACIÓN AUTOMÁTICA
-// ===========================================
-
-/**
- * Inicializar cuando el DOM esté listo
- */
-document.addEventListener('DOMContentLoaded', () => {
-    debugLog('📄 DOM listo - iniciando sistema...');
-    
-    // Verificar configuración mínima
-    if (!window.APP_CONFIG) {
-        showFatalError(new Error('APP_CONFIG no encontrado'));
-        return;
-    }
-    
-    // Inicializar estado de conexión
-    const initialStatus = navigator.onLine ? 'online' : 'offline';
-    UIUtils.updateConnectionStatus(initialStatus);
-    
-    // Agregar modales al body si no existen
-    if (!document.getElementById('notification-modal')) {
-        document.body.insertAdjacentHTML('beforeend', ModalsView.renderAllModals());
-    }
-    
-    // Inicializar aplicación
-    initApp();
-});
-
-// ===========================================
 // HACER OBJETOS DISPONIBLES GLOBALMENTE
 // ===========================================
 
@@ -423,7 +387,6 @@ window.SyncController = SyncController;
 
 // Funciones globales simplificadas
 window.initApp = initApp;
-window.closeNotification = closeNotification;
 
 // ===========================================
 // DEBUG Y UTILIDADES DE DESARROLLO
