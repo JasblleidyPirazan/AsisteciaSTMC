@@ -1,32 +1,21 @@
 /**
  * COMPONENTE SELECTOR DE FECHA
  * ============================
- * Maneja la selección de fechas para reportar asistencias
+ * Genera HTML puro para el selector de fecha (sin lógica)
  */
 
-const DateSelectorComponent = {
+const DateSelectorView = {
     /**
-     * Muestra el selector de fecha
+     * Renderiza la pantalla principal del selector de fecha
      */
-    show() {
-        debugLog('Mostrando selector de fecha');
-        
-        const today = DateUtils.getCurrentDate();
-        const currentDay = DateUtils.getCurrentDay();
-        
-        const app = document.getElementById('app');
-        app.innerHTML = this.render(today, currentDay);
-        
-        // Actualizar información inicial del día
-        setTimeout(() => {
-            this.updateDateSelection();
-        }, 100);
-    },
+    render(data = {}) {
+        const {
+            selectedDate = DateUtils.getCurrentDate(),
+            currentDay = DateUtils.getCurrentDay(),
+            groupsCount = 0,
+            isToday = true
+        } = data;
 
-    /**
-     * Renderiza el selector de fecha
-     */
-    render(today, currentDay) {
         return `
             <div class="container">
                 <!-- Header -->
@@ -37,208 +26,222 @@ const DateSelectorComponent = {
                     </div>
                 </header>
 
-                <!-- Selector de Fecha -->
-                <div class="bg-white rounded-lg p-6 shadow-sm mb-6">
-                    <h2 class="text-xl font-semibold mb-4">Seleccionar Fecha de Reporte</h2>
-                    
-                    <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
-                        <!-- Fecha personalizada -->
-                        <div>
-                            <label class="block text-sm font-medium text-gray-700 mb-3">
-                                Fecha específica:
-                            </label>
-                            <input 
-                                type="date" 
-                                id="selected-date"
-                                value="${today}"
-                                class="w-full border border-gray-300 rounded-md px-4 py-3 text-lg"
-                                onchange="DateSelectorComponent.updateDateSelection()"
-                            />
-                        </div>
-                        
-                        <!-- Información del día seleccionado -->
-                        <div>
-                            <label class="block text-sm font-medium text-gray-700 mb-3">
-                                Información del día:
-                            </label>
-                            <div id="date-info" class="bg-gray-50 rounded-md p-4">
-                                <p class="font-semibold" id="selected-day-name">${capitalize(currentDay)}</p>
-                                <p class="text-sm text-gray-600" id="selected-date-formatted">${DateUtils.formatDate(today)}</p>
-                                <p class="text-sm text-gray-500 mt-2" id="groups-count">Cargando grupos...</p>
-                            </div>
-                        </div>
-                    </div>
-                    
-                    <!-- Botón para continuar -->
-                    <div class="mt-6">
-                        <button 
-                            onclick="DateSelectorComponent.loadGroupsForSelectedDate()" 
-                            class="btn btn-primary btn-lg w-full"
-                            id="continue-btn"
-                        >
-                            📋 Ver Grupos de este Día
-                        </button>
-                    </div>
-                </div>
+                <!-- Selector de Fecha Principal -->
+                ${this.renderDateSelector(selectedDate, currentDay, groupsCount)}
 
-                <!-- Accesos rápidos a fechas comunes -->
-                ${this.renderQuickDates(today, currentDay)}
+                <!-- Accesos Rápidos -->
+                ${this.renderQuickAccess(currentDay)}
             </div>
         `;
     },
 
     /**
-     * Renderiza accesos rápidos a fechas
+     * Renderiza el selector de fecha principal
      */
-    renderQuickDates(today, currentDay) {
+    renderDateSelector(selectedDate, currentDay, groupsCount) {
+        const formattedDate = DateUtils.formatDate(selectedDate);
+
+        return `
+            <div class="bg-white rounded-lg p-6 shadow-sm mb-6">
+                <h2 class="text-xl font-semibold mb-4">Seleccionar Fecha de Reporte</h2>
+                
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+                    <!-- Fecha personalizada -->
+                    <div>
+                        <label class="block text-sm font-medium text-gray-700 mb-3">
+                            Fecha específica:
+                        </label>
+                        <input 
+                            type="date" 
+                            id="selected-date"
+                            value="${selectedDate}"
+                            class="w-full border border-gray-300 rounded-md px-4 py-3 text-lg"
+                            onchange="DateController.onDateChange()"
+                        />
+                    </div>
+                    
+                    <!-- Información del día seleccionado -->
+                    <div>
+                        <label class="block text-sm font-medium text-gray-700 mb-3">
+                            Información del día:
+                        </label>
+                        <div id="date-info" class="bg-gray-50 rounded-md p-4">
+                            <p class="font-semibold" id="selected-day-name">${capitalize(currentDay)}</p>
+                            <p class="text-sm text-gray-600" id="selected-date-formatted">${formattedDate}</p>
+                            <div class="mt-2" id="groups-count">
+                                ${this.renderGroupsCount(groupsCount, currentDay)}
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                
+                <!-- Botón para continuar -->
+                <div class="mt-6">
+                    ${this.renderContinueButton(groupsCount)}
+                </div>
+            </div>
+        `;
+    },
+
+    /**
+     * Renderiza el contador de grupos
+     */
+    renderGroupsCount(count, dayName) {
+        if (count > 0) {
+            return `
+                <p class="text-sm text-green-600 font-medium">
+                    <span class="text-lg">✅</span> ${count} grupos programados
+                </p>
+            `;
+        } else {
+            const readableDayName = dayName === 'miercoles' ? 'miércoles' : 
+                                   dayName === 'sabado' ? 'sábados' : 
+                                   dayName + 's';
+            return `
+                <p class="text-sm text-gray-500">
+                    <span class="text-lg">📅</span> No hay grupos programados para los ${readableDayName}
+                </p>
+            `;
+        }
+    },
+
+    /**
+     * Renderiza el botón de continuar
+     */
+    renderContinueButton(groupsCount) {
+        const hasGroups = groupsCount > 0;
+        
+        return `
+            <button 
+                onclick="DateController.loadSelectedDate()" 
+                class="btn btn-primary btn-lg w-full ${!hasGroups ? 'opacity-50' : ''}"
+                id="continue-btn"
+                ${!hasGroups ? 'disabled' : ''}
+            >
+                ${hasGroups 
+                    ? `📋 Ver ${groupsCount} Grupos de este Día`
+                    : '❌ No hay grupos este día'
+                }
+            </button>
+        `;
+    },
+
+    /**
+     * Renderiza los accesos rápidos a fechas
+     */
+    renderQuickAccess(currentDay) {
         return `
             <div class="bg-white rounded-lg p-6 shadow-sm">
                 <h3 class="text-lg font-semibold mb-4">Accesos Rápidos</h3>
                 <div class="grid grid-cols-2 md:grid-cols-4 gap-3">
-                    <button onclick="DateSelectorComponent.selectQuickDate('today')" class="btn btn-outline p-4 text-center">
-                        <div class="text-lg mb-1">📅</div>
-                        <div class="text-sm">Hoy</div>
-                        <div class="text-xs text-gray-500">${capitalize(currentDay)}</div>
-                    </button>
-                    <button onclick="DateSelectorComponent.selectQuickDate('yesterday')" class="btn btn-outline p-4 text-center">
-                        <div class="text-lg mb-1">⏮️</div>
-                        <div class="text-sm">Ayer</div>
-                    </button>
-                    <button onclick="DateSelectorComponent.selectQuickDate('tomorrow')" class="btn btn-outline p-4 text-center">
-                        <div class="text-lg mb-1">⏭️</div>
-                        <div class="text-sm">Mañana</div>
-                    </button>
-                    <button onclick="ReportsComponent.show()" class="btn btn-secondary p-4 text-center">
-                        <div class="text-lg mb-1">📊</div>
-                        <div class="text-sm">Reportes</div>
-                    </button>
+                    ${this.renderQuickButton('today', '📅', 'Hoy', capitalize(currentDay))}
+                    ${this.renderQuickButton('yesterday', '⏮️', 'Ayer', '')}
+                    ${this.renderQuickButton('tomorrow', '⏭️', 'Mañana', '')}
+                    ${this.renderQuickButton('reports', '📊', 'Reportes', '', 'ReportsController.show()')}
                 </div>
             </div>
         `;
     },
 
     /**
-     * Actualiza la información cuando cambia la fecha seleccionada
+     * Renderiza un botón de acceso rápido
      */
-    updateDateSelection() {
-        const dateInput = document.getElementById('selected-date');
-        const selectedDate = dateInput.value;
+    renderQuickButton(type, icon, title, subtitle, customAction = null) {
+        const action = customAction || `DateController.selectQuickDate('${type}')`;
         
-        if (!selectedDate) return;
-        
-        // Actualizar información del día
-        const dayName = DateUtils.getDayFromDate(selectedDate);
+        return `
+            <button onclick="${action}" class="btn btn-outline p-4 text-center">
+                <div class="text-lg mb-1">${icon}</div>
+                <div class="text-sm font-medium">${title}</div>
+                ${subtitle ? `<div class="text-xs text-gray-500">${subtitle}</div>` : ''}
+            </button>
+        `;
+    },
+
+    /**
+     * Actualiza solo la información del día seleccionado
+     */
+    updateDateInfo(data = {}) {
+        const {
+            selectedDate,
+            dayName,
+            groupsCount = 0
+        } = data;
+
         const formattedDate = DateUtils.formatDate(selectedDate);
-        
-        debugLog(`Fecha seleccionada: ${selectedDate} -> ${dayName}`);
-        
-        document.getElementById('selected-day-name').textContent = capitalize(dayName);
-        document.getElementById('selected-date-formatted').textContent = formattedDate;
-        
-        // Contar grupos para ese día
-        this.updateGroupsCount(selectedDate);
-    },
 
-    /**
-     * Actualiza el conteo de grupos para la fecha seleccionada
-     */
-    updateGroupsCount(selectedDate) {
-        const dayName = DateUtils.getDayFromDate(selectedDate);
-        
-        debugLog(`Actualizando conteo para ${selectedDate} (${dayName})`);
-        
-        const groupsForDay = DataUtils.getGroupsByDay(window.AppState.grupos, dayName);
-        const countElement = document.getElementById('groups-count');
+        // Actualizar elementos específicos
+        const dayNameElement = document.getElementById('selected-day-name');
+        const dateFormattedElement = document.getElementById('selected-date-formatted');
+        const groupsCountElement = document.getElementById('groups-count');
         const continueBtn = document.getElementById('continue-btn');
-        
-        if (!countElement) {
-            debugLog('ERROR: Elemento groups-count no encontrado');
-            return;
+
+        if (dayNameElement) {
+            dayNameElement.textContent = capitalize(dayName);
         }
-        
-        if (groupsForDay.length > 0) {
-            countElement.innerHTML = `
-                <span class="text-green-600 font-medium">${groupsForDay.length} grupos programados</span>
-            `;
-            
-            if (continueBtn) {
-                continueBtn.disabled = false;
-                continueBtn.classList.remove('opacity-50');
-                continueBtn.innerHTML = `📋 Ver ${groupsForDay.length} Grupos de este Día`;
-            }
-        } else {
-            // Mostrar nombre del día legible para el usuario
-            const readableDayName = dayName === 'miercoles' ? 'miércoles' : 
-                                   dayName === 'sabado' ? 'sábados' : 
-                                   dayName + 's';
-            
-            countElement.innerHTML = `
-                <span class="text-gray-500">No hay grupos programados para los ${readableDayName}</span>
-            `;
-            
-            if (continueBtn) {
-                continueBtn.disabled = true;
-                continueBtn.classList.add('opacity-50');
-                continueBtn.innerHTML = '❌ No hay grupos este día';
-            }
+
+        if (dateFormattedElement) {
+            dateFormattedElement.textContent = formattedDate;
+        }
+
+        if (groupsCountElement) {
+            groupsCountElement.innerHTML = this.renderGroupsCount(groupsCount, dayName);
+        }
+
+        if (continueBtn) {
+            const hasGroups = groupsCount > 0;
+            continueBtn.disabled = !hasGroups;
+            continueBtn.className = `btn btn-primary btn-lg w-full ${!hasGroups ? 'opacity-50' : ''}`;
+            continueBtn.innerHTML = hasGroups 
+                ? `📋 Ver ${groupsCount} Grupos de este Día`
+                : '❌ No hay grupos este día';
         }
     },
 
     /**
-     * Selecciona fecha rápida (hoy, ayer, mañana)
+     * Renderiza loading para el selector de fecha
      */
-    selectQuickDate(type) {
-        const dateInput = document.getElementById('selected-date');
-        const today = new Date();
-        let targetDate;
-        
-        switch (type) {
-            case 'today':
-                targetDate = today;
-                break;
-            case 'yesterday':
-                targetDate = new Date(today);
-                targetDate.setDate(today.getDate() - 1);
-                break;
-            case 'tomorrow':
-                targetDate = new Date(today);
-                targetDate.setDate(today.getDate() + 1);
-                break;
-            default:
-                return;
-        }
-        
-        const dateString = targetDate.toISOString().split('T')[0];
-        dateInput.value = dateString;
-        this.updateDateSelection();
+    renderLoading() {
+        return `
+            <div class="container">
+                <div class="flex items-center justify-center min-h-screen">
+                    <div class="text-center">
+                        <div class="spinner spinner-lg mx-auto mb-4"></div>
+                        <p class="text-gray-600 text-lg">Cargando sistema...</p>
+                        <p class="text-gray-500 text-sm mt-2">Verificando grupos disponibles...</p>
+                    </div>
+                </div>
+            </div>
+        `;
     },
 
     /**
-     * Carga los grupos para la fecha seleccionada y muestra el dashboard
+     * Renderiza error en el selector de fecha
      */
-    async loadGroupsForSelectedDate() {
-        const dateInput = document.getElementById('selected-date');
-        const selectedDate = dateInput.value;
-        
-        if (!selectedDate) {
-            UIUtils.showError('Por favor selecciona una fecha');
-            return;
-        }
-        
-        try {
-            UIUtils.showLoading('app', 'Cargando grupos...');
-            
-            // Guardar la fecha seleccionada en el estado global
-            window.AppState.selectedDate = selectedDate;
-            
-            // Ir al dashboard con la fecha seleccionada
-            AppController.showDashboard();
-            
-        } catch (error) {
-            console.error('Error al cargar grupos:', error);
-            UIUtils.showError('Error al cargar los grupos');
-        }
+    renderError(errorMessage) {
+        return `
+            <div class="container">
+                <div class="min-h-screen flex items-center justify-center">
+                    <div class="text-center max-w-md">
+                        <span class="text-6xl mb-4 block">⚠️</span>
+                        <h2 class="text-2xl font-bold text-gray-900 mb-4">Error al cargar</h2>
+                        <p class="text-gray-600 mb-6">${errorMessage}</p>
+                        <div class="space-y-3">
+                            <button onclick="DateController.retry()" class="btn btn-primary w-full">
+                                🔄 Reintentar
+                            </button>
+                            <button onclick="location.reload()" class="btn btn-outline w-full">
+                                ↻ Recargar Página
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        `;
     }
 };
 
-debugLog('date-selector.js cargado correctamente');
+// Hacer disponible globalmente
+window.DateSelectorView = DateSelectorView;
+
+debugLog('date-selector.js (component) cargado correctamente');
