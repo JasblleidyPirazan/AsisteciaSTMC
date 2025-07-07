@@ -744,15 +744,19 @@ const ValidationUtils = {
 };
 
 // ===========================================
-// FUNCIONES GLOBALES DE UTILIDAD
+// EXPORTAR TODO AL OBJETO GLOBAL WINDOW
 // ===========================================
 
-/**
- * Función global para cerrar notificaciones
- */
-function closeNotification() {
-    UIUtils.closeNotification();
-}
+// CRÍTICO: Hacer las utilidades disponibles globalmente
+window.DateUtils = DateUtils;
+window.DataUtils = DataUtils;
+window.UIUtils = UIUtils;
+window.StorageUtils = StorageUtils;
+window.ValidationUtils = ValidationUtils;
+
+// ===========================================
+// FUNCIONES GLOBALES DE UTILIDAD
+// ===========================================
 
 /**
  * Debug helper - solo en desarrollo
@@ -830,6 +834,15 @@ function generateColors(count) {
     
     return [...colors, ...additionalColors];
 }
+
+// EXPORTAR FUNCIONES GLOBALES
+window.debugLog = debugLog;
+window.formatNumber = formatNumber;
+window.capitalize = capitalize;
+window.isMobileDevice = isMobileDevice;
+window.checkConnection = checkConnection;
+window.getDeviceInfo = getDeviceInfo;
+window.generateColors = generateColors;
 
 // ===========================================
 // EVENTOS DE CONEXIÓN Y SINCRONIZACIÓN
