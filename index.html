@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Sistema Asistencia Tenis</title>
+    <title>Sistema Asistencia Tenis - MVP</title>
     
     <!-- Tailwind CSS CDN -->
     <script src="https://cdn.tailwindcss.com"></script>
@@ -67,7 +67,7 @@
             <div class="text-center">
                 <div class="animate-spin rounded-full h-12 w-12 border-b-2 border-primary-500 mx-auto mb-4"></div>
                 <p class="text-gray-600 text-lg">Cargando Sistema de Asistencia...</p>
-                <p class="text-gray-500 text-sm mt-2">Inicializando conexión con Google Sheets...</p>
+                <p class="text-gray-500 text-sm mt-2">Inicializando arquitectura modular...</p>
             </div>
         </div>
     </div>
@@ -99,29 +99,29 @@
             SPREADSHEET_ID: '17V4XZMYxc9wzzlc9JWXdoZgTmxhlM8I_p9ZUYoJn7OI',
             
             // Configuración del entorno
-            ENVIRONMENT: 'development', // Cambiado a development para debugging
-            DEBUG: true, // ACTIVADO para ver todos los logs de debug
-            
-            // Sistema ya no usa modo demo
-            USE_DEMO_MODE: false,
+            ENVIRONMENT: 'development',
+            DEBUG: true,
             
             // Configuración adicional para debugging
             VERBOSE_LOGGING: true,
             LOG_API_REQUESTS: true
         };
         
-        // Variable global para el estado de la aplicación
+        // Variable global para el estado de la aplicación (Simplificada para MVP)
         window.AppState = {
+            // Datos core
             user: null,
             isAuthenticated: false,
-            currentPage: 'date-selector',
             grupos: [],
             estudiantes: [],
+            
+            // Estado actual
+            currentView: 'date-selector',
+            selectedDate: null,
             currentAttendance: {},
             connectionStatus: 'online',
-            selectedDate: null,  // Nueva: fecha seleccionada para reportar
             
-            // Estado de depuración
+            // Debug info
             debugInfo: {
                 appStartTime: new Date().toISOString(),
                 lastDataLoad: null,
@@ -130,10 +130,164 @@
             }
         };
         
-        // Función para capturar errores de carga de scripts
+        // Log inicial
+        console.log('🎾 Sistema de Asistencia Tenis - MVP Modular');
+        console.log('📋 Configuración:', window.APP_CONFIG);
+        console.log('🕐 Iniciando:', new Date().toISOString());
+    </script>
+
+    <!-- SERVICIOS DE DATOS (Capa de datos) -->
+    <script src="js/services/group-service.js" onload="console.log('✅ GroupService cargado')" onerror="console.error('❌ Error: group-service.js')"></script>
+    <script src="js/services/student-service.js" onload="console.log('✅ StudentService cargado')" onerror="console.error('❌ Error: student-service.js')"></script>
+    <script src="js/services/attendance-service.js" onload="console.log('✅ AttendanceService cargado')" onerror="console.error('❌ Error: attendance-service.js')"></script>
+
+    <!-- COMPONENTES DE UI (Capa de presentación) -->
+    <script src="js/components/date-selector.js" onload="console.log('✅ DateSelectorView cargado')" onerror="console.error('❌ Error: date-selector.js')"></script>
+    <script src="js/components/dashboard.js" onload="console.log('✅ DashboardView cargado')" onerror="console.error('❌ Error: dashboard.js')"></script>
+    <script src="js/components/attendance-form.js" onload="console.log('✅ AttendanceFormView cargado')" onerror="console.error('❌ Error: attendance-form.js')"></script>
+    <script src="js/components/modals.js" onload="console.log('✅ ModalsView cargado')" onerror="console.error('❌ Error: modals.js')"></script>
+
+    <!-- CONTROLADORES (Capa de lógica de negocio) -->
+    <script src="js/controllers/app-controller.js" onload="console.log('✅ AppController cargado')" onerror="console.error('❌ Error: app-controller.js')"></script>
+    <script src="js/controllers/date-controller.js" onload="console.log('✅ DateController cargado')" onerror="console.error('❌ Error: date-controller.js')"></script>
+    <script src="js/controllers/attendance-controller.js" onload="console.log('✅ AttendanceController cargado')" onerror="console.error('❌ Error: attendance-controller.js')"></script>
+    <script src="js/controllers/group-controller.js" onload="console.log('✅ GroupController cargado')" onerror="console.error('❌ Error: group-controller.js')"></script>
+
+    <!-- UTILIDADES Y APIs (Capa base) -->
+    <script src="js/utils.js" onload="console.log('✅ Utils cargado')" onerror="console.error('❌ Error: utils.js')"></script>
+    <script src="js/sheets-api.js" onload="console.log('✅ SheetsAPI cargado')" onerror="console.error('❌ Error: sheets-api.js')"></script>
+
+    <!-- APLICACIÓN PRINCIPAL (Inicialización y routing) -->
+    <script src="js/main.js" onload="console.log('✅ Main (refactorizado) cargado')" onerror="console.error('❌ Error: main.js')"></script>
+
+    <!-- Verificación de dependencias e inicialización -->
+    <script>
+        // Lista completa de dependencias requeridas para el MVP
+        const REQUIRED_DEPENDENCIES = [
+            // Utilidades base
+            'DateUtils', 'DataUtils', 'UIUtils', 'StorageUtils', 'ValidationUtils',
+            
+            // API y servicios
+            'SheetsAPI', 'GroupService', 'StudentService', 'AttendanceService',
+            
+            // Componentes de UI
+            'DateSelectorView', 'DashboardView', 'AttendanceFormView', 'ModalsView', 'ModalsController',
+            
+            // Controladores
+            'AppController', 'DateController', 'AttendanceController', 'GroupController',
+            
+            // Funciones principales
+            'initApp', 'closeNotification'
+        ];
+        
+        /**
+         * Verifica que todas las dependencias estén cargadas
+         */
+        function checkMVPDependencies() {
+            console.log('🔍 Verificando dependencias del MVP...');
+            
+            const missing = REQUIRED_DEPENDENCIES.filter(dep => typeof window[dep] === 'undefined');
+            
+            if (missing.length > 0) {
+                console.error('❌ Dependencias faltantes:', missing);
+                
+                document.getElementById('app').innerHTML = `
+                    <div class="min-h-screen flex items-center justify-center bg-red-50">
+                        <div class="text-center max-w-lg p-6">
+                            <span class="text-6xl mb-4 block">🚨</span>
+                            <h2 class="text-2xl font-bold text-red-900 mb-4">Error de Carga del MVP</h2>
+                            <p class="text-red-700 mb-4">No se pudieron cargar ${missing.length} archivos necesarios:</p>
+                            <div class="bg-red-100 p-4 rounded mb-6 text-left max-h-40 overflow-y-auto">
+                                <ul class="text-red-600 text-sm space-y-1">
+                                    ${missing.map(dep => `<li>• ${dep}</li>`).join('')}
+                                </ul>
+                            </div>
+                            <div class="space-y-3">
+                                <button onclick="location.reload()" class="btn bg-red-600 text-white px-6 py-3 rounded hover:bg-red-700 w-full">
+                                    🔄 Recargar Página
+                                </button>
+                                <button onclick="console.log('Dependencias:', {required: REQUIRED_DEPENDENCIES, available: REQUIRED_DEPENDENCIES.filter(d => typeof window[d] !== 'undefined')})" 
+                                        class="btn bg-gray-600 text-white px-6 py-2 rounded hover:bg-gray-700 w-full text-sm">
+                                    🐛 Debug en Consola
+                                </button>
+                            </div>
+                            <div class="mt-4 text-xs text-red-500">
+                                <p>Verifica que todos los archivos .js estén en las carpetas correctas</p>
+                            </div>
+                        </div>
+                    </div>
+                `;
+                return false;
+            }
+            
+            console.log('✅ Todas las dependencias del MVP cargadas correctamente');
+            console.log(`📊 Total: ${REQUIRED_DEPENDENCIES.length} módulos cargados`);
+            return true;
+        }
+        
+        /**
+         * Inicialización cuando el DOM esté listo
+         */
+        document.addEventListener('DOMContentLoaded', function() {
+            console.log('🚀 DOM listo - Verificando MVP...');
+            
+            // Verificar dependencias
+            if (!checkMVPDependencies()) {
+                return;
+            }
+            
+            // Verificar configuración crítica
+            if (!window.APP_CONFIG.APPS_SCRIPT_URL || !window.APP_CONFIG.SPREADSHEET_ID) {
+                console.error('❌ Configuración incompleta');
+                document.getElementById('app').innerHTML = `
+                    <div class="min-h-screen flex items-center justify-center bg-yellow-50">
+                        <div class="text-center max-w-md p-6">
+                            <span class="text-6xl mb-4 block">⚙️</span>
+                            <h2 class="text-2xl font-bold text-yellow-900 mb-4">Error de Configuración</h2>
+                            <p class="text-yellow-700 mb-6">Faltan configuraciones críticas del sistema.</p>
+                            <button onclick="location.reload()" class="btn bg-yellow-600 text-white px-6 py-3 rounded hover:bg-yellow-700">
+                                🔄 Recargar Página
+                            </button>
+                        </div>
+                    </div>
+                `;
+                return;
+            }
+            
+            // Todo listo, inicializar MVP
+            try {
+                console.log('🎯 Iniciando MVP del Sistema de Asistencia Tenis...');
+                initApp();
+            } catch (error) {
+                console.error('💥 Error fatal al inicializar MVP:', error);
+                document.getElementById('app').innerHTML = `
+                    <div class="min-h-screen flex items-center justify-center bg-red-50">
+                        <div class="text-center max-w-md p-6">
+                            <span class="text-6xl mb-4 block">💥</span>
+                            <h2 class="text-2xl font-bold text-red-900 mb-4">Error Fatal</h2>
+                            <p class="text-red-700 mb-4">Error al inicializar el MVP:</p>
+                            <div class="bg-red-100 p-3 rounded mb-6 text-left">
+                                <pre class="text-red-600 text-xs">${error.message}</pre>
+                            </div>
+                            <div class="space-y-3">
+                                <button onclick="location.reload()" class="btn bg-red-600 text-white px-6 py-3 rounded hover:bg-red-700 w-full">
+                                    🔄 Recargar Página
+                                </button>
+                                <button onclick="window.getAppDebugInfo && console.log('Debug Info:', getAppDebugInfo())" 
+                                        class="btn bg-gray-600 text-white px-6 py-2 rounded hover:bg-gray-700 w-full text-sm">
+                                    🐛 Información de Debug
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                `;
+            }
+        });
+        
+        // Manejo mejorado de errores
         window.addEventListener('error', function(e) {
-            console.error('🔥 Error de carga:', e.filename, e.lineno, e.message);
-            if (window.AppState && window.AppState.debugInfo) {
+            console.error('🔥 Error de script:', e.filename, e.lineno, e.message);
+            if (window.AppState?.debugInfo) {
                 window.AppState.debugInfo.errors.push({
                     type: 'script_error',
                     message: e.message,
@@ -144,130 +298,9 @@
             }
         });
         
-        // Log inicial
-        console.log('🎾 Sistema de Asistencia Tenis - Iniciando...');
-        console.log('📋 Configuración:', window.APP_CONFIG);
-        console.log('🕐 Timestamp de inicio:', new Date().toISOString());
-    </script>
-
-    <!-- Scripts principales en orden de dependencia -->
-    <script src="js/utils.js" onload="console.log('✅ utils.js cargado')" onerror="console.error('❌ Error cargando utils.js')"></script>
-    <script src="js/sheets-api.js" onload="console.log('✅ sheets-api.js cargado')" onerror="console.error('❌ Error cargando sheets-api.js')"></script>
-    <script src="js/main.js" onload="console.log('✅ main.js cargado')" onerror="console.error('❌ Error cargando main.js')"></script>
-
-    <!-- Inicializar la aplicación con manejo de errores mejorado -->
-    <script>
-        // Verificar que todos los scripts se hayan cargado correctamente
-        function checkDependencies() {
-            const dependencies = [
-                { name: 'DateUtils', object: window.DateUtils },
-                { name: 'DataUtils', object: window.DataUtils },
-                { name: 'UIUtils', object: window.UIUtils },
-                { name: 'StorageUtils', object: window.StorageUtils },
-                { name: 'SheetsAPI', object: window.SheetsAPI },
-                { name: 'initApp', object: window.initApp }
-            ];
-            
-            console.log('🔍 Verificando dependencias...');
-            
-            // Las dependencias están definidas como const, no como window.objeto
-            // Verificamos que existan en el scope global de manera diferente
-            const availableDependencies = [];
-            
-            try {
-                if (typeof DateUtils !== 'undefined') availableDependencies.push('DateUtils');
-                if (typeof DataUtils !== 'undefined') availableDependencies.push('DataUtils');
-                if (typeof UIUtils !== 'undefined') availableDependencies.push('UIUtils');
-                if (typeof StorageUtils !== 'undefined') availableDependencies.push('StorageUtils');
-                if (typeof SheetsAPI !== 'undefined') availableDependencies.push('SheetsAPI');
-                if (typeof initApp !== 'undefined') availableDependencies.push('initApp');
-            } catch (e) {
-                console.log('⚠️ Error verificando dependencias:', e.message);
-            }
-            
-            console.log('✅ Dependencias disponibles:', availableDependencies);
-            
-            const expectedDependencies = ['DateUtils', 'DataUtils', 'UIUtils', 'StorageUtils', 'SheetsAPI', 'initApp'];
-            const missing = expectedDependencies.filter(dep => !availableDependencies.includes(dep));
-            
-            if (missing.length > 0) {
-                console.error('❌ Dependencias faltantes:', missing);
-                document.getElementById('app').innerHTML = `
-                    <div class="min-h-screen flex items-center justify-center">
-                        <div class="text-center max-w-md">
-                            <span class="text-6xl mb-4 block">⚠️</span>
-                            <h2 class="text-2xl font-bold text-gray-900 mb-4">Error de Carga</h2>
-                            <p class="text-gray-600 mb-6">No se pudieron cargar algunos archivos necesarios:</p>
-                            <ul class="text-left text-red-600 mb-6">
-                                ${missing.map(m => `<li>• ${m}</li>`).join('')}
-                            </ul>
-                            <p class="text-sm text-gray-500 mb-4">Dependencias cargadas: ${availableDependencies.join(', ')}</p>
-                            <button onclick="location.reload()" class="px-4 py-2 bg-primary-500 text-white rounded hover:bg-primary-600">
-                                🔄 Recargar Página
-                            </button>
-                        </div>
-                    </div>
-                `;
-                return false;
-            }
-            
-            console.log('✅ Todas las dependencias cargadas correctamente');
-            return true;
-        }
-        
-        // Inicializar cuando el DOM esté listo
-        document.addEventListener('DOMContentLoaded', function() {
-            console.log('🚀 DOM listo - Iniciando Sistema de Asistencia Tenis...');
-            
-            // Verificar dependencias
-            if (!checkDependencies()) {
-                return;
-            }
-            
-            // Verificar configuración crítica
-            if (!window.APP_CONFIG.APPS_SCRIPT_URL || !window.APP_CONFIG.SPREADSHEET_ID) {
-                console.error('❌ Configuración incompleta');
-                document.getElementById('app').innerHTML = `
-                    <div class="min-h-screen flex items-center justify-center">
-                        <div class="text-center max-w-md">
-                            <span class="text-6xl mb-4 block">⚙️</span>
-                            <h2 class="text-2xl font-bold text-gray-900 mb-4">Error de Configuración</h2>
-                            <p class="text-gray-600 mb-6">Faltan configuraciones críticas del sistema.</p>
-                            <button onclick="location.reload()" class="px-4 py-2 bg-primary-500 text-white rounded hover:bg-primary-600">
-                                🔄 Recargar Página
-                            </button>
-                        </div>
-                    </div>
-                `;
-                return;
-            }
-            
-            // Todo listo, inicializar la aplicación
-            try {
-                console.log('🎯 Iniciando aplicación principal...');
-                initApp();
-            } catch (error) {
-                console.error('💥 Error fatal al inicializar:', error);
-                document.getElementById('app').innerHTML = `
-                    <div class="min-h-screen flex items-center justify-center">
-                        <div class="text-center max-w-md">
-                            <span class="text-6xl mb-4 block">💥</span>
-                            <h2 class="text-2xl font-bold text-gray-900 mb-4">Error Fatal</h2>
-                            <p class="text-gray-600 mb-4">Error al inicializar la aplicación:</p>
-                            <p class="text-red-600 text-sm mb-6">${error.message}</p>
-                            <button onclick="location.reload()" class="px-4 py-2 bg-primary-500 text-white rounded hover:bg-primary-600">
-                                🔄 Recargar Página
-                            </button>
-                        </div>
-                    </div>
-                `;
-            }
-        });
-        
-        // Capturar errores no manejados
         window.addEventListener('unhandledrejection', function(event) {
             console.error('🚨 Promise rechazada:', event.reason);
-            if (window.AppState && window.AppState.debugInfo) {
+            if (window.AppState?.debugInfo) {
                 window.AppState.debugInfo.errors.push({
                     type: 'unhandled_rejection',
                     reason: event.reason.toString(),
@@ -276,24 +309,10 @@
             }
         });
         
-        // Función de utilidad para mostrar información de debug en consola
-        window.showDebugInfo = function() {
-            console.log('🐛 INFORMACIÓN DE DEBUG:');
-            console.log('📊 Estado de la aplicación:', window.AppState);
-            console.log('⚙️ Configuración:', window.APP_CONFIG);
-            console.log('🌐 Información del navegador:', {
-                userAgent: navigator.userAgent,
-                language: navigator.language,
-                online: navigator.onLine,
-                url: window.location.href
-            });
-            
-            if (window.AppState.debugInfo) {
-                console.log('🔍 Errores capturados:', window.AppState.debugInfo.errors);
-            }
-        };
-        
-        console.log('💡 Tip: Ejecuta showDebugInfo() en la consola para ver información de debug');
+        console.log('💡 Tips para desarrollo:');
+        console.log('   - getAppDebugInfo() para información completa');
+        console.log('   - clearAppData() para limpiar datos locales');
+        console.log('   - AppRouter.navigateTo(view, params) para navegación manual');
     </script>
 </body>
 </html>
