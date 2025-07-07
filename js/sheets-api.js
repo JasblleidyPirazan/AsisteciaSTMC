@@ -521,6 +521,14 @@ const SyncManager = {
 };
 
 // ===========================================
+// EXPORTAR AL OBJETO GLOBAL WINDOW
+// ===========================================
+
+// CRÍTICO: Hacer SheetsAPI disponible globalmente
+window.SheetsAPI = SheetsAPI;
+window.SyncManager = SyncManager;
+
+// ===========================================
 // INICIALIZACIÓN Y CONFIGURACIÓN
 // ===========================================
 
