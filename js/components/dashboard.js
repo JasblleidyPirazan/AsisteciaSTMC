@@ -163,42 +163,77 @@ const DashboardView = {
     },
 
     /**
-     * Renderiza una tarjeta de grupo individual
+     * Renderiza una tarjeta de grupo individual MEJORADA
      */
     renderGroupCard(group) {
         const ballClass = this.getBallLevelClass(group.bola);
         
         return `
-            <div class="group-card" onclick="GroupController.selectGroup('${group.codigo}')">
-                <div class="group-info">
-                    <h3>${group.descriptor || 'Grupo sin nombre'}</h3>
-                    <div class="ball-level ${ballClass}">${group.bola || 'Verde'}</div>
-                </div>
-                <div class="group-details">
-                    <div class="group-detail">
-                        <span class="icon">👨‍🏫</span>
-                        <span>${group.profe || 'Sin profesor'}</span>
-                    </div>
-                    <div class="group-detail">
-                        <span class="icon">🕐</span>
-                        <span>${group.hora || 'Sin horario'}</span>
-                    </div>
-                    <div class="group-detail">
-                        <span class="icon">🎾</span>
-                        <span>Cancha ${group.cancha || 'N/A'}</span>
-                    </div>
-                    <div class="group-detail">
-                        <span class="icon">📅</span>
-                        <span>${group.frecuencia_semanal || 0} clases/sem</span>
-                    </div>
-                </div>
+            <div class="group-card bg-white rounded-xl shadow-lg border border-gray-200 overflow-hidden hover:shadow-xl transform hover:-translate-y-1 transition-all duration-300 cursor-pointer" 
+                 onclick="GroupController.selectGroup('${group.codigo}')">
                 
-                <!-- Overlay de hover -->
-                <div class="absolute inset-0 bg-primary-500 bg-opacity-0 hover:bg-opacity-10 transition-all duration-200 rounded-lg flex items-center justify-center">
-                    <span class="text-white font-semibold opacity-0 hover:opacity-100 transition-opacity">
-                        👆 Tomar Asistencia
-                    </span>
+                <!-- Header con código y nivel -->
+                <div class="bg-gradient-to-r from-primary-500 to-primary-600 p-4 text-white">
+                    <div class="flex justify-between items-center">
+                        <h3 class="text-lg font-bold">${group.codigo}</h3>
+                        <div class="ball-level ${ballClass} bg-white bg-opacity-20 text-white border-white">
+                            ${group.bola || 'Verde'}
+                        </div>
+                    </div>
+                    <p class="text-primary-100 text-sm mt-1">${group.descriptor || 'Grupo sin nombre'}</p>
                 </div>
+
+                <!-- Contenido principal -->
+                <div class="p-6">
+                    <!-- Información principal -->
+                    <div class="grid grid-cols-2 gap-4 mb-4">
+                        <div class="group-detail">
+                            <div class="flex items-center text-gray-600 mb-1">
+                                <span class="icon text-lg mr-2">👨‍🏫</span>
+                                <span class="text-sm font-medium">Profesor</span>
+                            </div>
+                            <p class="text-gray-900 font-semibold">${group.profe || 'Sin profesor'}</p>
+                        </div>
+                        
+                        <div class="group-detail">
+                            <div class="flex items-center text-gray-600 mb-1">
+                                <span class="icon text-lg mr-2">🕐</span>
+                                <span class="text-sm font-medium">Horario</span>
+                            </div>
+                            <p class="text-gray-900 font-semibold">${group.hora || 'Sin horario'}</p>
+                        </div>
+                    </div>
+
+                    <!-- Información secundaria -->
+                    <div class="grid grid-cols-2 gap-4 pt-4 border-t border-gray-100">
+                        <div class="group-detail">
+                            <div class="flex items-center text-gray-600 mb-1">
+                                <span class="icon text-lg mr-2">🎾</span>
+                                <span class="text-sm font-medium">Cancha</span>
+                            </div>
+                            <p class="text-gray-900 font-semibold">Cancha ${group.cancha || 'N/A'}</p>
+                        </div>
+                        
+                        <div class="group-detail">
+                            <div class="flex items-center text-gray-600 mb-1">
+                                <span class="icon text-lg mr-2">📅</span>
+                                <span class="text-sm font-medium">Frecuencia</span>
+                            </div>
+                            <p class="text-gray-900 font-semibold">${group.frecuencia_semanal || 0} clases/sem</p>
+                        </div>
+                    </div>
+
+                    <!-- Call to action -->
+                    <div class="mt-6 pt-4 border-t border-gray-100">
+                        <div class="flex items-center justify-center text-primary-600 font-semibold">
+                            <span class="mr-2">👆</span>
+                            <span>Tomar Asistencia</span>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Indicador de hover -->
+                <div class="absolute inset-0 bg-primary-500 bg-opacity-0 hover:bg-opacity-5 transition-all duration-300 rounded-xl pointer-events-none"></div>
             </div>
         `;
     },
