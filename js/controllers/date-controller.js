@@ -39,6 +39,13 @@ const DateController = {
                 debugLog('DateController: Fecha inválida');
                 return;
             }
+
+            // Validar fecha
+            if (!this._isValidDate(selectedDate)) {
+                UIUtils.showWarning('Por favor selecciona una fecha válida');
+                this._resetToToday();
+                return;
+            }
             
             this._setState({ selectedDate, isLoading: true });
             
@@ -48,6 +55,7 @@ const DateController = {
         } catch (error) {
             console.error('DateController: Error al cambiar fecha:', error);
             UIUtils.showError('Error al procesar la fecha seleccionada');
+            this._resetToToday();
         } finally {
             this._setState({ isLoading: false });
         }
@@ -64,6 +72,12 @@ const DateController = {
             
             if (!targetDate) {
                 UIUtils.showError('Tipo de fecha rápida no válido');
+                return;
+            }
+
+            // Validar fecha calculada
+            if (!this._isValidDate(targetDate)) {
+                UIUtils.showWarning('Fecha no válida para asistencias');
                 return;
             }
             
@@ -83,6 +97,35 @@ const DateController = {
     },
 
     /**
+     * Selecciona un día específico de la semana actual
+     */
+    async selectDayOfWeek(dayName) {
+        debugLog(`DateController: Seleccionando día de semana - ${dayName}`);
+        
+        try {
+            const targetDate = this._getDateForDayOfWeek(dayName);
+            
+            if (!targetDate) {
+                UIUtils.showError('No se pudo calcular la fecha para ese día');
+                return;
+            }
+
+            // Actualizar input
+            const dateInput = document.getElementById('selected-date');
+            if (dateInput) {
+                dateInput.value = targetDate;
+            }
+            
+            // Actualizar información
+            await this.onDateChange();
+            
+        } catch (error) {
+            console.error(`DateController: Error seleccionando día ${dayName}:`, error);
+            UIUtils.showError('Error al seleccionar día de la semana');
+        }
+    },
+
+    /**
      * Carga los grupos para la fecha seleccionada y navega al dashboard
      */
     async loadSelectedDate() {
@@ -93,6 +136,13 @@ const DateController = {
             
             if (!selectedDate) {
                 UIUtils.showWarning('Por favor selecciona una fecha válida');
+                return;
+            }
+
+            // Validar fecha antes de continuar
+            if (!this._isValidDate(selectedDate)) {
+                UIUtils.showWarning('La fecha seleccionada no es válida');
+                this._resetToToday();
                 return;
             }
             
@@ -246,26 +296,46 @@ const DateController = {
     },
 
     /**
-     * Convierte nombre de día a formato legible
+     * Obtiene la fecha para un día específico de la semana actual
      */
-    _getReadableDayName(dayName) {
+    _getDateForDayOfWeek(dayName) {
         const dayMap = {
-            'lunes': 'lunes',
-            'martes': 'martes',
-            'miercoles': 'miércoles',
-            'jueves': 'jueves',
-            'viernes': 'viernes',
-            'sabado': 'sábados',
-            'domingo': 'domingos'
+            'lunes': 1,
+            'martes': 2,
+            'miercoles': 3,
+            'jueves': 4,
+            'viernes': 5,
+            'sabado': 6,
+            'domingo': 0
         };
+
+        const targetDayNumber = dayMap[dayName.toLowerCase()];
+        if (targetDayNumber === undefined) {
+            return null;
+        }
+
+        const today = new Date();
+        const currentDayNumber = today.getDay();
         
-        return dayMap[dayName] || dayName;
+        // Calcular días de diferencia
+        let dayDifference = targetDayNumber - currentDayNumber;
+        
+        // Si es el mismo día, mantener la fecha actual
+        // Si ya pasó en la semana, ir a la próxima semana
+        if (dayDifference < 0) {
+            dayDifference += 7;
+        }
+        
+        const targetDate = new Date(today);
+        targetDate.setDate(today.getDate() + dayDifference);
+        
+        return targetDate.toISOString().split('T')[0];
     },
 
     /**
      * Valida que una fecha sea válida para asistencias
      */
-    _isValidAttendanceDate(dateString) {
+    _isValidDate(dateString) {
         if (!ValidationUtils.isValidDate(dateString)) {
             return false;
         }
@@ -281,6 +351,38 @@ const DateController = {
         minPastDate.setDate(today.getDate() - 30);
         
         return inputDate >= minPastDate && inputDate <= maxFutureDate;
+    },
+
+    /**
+     * Resetea el selector a la fecha de hoy
+     */
+    _resetToToday() {
+        const today = DateUtils.getCurrentDate();
+        const dateInput = document.getElementById('selected-date');
+        
+        if (dateInput) {
+            dateInput.value = today;
+        }
+        
+        this._setState({ selectedDate: today });
+        this._updateDateInfo(today);
+    },
+
+    /**
+     * Convierte nombre de día a formato legible
+     */
+    _getReadableDayName(dayName) {
+        const dayMap = {
+            'lunes': 'lunes',
+            'martes': 'martes',
+            'miercoles': 'miércoles',
+            'jueves': 'jueves',
+            'viernes': 'viernes',
+            'sabado': 'sábados',
+            'domingo': 'domingos'
+        };
+        
+        return dayMap[dayName] || dayName;
     },
 
     /**
