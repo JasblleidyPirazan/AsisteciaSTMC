@@ -55,9 +55,12 @@ const DateSelectorView = {
                             type="date" 
                             id="selected-date"
                             value="${selectedDate}"
-                            class="w-full border border-gray-300 rounded-md px-4 py-3 text-lg"
+                            min="2024-01-01"
+                            max="2025-12-31"
+                            class="w-full border border-gray-300 rounded-md px-4 py-3 text-lg focus:ring-2 focus:ring-primary-500 focus:border-primary-500"
                             onchange="DateController.onDateChange()"
                         />
+                        <p class="text-xs text-gray-500 mt-2">Formato: DD/MM/AAAA</p>
                     </div>
                     
                     <!-- Información del día seleccionado -->
@@ -65,10 +68,10 @@ const DateSelectorView = {
                         <label class="block text-sm font-medium text-gray-700 mb-3">
                             Información del día:
                         </label>
-                        <div id="date-info" class="bg-gray-50 rounded-md p-4">
-                            <p class="font-semibold" id="selected-day-name">${capitalize(currentDay)}</p>
+                        <div id="date-info" class="bg-gray-50 rounded-md p-4 border border-gray-200">
+                            <p class="font-semibold text-lg" id="selected-day-name">${capitalize(currentDay)}</p>
                             <p class="text-sm text-gray-600" id="selected-date-formatted">${formattedDate}</p>
-                            <div class="mt-2" id="groups-count">
+                            <div class="mt-3" id="groups-count">
                                 ${this.renderGroupsCount(groupsCount, currentDay)}
                             </div>
                         </div>
@@ -89,18 +92,26 @@ const DateSelectorView = {
     renderGroupsCount(count, dayName) {
         if (count > 0) {
             return `
-                <p class="text-sm text-green-600 font-medium">
-                    <span class="text-lg">✅</span> ${count} grupos programados
-                </p>
+                <div class="flex items-center text-green-600">
+                    <span class="text-xl mr-2">✅</span>
+                    <div>
+                        <p class="font-medium">${count} grupos programados</p>
+                        <p class="text-sm text-green-500">¡Perfecto para tomar asistencias!</p>
+                    </div>
+                </div>
             `;
         } else {
             const readableDayName = dayName === 'miercoles' ? 'miércoles' : 
                                    dayName === 'sabado' ? 'sábados' : 
                                    dayName + 's';
             return `
-                <p class="text-sm text-gray-500">
-                    <span class="text-lg">📅</span> No hay grupos programados para los ${readableDayName}
-                </p>
+                <div class="flex items-center text-gray-500">
+                    <span class="text-xl mr-2">📅</span>
+                    <div>
+                        <p class="font-medium">No hay grupos programados</p>
+                        <p class="text-sm">Los ${readableDayName} no tienen clases</p>
+                    </div>
+                </div>
             `;
         }
     },
@@ -114,46 +125,76 @@ const DateSelectorView = {
         return `
             <button 
                 onclick="DateController.loadSelectedDate()" 
-                class="btn btn-primary btn-lg w-full ${!hasGroups ? 'opacity-50' : ''}"
+                class="btn btn-primary btn-lg w-full transition-all duration-300 ${!hasGroups ? 'opacity-50 cursor-not-allowed' : 'hover:bg-primary-600 hover:shadow-lg'}"
                 id="continue-btn"
                 ${!hasGroups ? 'disabled' : ''}
             >
                 ${hasGroups 
-                    ? `📋 Ver ${groupsCount} Grupos de este Día`
-                    : '❌ No hay grupos este día'
+                    ? `<span class="flex items-center justify-center">
+                         <span class="text-2xl mr-3">📋</span>
+                         <div class="text-left">
+                             <div class="font-bold">Ver ${groupsCount} Grupos</div>
+                             <div class="text-sm opacity-90">Continuar al dashboard</div>
+                         </div>
+                       </span>`
+                    : `<span class="flex items-center justify-center">
+                         <span class="text-2xl mr-3">❌</span>
+                         <span>No hay grupos este día</span>
+                       </span>`
                 }
             </button>
         `;
     },
 
     /**
-     * Renderiza los accesos rápidos a fechas
+     * Renderiza los accesos rápidos a fechas MEJORADOS
      */
     renderQuickAccess(currentDay) {
         return `
             <div class="bg-white rounded-lg p-6 shadow-sm">
-                <h3 class="text-lg font-semibold mb-4">Accesos Rápidos</h3>
-                <div class="grid grid-cols-2 md:grid-cols-4 gap-3">
-                    ${this.renderQuickButton('today', '📅', 'Hoy', capitalize(currentDay))}
-                    ${this.renderQuickButton('yesterday', '⏮️', 'Ayer', '')}
-                    ${this.renderQuickButton('tomorrow', '⏭️', 'Mañana', '')}
-                    ${this.renderQuickButton('reports', '📊', 'Reportes', '', 'ReportsController.show()')}
+                <h3 class="text-lg font-semibold mb-4">Navegación Rápida</h3>
+                <div class="grid grid-cols-2 md:grid-cols-4 gap-4">
+                    ${this.renderQuickButton('today', '📅', 'Hoy', capitalize(currentDay), 'btn-primary')}
+                    ${this.renderQuickButton('yesterday', '⏮️', 'Ayer', this._getRelativeDayName(-1), 'btn-outline')}
+                    ${this.renderQuickButton('tomorrow', '⏭️', 'Mañana', this._getRelativeDayName(1), 'btn-outline')}
+                    ${this.renderCustomButton('reports', '📊', 'Reportes', 'Ver estadísticas', 'ReportsController.show()', 'btn-secondary')}
+                </div>
+                
+                <!-- Navegación por semana -->
+                <div class="mt-6 pt-6 border-t border-gray-200">
+                    <h4 class="text-md font-medium text-gray-700 mb-3">Navegación por Semana</h4>
+                    <div class="flex gap-2 overflow-x-auto">
+                        ${this._renderWeekNavigation()}
+                    </div>
                 </div>
             </div>
         `;
     },
 
     /**
-     * Renderiza un botón de acceso rápido
+     * Renderiza un botón de acceso rápido mejorado
      */
-    renderQuickButton(type, icon, title, subtitle, customAction = null) {
-        const action = customAction || `DateController.selectQuickDate('${type}')`;
-        
+    renderQuickButton(type, icon, title, subtitle, buttonClass = 'btn-outline') {
         return `
-            <button onclick="${action}" class="btn btn-outline p-4 text-center">
-                <div class="text-lg mb-1">${icon}</div>
+            <button onclick="DateController.selectQuickDate('${type}')" 
+                    class="btn ${buttonClass} p-4 text-center h-auto hover:shadow-md transition-all duration-300">
+                <div class="text-2xl mb-2">${icon}</div>
                 <div class="text-sm font-medium">${title}</div>
-                ${subtitle ? `<div class="text-xs text-gray-500">${subtitle}</div>` : ''}
+                ${subtitle ? `<div class="text-xs text-gray-500 mt-1">${subtitle}</div>` : ''}
+            </button>
+        `;
+    },
+
+    /**
+     * Renderiza un botón personalizado
+     */
+    renderCustomButton(type, icon, title, subtitle, action, buttonClass = 'btn-outline') {
+        return `
+            <button onclick="${action}" 
+                    class="btn ${buttonClass} p-4 text-center h-auto hover:shadow-md transition-all duration-300">
+                <div class="text-2xl mb-2">${icon}</div>
+                <div class="text-sm font-medium">${title}</div>
+                ${subtitle ? `<div class="text-xs text-gray-500 mt-1">${subtitle}</div>` : ''}
             </button>
         `;
     },
@@ -191,10 +232,20 @@ const DateSelectorView = {
         if (continueBtn) {
             const hasGroups = groupsCount > 0;
             continueBtn.disabled = !hasGroups;
-            continueBtn.className = `btn btn-primary btn-lg w-full ${!hasGroups ? 'opacity-50' : ''}`;
+            continueBtn.className = `btn btn-primary btn-lg w-full transition-all duration-300 ${!hasGroups ? 'opacity-50 cursor-not-allowed' : 'hover:bg-primary-600 hover:shadow-lg'}`;
+            
             continueBtn.innerHTML = hasGroups 
-                ? `📋 Ver ${groupsCount} Grupos de este Día`
-                : '❌ No hay grupos este día';
+                ? `<span class="flex items-center justify-center">
+                     <span class="text-2xl mr-3">📋</span>
+                     <div class="text-left">
+                         <div class="font-bold">Ver ${groupsCount} Grupos</div>
+                         <div class="text-sm opacity-90">Continuar al dashboard</div>
+                     </div>
+                   </span>`
+                : `<span class="flex items-center justify-center">
+                     <span class="text-2xl mr-3">❌</span>
+                     <span>No hay grupos este día</span>
+                   </span>`;
         }
     },
 
@@ -238,6 +289,45 @@ const DateSelectorView = {
                 </div>
             </div>
         `;
+    },
+
+    // ===========================================
+    // MÉTODOS AUXILIARES PRIVADOS
+    // ===========================================
+
+    /**
+     * Obtiene el nombre del día relativo
+     */
+    _getRelativeDayName(offset) {
+        const days = ['domingo', 'lunes', 'martes', 'miércoles', 'jueves', 'viernes', 'sábado'];
+        const today = new Date();
+        const targetDate = new Date(today);
+        targetDate.setDate(today.getDate() + offset);
+        const dayName = days[targetDate.getDay()];
+        return capitalize(dayName);
+    },
+
+    /**
+     * Renderiza navegación por semana
+     */
+    _renderWeekNavigation() {
+        const days = [
+            { key: 'lunes', name: 'Lun', icon: '📅' },
+            { key: 'martes', name: 'Mar', icon: '📅' },
+            { key: 'miercoles', name: 'Mié', icon: '📅' },
+            { key: 'jueves', name: 'Jue', icon: '📅' },
+            { key: 'viernes', name: 'Vie', icon: '📅' },
+            { key: 'sabado', name: 'Sáb', icon: '📅' },
+            { key: 'domingo', name: 'Dom', icon: '📅' }
+        ];
+
+        return days.map(day => `
+            <button onclick="DateController.selectDayOfWeek('${day.key}')" 
+                    class="btn btn-outline btn-sm px-3 py-2 flex-shrink-0 hover:bg-primary-50 transition-colors">
+                <span class="text-sm mr-1">${day.icon}</span>
+                <span class="text-xs font-medium">${day.name}</span>
+            </button>
+        `).join('');
     }
 };
 
