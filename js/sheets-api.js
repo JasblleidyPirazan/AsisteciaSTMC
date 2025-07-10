@@ -356,7 +356,7 @@ const SheetsAPI = {
                 Estado: record.Estado,
                 Justificacion: record.Justificacion || '',
                 Descripcion: record.Descripcion || '',
-                Enviado_por: record.Enviado_por || window.AppState.user?.email || 'usuario',
+                Enviado_Por: record.Enviado_Por || window.AppState.user?.email || 'usuario',
                 Timestamp: record.Timestamp || DateUtils.getCurrentTimestamp()
             }));
 
