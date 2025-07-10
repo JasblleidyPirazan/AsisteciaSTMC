@@ -197,36 +197,6 @@ const AppRouter = {
 // ===========================================
 
 /**
- * Controlador de reposiciones (placeholder)
- */
-const RepositionController = {
-    async showSelector() {
-        debugLog('RepositionController: Funcionalidad en desarrollo');
-        
-        const html = `
-            <div class="container">
-                <div class="min-h-screen flex items-center justify-center">
-                    <div class="text-center max-w-md">
-                        <span class="text-6xl mb-4 block">🚧</span>
-                        <h2 class="text-2xl font-bold text-gray-900 mb-4">Función en Desarrollo</h2>
-                        <p class="text-gray-600 mb-6">La función de reposiciones individuales estará disponible pronto.</p>
-                        <button onclick="AppController.showDashboard()" class="btn btn-primary">
-                            🏠 Volver al Dashboard
-                        </button>
-                    </div>
-                </div>
-            </div>
-        `;
-        
-        document.getElementById('app').innerHTML = html;
-    },
-
-    async create() {
-        await this.showSelector();
-    }
-};
-
-/**
  * Controlador de reportes (placeholder)
  */
 const ReportsController = {
@@ -257,42 +227,7 @@ const ReportsController = {
     }
 };
 
-/**
- * Controlador de sincronización (placeholder)
- */
-const SyncController = {
-    async showPending() {
-        debugLog('SyncController: Mostrando datos pendientes');
-        
-        const pendingData = StorageUtils.getPendingAttendance();
-        
-        if (pendingData.length === 0) {
-            UIUtils.showInfo('No hay datos pendientes de sincronización');
-            return;
-        }
-        
-        const html = `
-            <div class="container">
-                <div class="min-h-screen flex items-center justify-center">
-                    <div class="text-center max-w-md">
-                        <span class="text-6xl mb-4 block">⏳</span>
-                        <h2 class="text-2xl font-bold text-gray-900 mb-4">Datos Pendientes</h2>
-                        <p class="text-gray-600 mb-6">Hay ${pendingData.length} registros esperando sincronización.</p>
-                        <div class="space-y-3">
-                            <button onclick="SyncController.forcSync()" class="btn btn-primary w-full">
-                                🔄 Sincronizar Ahora
-                            </button>
-                            <button onclick="AppController.showDashboard()" class="btn btn-outline w-full">
-                                🏠 Volver al Dashboard
-                            </button>
-                        </div>
-                    </div>
-                </div>
-            </div>
-        `;
-        
-        document.getElementById('app').innerHTML = html;
-    },
+
 
     async forcSync() {
         try {
