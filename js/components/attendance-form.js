@@ -56,7 +56,7 @@ const AttendanceFormView = {
                 ${this.renderGroupInfo(group, attendanceType === 'reposition' ? 'Reposición Individual' : null, students.length)}
 
                 <!-- Controles de Asistencia Masiva -->
-                ${this.(attendanceType)}
+                ${this.renderMassControls(attendanceType)}
 
                 <!-- Lista de Estudiantes -->
                 ${this.renderStudentsList(students, attendanceType)}
