@@ -406,7 +406,7 @@ const AttendanceController = {
             
             // Agregar ID de clase a cada registro
             records.forEach(record => {
-                record.id_clase = classId;
+                record.ID_Clase = classId;
             });
             
             // MEJORA: Usar nueva lógica híbrida de AttendanceService
