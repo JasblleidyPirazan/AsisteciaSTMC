@@ -404,14 +404,13 @@ const AttendanceController = {
     },
 
     /**
-     * Abre el modal de reposición individual
+     * Abre el modal de reposición individual - CORREGIDO
      */
     async openRepositionModal() {
-        debugLog('AttendanceController: Abriendo modal de reposición individual');
+        debugLog('AttendanceController: Abriendo modal de reposición individual - MÉTODO CORREGIDO');
         
         try {
             const currentGroup = this._state.currentGroup;
-            const classId = this._state.classId;
             const selectedDate = window.AppState.selectedDate || DateUtils.getCurrentDate();
             const selectedAssistant = this._state.selectedAssistant;
             
@@ -421,10 +420,32 @@ const AttendanceController = {
                 return;
             }
             
+            // CORREGIDO: Usar el ID de clase existente o crear uno temporal
+            let classId = this._state.classId;
+            
+            // Si no hay ID de clase, intentar crear uno o usar temporal
+            if (!classId) {
+                try {
+                    // Verificar si la clase ya existe
+                    const existingClass = await ClassControlService.checkClassExists(selectedDate, currentGroup.codigo);
+                    if (existingClass.exists && existingClass.classData) {
+                        classId = existingClass.classData.id;
+                        this._setState({ classId: classId });
+                    } else {
+                        // Crear un ID temporal para la reposición
+                        classId = `TEMP_${selectedDate}_${currentGroup.codigo}`;
+                        UIUtils.showWarning('Reposición sin clase registrada - se creará registro temporal');
+                    }
+                } catch (error) {
+                    console.warn('Error verificando clase existente:', error);
+                    classId = `TEMP_${selectedDate}_${currentGroup.codigo}`;
+                }
+            }
+            
             // Preparar datos de la clase para el modal
             const classData = {
                 groupCode: currentGroup.codigo,
-                classId: classId, // Puede ser null, se manejará en el servicio
+                classId: classId,
                 selectedDate: selectedDate,
                 sentBy: window.AppState.user?.email || 'usuario',
                 groupData: currentGroup,
@@ -433,7 +454,7 @@ const AttendanceController = {
             
             debugLog('AttendanceController: Datos de clase para reposición:', classData);
             
-            // Abrir modal de reposición
+            // CORREGIDO: Llamar al método correcto del RepositionController
             await RepositionController.openFromAttendance(classData);
             
         } catch (error) {
