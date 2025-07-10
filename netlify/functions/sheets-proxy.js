@@ -1,7 +1,7 @@
 // netlify/functions/sheets-proxy.js
 // Función proxy mejorada con mejor manejo de errores y debugging
 
-const GOOGLE_SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbyLBA04ZPHwTiPmD8QGcU757Yq1baPlGuLuF_Lkp5tT3FUoFEZEWcYfdXnkpbjw1WuI/exec';
+const GOOGLE_SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbywVEF7UA42L2lSNNxM0OumfMWFRTl4na40wTe_Su1m2A9UQfcfcz48By7wgeTGmhwB/exec';
 const TIMEOUT_MS = 25000; // 25 segundos
 
 exports.handler = async (event, context) => {
