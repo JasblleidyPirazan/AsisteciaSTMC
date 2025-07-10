@@ -333,35 +333,50 @@ const SheetsAPI = {
         }
     },
 
-    /**
-     * Guarda asistencia en Google Sheets (ACTUALIZADA CON ID_CLASE)
+  
+     * Guarda asistencia en Google Sheets (CORREGIDO - Sin reformateo innecesario)
      */
     async saveAttendance(attendanceDataArray) {
-        debugLog('Guardando asistencia con ID de clase:', attendanceDataArray);
+        debugLog('Guardando asistencia:', attendanceDataArray);
         
         try {
             if (!Array.isArray(attendanceDataArray) || attendanceDataArray.length === 0) {
                 throw new Error('Datos de asistencia inválidos');
             }
 
-            // Convertir formato del frontend al formato esperado por Apps Script
-            // NUEVO FORMATO: Incluye ID_Clase en la posición 1
-            const formattedData = attendanceDataArray.map(record => ({
-                ID: record.ID || DataUtils.generateId('AST'),
-                ID_Clase: record.ID_Clase || '',  // NUEVO: ID de la clase
-                Fecha: record.Fecha || DateUtils.getCurrentDate(),
-                Estudiante_ID: record.Estudiante_ID,
-                Grupo_Codigo: record.Grupo_Codigo,
-                Tipo_Clase: record.Tipo_Clase || 'Regular',
-                Estado: record.Estado,
-                Justificacion: record.Justificacion || '',
-                Descripcion: record.Descripcion || '',
-                Enviado_Por: record.Enviado_Por || window.AppState.user?.email || 'usuario',
-                Timestamp: record.Timestamp || DateUtils.getCurrentTimestamp()
-            }));
+            // CORREGIDO: Los datos ya vienen en el formato correcto desde AttendanceService
+            // Solo validar que tengan los campos necesarios
+            const validatedData = attendanceDataArray.map((record, index) => {
+                // Validar campos críticos
+                const requiredFields = ['ID', 'Estudiante_ID', 'Grupo_Codigo', 'Estado'];
+                const missingFields = requiredFields.filter(field => 
+                    !record[field] || record[field].toString().trim() === ''
+                );
+                
+                if (missingFields.length > 0) {
+                    throw new Error(`Registro ${index + 1} - Campos requeridos faltantes: ${missingFields.join(', ')}`);
+                }
+
+                // Asegurar que todos los campos estén presentes con valores por defecto
+                return {
+                    ID: record.ID,
+                    ID_Clase: record.ID_Clase || record.id_clase || '',
+                    Fecha: record.Fecha || DateUtils.getCurrentDate(),
+                    Estudiante_ID: record.Estudiante_ID,
+                    Grupo_Codigo: record.Grupo_Codigo,
+                    Tipo_Clase: record.Tipo_Clase || 'Regular',
+                    Estado: record.Estado,
+                    Justificacion: record.Justificacion || '',
+                    Descripcion: record.Descripcion || '',
+                    Enviado_Por: record.Enviado_Por || record.Enviado_por || window.AppState.user?.email || 'usuario',
+                    Timestamp: record.Timestamp || DateUtils.getCurrentTimestamp()
+                };
+            });
+
+            debugLog('Datos validados para enviar al backend:', validatedData);
 
             const result = await this.makePostRequest('saveAttendance', {
-                attendanceData: formattedData
+                attendanceData: validatedData
             });
 
             debugLog(`Asistencia guardada: ${result.count || 'desconocido'} registros`);
