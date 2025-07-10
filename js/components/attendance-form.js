@@ -270,7 +270,7 @@ renderAssistantSelector(data = {}) {
                 ${this.renderGroupInfoWithAssistant(group, selectedAssistant)}
     
                 <!-- Controles de Asistencia Masiva -->
-                ${this.(attendanceType)}
+                ${this.renderMassControls(attendanceType)}
     
                 <!-- Lista de Estudiantes -->
                 ${this.renderStudentsList(students, attendanceType)}
