@@ -1,5 +1,5 @@
 // netlify/functions/sheets-proxy.js
-// Función proxy para evitar errores CORS con Google Apps Script
+// Función proxy mejorada con mejor manejo de errores y debugging
 
 const GOOGLE_SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbzBgo0McjCj4JFJ0LoZwfBAv1NqnQ9GmymHgNq3xELCnnbKNK7gJSWXDO91KgEScuzY/exec';
 const TIMEOUT_MS = 25000; // 25 segundos
@@ -23,25 +23,41 @@ exports.handler = async (event, context) => {
     }
 
     try {
+        console.log(`[PROXY] === NUEVA PETICIÓN ===`);
         console.log(`[PROXY] Método: ${event.httpMethod}`);
-        console.log(`[PROXY] Headers:`, event.headers);
+        console.log(`[PROXY] Query params:`, event.queryStringParameters);
+        console.log(`[PROXY] Body length: ${event.body ? event.body.length : 0}`);
         
         let requestData;
         
         if (event.httpMethod === 'GET') {
-            // Para GET, convertir query parameters
+            // Para GET, usar query parameters
             const action = event.queryStringParameters?.action;
+            
+            if (!action) {
+                console.error('[PROXY] No action in GET request');
+                return {
+                    statusCode: 400,
+                    headers,
+                    body: JSON.stringify({
+                        success: false,
+                        error: 'Action parameter is required in GET request'
+                    })
+                };
+            }
+            
             requestData = {
-                action,
+                action: action,
                 ...event.queryStringParameters
             };
-            //delete requestData.action; // Evitar duplicado
-            requestData.action = action; // Asegurar que action esté al inicio
+            
+            console.log(`[PROXY] GET request data:`, requestData);
             
         } else if (event.httpMethod === 'POST') {
             // Para POST, usar el body
             try {
                 requestData = JSON.parse(event.body || '{}');
+                console.log(`[PROXY] POST request data:`, requestData);
             } catch (e) {
                 console.error('[PROXY] Error parsing POST body:', e);
                 return {
@@ -56,6 +72,7 @@ exports.handler = async (event, context) => {
         }
 
         if (!requestData?.action) {
+            console.error('[PROXY] No action in request data:', requestData);
             return {
                 statusCode: 400,
                 headers,
@@ -66,8 +83,32 @@ exports.handler = async (event, context) => {
             };
         }
 
-        console.log(`[PROXY] Action: ${requestData.action}`);
-        console.log(`[PROXY] Request data:`, JSON.stringify(requestData, null, 2));
+        console.log(`[PROXY] Processing action: ${requestData.action}`);
+        
+        // Validar acciones conocidas
+        const validActions = [
+            'getGroups', 'getTodayGroups', 'getStudents', 'getStudentsByGroup',
+            'getProfessors', 'getAssistants', 'getGroupByCode', 'checkClassExists',
+            'getSpreadsheetInfo', 'testConnection', 'saveAttendance', 'createClassRecord'
+        ];
+        
+        if (!validActions.includes(requestData.action)) {
+            console.warn(`[PROXY] Acción desconocida: ${requestData.action}`);
+            // Continuar de todos modos, dejar que Apps Script maneje el error
+        }
+
+        // Preparar request para Apps Script
+        const appsScriptPayload = {
+            action: requestData.action,
+            ...requestData
+        };
+
+        // Remover duplicados
+        if (appsScriptPayload.action && requestData.action && appsScriptPayload.action === requestData.action) {
+            // OK, no hay duplicados
+        }
+
+        console.log(`[PROXY] Enviando a Apps Script:`, JSON.stringify(appsScriptPayload, null, 2));
 
         // Timeout controller
         const controller = new AbortController();
@@ -76,61 +117,68 @@ exports.handler = async (event, context) => {
         }, TIMEOUT_MS);
 
         try {
-            console.log(`[PROXY] Enviando request a Google Apps Script...`);
-            
             const response = await fetch(GOOGLE_SCRIPT_URL, {
                 method: 'POST', // Siempre POST para Apps Script
                 headers: {
                     'Content-Type': 'application/json'
                 },
-                body: JSON.stringify(requestData),
+                body: JSON.stringify(appsScriptPayload),
                 signal: controller.signal
             });
 
             clearTimeout(timeoutId);
 
-            console.log(`[PROXY] Respuesta recibida: ${response.status}`);
+            console.log(`[PROXY] Apps Script response status: ${response.status}`);
+            console.log(`[PROXY] Apps Script response headers:`, Object.fromEntries(response.headers.entries()));
 
             if (!response.ok) {
                 const errorText = await response.text();
-                console.error(`[PROXY] Apps Script error: ${response.status} - ${errorText}`);
+                console.error(`[PROXY] Apps Script HTTP error: ${response.status} - ${errorText}`);
                 
                 return {
                     statusCode: 502,
                     headers,
                     body: JSON.stringify({
                         success: false,
-                        error: `Google Apps Script error: ${response.status}`,
-                        details: errorText.substring(0, 500)
+                        error: `Google Apps Script HTTP error: ${response.status}`,
+                        details: errorText.substring(0, 500),
+                        action: requestData.action
                     })
                 };
             }
 
             const responseText = await response.text();
-            console.log(`[PROXY] Respuesta exitosa, tamaño: ${responseText.length} caracteres`);
+            console.log(`[PROXY] Apps Script response length: ${responseText.length} chars`);
+            console.log(`[PROXY] Apps Script response preview:`, responseText.substring(0, 200));
 
             // Verificar que sea JSON válido
             try {
                 const jsonData = JSON.parse(responseText);
-                console.log(`[PROXY] JSON válido recibido`);
+                console.log(`[PROXY] Valid JSON response`);
+                console.log(`[PROXY] Response success:`, jsonData.success);
+                
+                if (!jsonData.success) {
+                    console.warn(`[PROXY] Apps Script returned success=false:`, jsonData.error);
+                }
                 
                 return {
                     statusCode: 200,
                     headers,
-                    body: responseText // Devolver el JSON tal como viene
+                    body: responseText
                 };
                 
             } catch (e) {
-                console.error('[PROXY] Respuesta no es JSON válido:', responseText.substring(0, 200));
+                console.error('[PROXY] Invalid JSON response from Apps Script');
+                console.error('[PROXY] Raw response:', responseText);
                 
-                // Si no es JSON, intentar crear respuesta de error estructurada
                 return {
                     statusCode: 502,
                     headers,
                     body: JSON.stringify({
                         success: false,
                         error: 'Invalid JSON response from Google Apps Script',
-                        details: responseText.substring(0, 200)
+                        details: responseText.substring(0, 200),
+                        action: requestData.action
                     })
                 };
             }
@@ -158,7 +206,8 @@ exports.handler = async (event, context) => {
                 body: JSON.stringify({
                     success: false,
                     error: 'Failed to connect to Google Apps Script',
-                    details: fetchError.message
+                    details: fetchError.message,
+                    action: requestData.action
                 })
             };
         }
