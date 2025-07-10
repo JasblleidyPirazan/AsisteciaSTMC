@@ -63,7 +63,7 @@ const AttendanceService = {
             Justificacion: options.justification || '',
             Descripcion: options.description || '',
             Enviado_por: options.sentBy || window.AppState.user?.email || 'usuario',
-            timestamp: DateUtils.getCurrentTimestamp()
+            Timestamp: DateUtils.getCurrentTimestamp()
         };
     },
 
