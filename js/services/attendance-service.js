@@ -1,7 +1,8 @@
 /**
- * SERVICIO DE ASISTENCIAS
- * ========================
- * Maneja toda la lógica relacionada con registro de asistencias
+ * SERVICIO DE ASISTENCIAS - SOLUCIÓN HÍBRIDA
+ * ==========================================
+ * FIX: Intenta guardado online primero, offline como fallback
+ * Elimina dependencia de window.AppState.connectionStatus poco confiable
  */
 
 const AttendanceService = {
@@ -125,7 +126,8 @@ const AttendanceService = {
     },
 
     /**
-     * Guarda registros de asistencia en el backend
+     * SOLUCIÓN HÍBRIDA: Guarda registros de asistencia
+     * Intenta online primero, offline como fallback
      */
     async saveAttendance(attendanceRecords, options = {}) {
         debugLog(`AttendanceService: Guardando ${attendanceRecords.length} registros`);
@@ -147,13 +149,17 @@ const AttendanceService = {
             // Formatear para backend
             const formattedData = this.formatForBackend(attendanceRecords);
 
-            // Verificar conexión
-            if (window.AppState.connectionStatus === 'online') {
-                // Guardar en línea
-                debugLog('AttendanceService: Guardando en línea via Google Sheets');
+            // SOLUCIÓN HÍBRIDA: Intentar online primero SIEMPRE
+            try {
+                debugLog('AttendanceService: Intentando guardado online directo...');
+                
+                // Intentar petición directa (como ClassControlService)
                 const result = await SheetsAPI.saveAttendance(formattedData);
                 
-                debugLog('AttendanceService: Guardado exitoso en línea');
+                // Si llegamos aquí, el guardado online fue exitoso
+                UIUtils.updateConnectionStatus('online');
+                debugLog('AttendanceService: Guardado online exitoso');
+                
                 return {
                     success: true,
                     saved: attendanceRecords.length,
@@ -161,30 +167,34 @@ const AttendanceService = {
                     result
                 };
 
-            } else {
-                // Guardar offline
-                debugLog('AttendanceService: Guardando offline');
+            } catch (onlineError) {
+                // Si falla online, usar fallback offline
+                debugLog('AttendanceService: Guardado online falló, usando fallback offline:', onlineError.message);
+                
+                UIUtils.updateConnectionStatus('offline');
+                
                 const savedCount = this._saveOffline(attendanceRecords, options);
                 
                 return {
                     success: true,
                     saved: savedCount,
                     method: 'offline',
-                    message: 'Datos guardados localmente. Se sincronizarán cuando haya conexión.'
+                    message: 'Datos guardados localmente. Se sincronizarán cuando haya conexión.',
+                    onlineError: onlineError.message
                 };
             }
 
         } catch (error) {
             console.error('AttendanceService: Error al guardar asistencia:', error);
             
-            // En caso de error, intentar guardar offline como backup
+            // En caso de error de validación, intentar guardar offline como backup
             try {
                 const savedCount = this._saveOffline(attendanceRecords, options);
                 return {
                     success: false,
                     error: error.message,
                     backupSaved: savedCount,
-                    message: 'Error al guardar en línea. Datos guardados localmente como respaldo.'
+                    message: 'Error al guardar. Datos guardados localmente como respaldo.'
                 };
             } catch (backupError) {
                 throw new Error(`Error al guardar: ${error.message}. Error en respaldo: ${backupError.message}`);
@@ -216,7 +226,7 @@ const AttendanceService = {
                 )
             );
 
-            // Guardar registros
+            // Guardar registros usando la nueva lógica híbrida
             const result = await this.saveAttendance(cancellationRecords, {
                 type: 'cancellation',
                 groupCode,
@@ -262,7 +272,7 @@ const AttendanceService = {
                 }
             });
 
-            // Guardar registros
+            // Guardar registros usando la nueva lógica híbrida
             const result = await this.saveAttendance(repositionRecords, {
                 type: 'reposition',
                 date: repositionDate
@@ -426,4 +436,4 @@ const AttendanceService = {
 // Hacer disponible globalmente
 window.AttendanceService = AttendanceService;
 
-debugLog('attendance-service.js cargado correctamente');
+debugLog('attendance-service.js SOLUCIONADO - Lógica híbrida implementada');
