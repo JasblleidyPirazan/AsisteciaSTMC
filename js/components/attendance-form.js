@@ -439,12 +439,12 @@ renderAssistantSelector(data = {}) {
         `;
     },
 
-    /**
+     /**
      * Renderiza controles masivos de asistencia
      */
     renderMassControls(attendanceType) {
         const extraButton = attendanceType === 'regular' ? `
-            <button onclick="RepositionController.showSelector()" class="btn btn-secondary">
+            <button onclick="AttendanceController.openRepositionModal()" class="btn btn-secondary">
                 ➕ Crear Reposición Individual
             </button>
         ` : '';
