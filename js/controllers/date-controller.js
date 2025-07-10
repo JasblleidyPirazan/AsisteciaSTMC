@@ -1,7 +1,7 @@
 /**
- * CONTROLADOR DE FECHA
- * ====================
- * Maneja toda la lógica del selector de fecha
+ * CONTROLADOR DE FECHA - VERSIÓN CORREGIDA
+ * =========================================
+ * Corrección para manejar mejor los casos donde no hay grupos disponibles
  */
 
 const DateController = {
@@ -206,14 +206,24 @@ const DateController = {
     },
 
     /**
-     * Carga información inicial para una fecha
+     * Carga información inicial para una fecha - MEJORADA
      */
     async _loadInitialDateInfo(date) {
         debugLog(`DateController: Cargando info inicial para ${date}`);
         
         try {
             const dayName = DateUtils.getDayFromDate(date);
-            const dayGroups = await GroupService.getGroupsByDay(dayName);
+            
+            // MEJORADO: Manejar mejor los errores del servicio de grupos
+            let dayGroups = [];
+            
+            try {
+                dayGroups = await GroupService.getGroupsByDay(dayName);
+            } catch (groupError) {
+                console.error('DateController: Error al cargar grupos:', groupError);
+                // No lanzar error, simplemente usar array vacío
+                debugLog('DateController: Continuando con 0 grupos debido a error en GroupService');
+            }
             
             this._setState({ 
                 availableGroups: dayGroups,
@@ -224,19 +234,33 @@ const DateController = {
             
         } catch (error) {
             console.error('DateController: Error cargando info inicial:', error);
-            this._setState({ availableGroups: [] });
+            // Usar valores por defecto
+            this._setState({ 
+                availableGroups: [],
+                selectedDate: date
+            });
         }
     },
 
     /**
-     * Actualiza la información de la fecha en la UI
+     * Actualiza la información de la fecha en la UI - MEJORADA
      */
     async _updateDateInfo(selectedDate) {
         debugLog(`DateController: Actualizando info para ${selectedDate}`);
         
         try {
             const dayName = DateUtils.getDayFromDate(selectedDate);
-            const dayGroups = await GroupService.getGroupsByDay(dayName);
+            
+            // MEJORADO: Manejar mejor los errores
+            let dayGroups = [];
+            
+            try {
+                dayGroups = await GroupService.getGroupsByDay(dayName);
+            } catch (groupError) {
+                console.error('DateController: Error al obtener grupos para actualizar UI:', groupError);
+                // Continuar con array vacío pero mostrar warning
+                UIUtils.showWarning('Error al cargar grupos. Mostrando información parcial.');
+            }
             
             // Actualizar estado interno
             this._setState({ 
@@ -256,12 +280,15 @@ const DateController = {
         } catch (error) {
             console.error('DateController: Error actualizando info de fecha:', error);
             
-            // Mostrar error en UI
+            // Mostrar error en UI con información mínima
+            const dayName = DateUtils.getDayFromDate(selectedDate);
             DateSelectorView.updateDateInfo({
                 selectedDate,
-                dayName: DateUtils.getDayFromDate(selectedDate),
+                dayName,
                 groupsCount: 0
             });
+            
+            UIUtils.showError('Error al cargar información de la fecha');
         }
     },
 
@@ -422,4 +449,4 @@ const DateController = {
 // Hacer disponible globalmente
 window.DateController = DateController;
 
-debugLog('date-controller.js cargado correctamente');
+debugLog('date-controller.js (versión corregida) cargado correctamente');
