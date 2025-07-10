@@ -1,7 +1,7 @@
 /**
- * CONTROLADOR DE ASISTENCIA - COMPLETAMENTE INTEGRADO
- * ===================================================
- * Versión final con todas las funciones faltantes implementadas
+ * CONTROLADOR DE ASISTENCIA - UI FEEDBACK MEJORADO
+ * ================================================
+ * Mejora el feedback al usuario basado en resultados reales
  */
 
 const AttendanceController = {
@@ -117,7 +117,7 @@ const AttendanceController = {
     },
 
     /**
-     * NUEVA FUNCIÓN: Continúa sin seleccionar asistente
+     * Continúa sin seleccionar asistente
      */
     async continueWithoutAssistant(groupCode) {
         debugLog('AttendanceController: Continuando sin asistente seleccionado');
@@ -370,10 +370,10 @@ const AttendanceController = {
     },
 
     /**
-     * Guarda los datos de asistencia usando ClassControlService
+     * MEJORADO: Guarda los datos de asistencia con feedback en tiempo real
      */
     async saveAttendanceData(groupCode) {
-        debugLog('AttendanceController: Guardando datos de asistencia con ClassControlService');
+        debugLog('AttendanceController: Guardando datos de asistencia con feedback mejorado');
         
         try {
             const attendanceData = this._state.attendanceData;
@@ -386,8 +386,8 @@ const AttendanceController = {
             
             this._setState({ isProcessing: true });
             
-            // Mostrar loading
-            ModalsController.showLoading('Guardando asistencia...', 'Por favor espera...');
+            // MEJORA: Mostrar loading específico en lugar de asumir offline
+            ModalsController.showLoading('Guardando asistencia...', 'Intentando guardar datos...');
             
             const selectedDate = window.AppState.selectedDate || DateUtils.getCurrentDate();
             const selectedAssistant = this._state.selectedAssistant;
@@ -409,24 +409,48 @@ const AttendanceController = {
                 record.id_clase = classId;
             });
             
-            // Guardar registros
+            // MEJORA: Usar nueva lógica híbrida de AttendanceService
             const result = await AttendanceService.saveAttendance(records);
             
             // Cerrar loading
             ModalsController.hideLoading();
             
-            // Mostrar resultado
-            const successData = {
-                title: 'Asistencia Guardada',
-                message: 'Clase y asistencia registradas correctamente',
-                details: [
+            // MEJORA: Mostrar resultado basado en método real usado
+            let message, details;
+            
+            if (result.method === 'online') {
+                message = 'Asistencia guardada correctamente';
+                details = [
                     `Grupo: ${groupCode}`,
                     `Fecha: ${DateUtils.formatDate(selectedDate)}`,
                     `Asistente: ${selectedAssistant?.nombre || 'No especificado'}`,
                     `Clase ID: ${classId}`,
                     `Registros guardados: ${attendanceCount}`,
-                    `Método: ${result.method === 'offline' ? 'Offline (se sincronizará)' : 'Online'}`
-                ],
+                    `✅ Guardado en línea exitoso`
+                ];
+                
+                // Actualizar estado de conexión
+                UIUtils.updateConnectionStatus('online');
+                
+            } else if (result.method === 'offline') {
+                message = 'Asistencia guardada localmente';
+                details = [
+                    `Grupo: ${groupCode}`,
+                    `Fecha: ${DateUtils.formatDate(selectedDate)}`,
+                    `Asistente: ${selectedAssistant?.nombre || 'No especificado'}`,
+                    `Clase ID: ${classId}`,
+                    `Registros guardados: ${attendanceCount}`,
+                    `⏳ Sin conexión - se sincronizará automáticamente`
+                ];
+                
+                // Actualizar estado de conexión
+                UIUtils.updateConnectionStatus('offline');
+            }
+            
+            const successData = {
+                title: message,
+                message: 'Clase y asistencia registradas',
+                details: details,
                 actions: [{
                     label: '🏠 Ir al Dashboard',
                     handler: 'AppController.showDashboard()',
@@ -498,10 +522,15 @@ const AttendanceController = {
                 selectedAssistant?.id || ''
             );
             
-            // Mostrar resultado
-            const message = result.attendanceResult.method === 'offline' 
-                ? `Cancelación guardada offline (${result.studentsAffected} estudiantes). Se sincronizará cuando haya conexión.`
-                : `Cancelación registrada para ${result.studentsAffected} estudiantes`;
+            // MEJORA: Mostrar resultado basado en método real usado
+            let message;
+            if (result.attendanceResult.method === 'online') {
+                message = `Cancelación registrada exitosamente para ${result.studentsAffected} estudiantes`;
+                UIUtils.updateConnectionStatus('online');
+            } else {
+                message = `Cancelación guardada localmente (${result.studentsAffected} estudiantes). Se sincronizará cuando haya conexión.`;
+                UIUtils.updateConnectionStatus('offline');
+            }
             
             UIUtils.showSuccess(message);
             
@@ -624,7 +653,7 @@ const AttendanceController = {
     },
 
     /**
-     * NUEVA FUNCIÓN: Exporta la asistencia (placeholder mejorado)
+     * Exporta la asistencia (placeholder mejorado)
      */
     exportAttendance(groupCode) {
         debugLog('AttendanceController: Exportando asistencia');
@@ -673,7 +702,7 @@ const AttendanceController = {
     },
 
     // ===========================================
-    // MÉTODOS PRIVADOS
+    // MÉTODOS PRIVADOS (sin cambios significativos)
     // ===========================================
 
     /**
@@ -854,4 +883,4 @@ const AttendanceController = {
 // Hacer disponible globalmente
 window.AttendanceController = AttendanceController;
 
-debugLog('AttendanceController completamente integrado cargado correctamente');
+debugLog('AttendanceController MEJORADO - Feedback UI en tiempo real implementado');
