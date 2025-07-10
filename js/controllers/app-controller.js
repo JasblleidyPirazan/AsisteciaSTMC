@@ -45,41 +45,53 @@ const AppController = {
      * Muestra el selector de fecha
      */
     async showDateSelector() {
-        debugLog('AppController: Mostrando selector de fecha');
+    debugLog('AppController: Mostrando selector de fecha');
+    
+    try {
+        this._setState({ currentView: 'date-selector', isLoading: true });
         
-        try {
-            this._setState({ currentView: 'date-selector', isLoading: true });
-            
-            // Renderizar loading inicial
-            UIUtils.showLoading('app', 'Cargando selector de fecha...');
-            
-            // Preparar datos para el selector
-            const today = DateUtils.getCurrentDate();
-            const currentDay = DateUtils.getCurrentDay();
-            
-            // Obtener grupos del día actual para mostrar información inicial
-            const todayGroups = await GroupService.getTodayGroups();
-            
-            const selectorData = {
-                selectedDate: today,
-                currentDay: currentDay,
-                groupsCount: todayGroups.length,
-                isToday: true
-            };
-            
-            // Renderizar selector de fecha
-            const html = DateSelectorView.render(selectorData);
-            document.getElementById('app').innerHTML = html;
-            
-            debugLog(`AppController: Selector de fecha mostrado (${todayGroups.length} grupos hoy)`);
-            
-        } catch (error) {
-            console.error('AppController: Error al mostrar selector de fecha:', error);
-            this._handleError('Error al cargar selector de fecha', error);
-        } finally {
-            this._setState({ isLoading: false });
-        }
-    },
+        // Renderizar loading inicial
+        UIUtils.showLoading('app', 'Cargando selector de fecha...');
+        
+        // Preparar datos para el selector
+        const today = DateUtils.getCurrentDate();
+        const currentDay = DateUtils.getCurrentDay();
+        
+        // Obtener grupos del día actual para mostrar información inicial
+        const todayGroups = await GroupService.getTodayGroups();
+        
+        const selectorData = {
+            selectedDate: today,
+            currentDay: currentDay,
+            groupsCount: todayGroups.length,
+            isToday: true
+        };
+        
+        // Renderizar selector de fecha
+        const html = DateSelectorView.render(selectorData);
+        document.getElementById('app').innerHTML = html;
+        
+        // CORRECCIÓN: Asegurar que el input tenga el valor correcto
+        setTimeout(() => {
+            const dateInput = document.getElementById('selected-date');
+            if (dateInput) {
+                dateInput.value = today;
+                debugLog('AppController: Valor de fecha input establecido:', today);
+                
+                // Actualizar estado del controlador de fecha
+                DateController._setState({ selectedDate: today });
+            }
+        }, 100);
+        
+        debugLog(`AppController: Selector de fecha mostrado (${todayGroups.length} grupos hoy)`);
+        
+    } catch (error) {
+        console.error('AppController: Error al mostrar selector de fecha:', error);
+        this._handleError('Error al cargar selector de fecha', error);
+    } finally {
+        this._setState({ isLoading: false });
+    }
+},
 
     /**
      * Muestra el dashboard con grupos del día seleccionado
