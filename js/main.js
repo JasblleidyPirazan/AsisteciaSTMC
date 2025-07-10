@@ -45,12 +45,21 @@ function checkDependencies() {
         // API y servicios
         'SheetsAPI', 'GroupService', 'StudentService', 'AttendanceService',
         'AssistantService', 'ClassControlService', // NUEVOS
+
+        // 🆕 NUEVO: Servicio de Reposición Individual
+        'RepositionService',
         
         // Componentes de UI
         'DateSelectorView', 'DashboardView', 'AttendanceFormView', 'ModalsView',
         
+        // 🆕 NUEVO: Componente de Reposición Individual
+        'RepositionModal',
+        
         // Controladores
         'AppController', 'DateController', 'AttendanceController', 'GroupController'
+
+         // 🆕 NUEVO: Controlador de Reposición Individual  
+        'RepositionController'
     ];
     
     const missing = requiredObjects.filter(obj => typeof window[obj] === 'undefined');
