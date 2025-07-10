@@ -197,22 +197,19 @@ const GroupService = {
     // ===========================================
 
     /**
-     * Normaliza un grupo desde el backend - VERSIÓN MEJORADA
-     */
-    /**
- * Normaliza un grupo desde el backend - VERSIÓN CORREGIDA CON HEADERS CORRECTOS
+     * Normaliza un grupo desde el backend - VERSIÓN CORREGIDA CON HEADERS CORRECTOS
      */
     _normalizeGroup(rawGroup, index = -1) {
         if (!rawGroup || typeof rawGroup !== 'object') {
             debugLog(`GroupService: rawGroup inválido en índice ${index}:`, rawGroup);
             return null;
         }
-    
+
         // DEBUG: Log detallado del grupo que estamos normalizando
         if (window.APP_CONFIG?.DEBUG && index < 3) {
             debugLog(`GroupService: Normalizando grupo ${index}:`, rawGroup);
         }
-    
+
         // CORREGIDO: Usar los headers exactos de Google Sheets
         let codigo = '';
         
@@ -227,7 +224,7 @@ const GroupService = {
             debugLog(`GroupService: Grupo sin código válido en índice ${index}:`, rawGroup);
             return null;
         }
-    
+
         // CORREGIDO: Usar headers exactos para campos críticos
         let hora = '';
         if (rawGroup.Hora && rawGroup.Hora.toString().trim() !== '') {
@@ -235,14 +232,14 @@ const GroupService = {
         } else if (rawGroup.hora && rawGroup.hora.toString().trim() !== '') {
             hora = rawGroup.hora.toString().trim();
         }
-    
+
         let profe = '';
         if (rawGroup.Profe && rawGroup.Profe.toString().trim() !== '') {
             profe = rawGroup.Profe.toString().trim();
         } else if (rawGroup.profe && rawGroup.profe.toString().trim() !== '') {
             profe = rawGroup.profe.toString().trim();
         }
-    
+
         // Si falta información crítica, rechazar el grupo
         if (!codigo || !hora || !profe) {
             debugLog(`GroupService: Grupo ${index} rechazado - faltan campos críticos:`, {
@@ -253,7 +250,7 @@ const GroupService = {
             });
             return null;
         }
-    
+
         const normalized = {
             codigo: codigo,
             dias: this._extractStringField(rawGroup, ['Días', 'dias', 'Dias']),
@@ -273,14 +270,14 @@ const GroupService = {
             descriptor: this._extractStringField(rawGroup, ['Descriptor', 'descriptor', 'descripcion', 'Descripcion']) || '',
             activo: this._normalizeBoolean(rawGroup.Activo || rawGroup.activo, true) // Default activo
         };
-    
+
         // DEBUG: Log del grupo normalizado si es uno de los primeros
         if (window.APP_CONFIG?.DEBUG && index < 3) {
             debugLog(`GroupService: Grupo ${index} normalizado:`, normalized);
         }
-    
+
         return normalized;
-    }
+    },
 
     /**
      * NUEVO: Extrae un campo string probando diferentes variaciones
@@ -403,13 +400,13 @@ const GroupService = {
     },
 
     /**
-     * Verifica si un grupo está activo en un día específico
+     * Verifica si un grupo está activo en un día específico - VERSIÓN MEJORADA
      */
     _isGroupActiveOnDay(group, dayName) {
         if (!group || !group.activo) {
             return false;
         }
-    
+
         const normalizedDay = dayName.toLowerCase().trim();
         
         // Verificar usando columnas booleanas (método preferido)
