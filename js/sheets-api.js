@@ -277,71 +277,72 @@ const SheetsAPI = {
     },
 
     /**
- * Obtiene todos los asistentes activos
- */
-SheetsAPI.getAssistants = async function() {
-    debugLog('Obteniendo asistentes...');
-    
-    try {
-        const assistants = await this.makeGetRequest('getAssistants');
-        debugLog(`Asistentes obtenidos: ${assistants ? assistants.length : 0}`);
+     * Obtiene todos los asistentes activos
+     */
+    async getAssistants() {
+        debugLog('Obteniendo asistentes...');
         
-        // Guardar en cache para uso offline
-        if (assistants && assistants.length > 0) {
-            StorageUtils.save('cached_assistants', assistants);
-        }
-        
-        return assistants || [];
-        
-    } catch (error) {
-        console.error('Error al obtener asistentes:', error);
-        
-        // Si estamos offline, intentar usar datos en cache
-        if (!navigator.onLine) {
-            const cachedAssistants = StorageUtils.get('cached_assistants', []);
-            if (cachedAssistants.length > 0) {
-                UIUtils.showWarning('Usando datos de asistentes guardados localmente (sin conexión)');
-                return cachedAssistants;
+        try {
+            const assistants = await this.makeGetRequest('getAssistants');
+            debugLog(`Asistentes obtenidos: ${assistants ? assistants.length : 0}`);
+            
+            // Guardar en cache para uso offline
+            if (assistants && assistants.length > 0) {
+                StorageUtils.save('cached_assistants', assistants);
             }
+            
+            return assistants || [];
+            
+        } catch (error) {
+            console.error('Error al obtener asistentes:', error);
+            
+            // Si estamos offline, intentar usar datos en cache
+            if (!navigator.onLine) {
+                const cachedAssistants = StorageUtils.get('cached_assistants', []);
+                if (cachedAssistants.length > 0) {
+                    UIUtils.showWarning('Usando datos de asistentes guardados localmente (sin conexión)');
+                    return cachedAssistants;
+                }
+            }
+            
+            throw error;
         }
-        
-        throw error;
-    }
-};
+    },
 
-/**
- * Busca un asistente por ID
- */
-SheetsAPI.getAssistantById = async function(assistantId) {
-    debugLog(`Obteniendo asistente: ${assistantId}`);
-    
-    try {
-        const allAssistants = await this.getAssistants();
-        const assistant = allAssistants.find(a => a.id === assistantId);
+    /**
+     * Busca un asistente por ID
+     */
+    async getAssistantById(assistantId) {
+        debugLog(`Obteniendo asistente: ${assistantId}`);
         
-        if (!assistant) {
-            throw new Error(`Asistente ${assistantId} no encontrado`);
+        try {
+            const allAssistants = await this.getAssistants();
+            const assistant = allAssistants.find(a => a.id === assistantId);
+            
+            if (!assistant) {
+                throw new Error(`Asistente ${assistantId} no encontrado`);
+            }
+            
+            debugLog(`Asistente encontrado:`, assistant);
+            return assistant;
+            
+        } catch (error) {
+            console.error(`Error al obtener asistente ${assistantId}:`, error);
+            throw error;
         }
-        
-        debugLog(`Asistente encontrado:`, assistant);
-        return assistant;
-        
-    } catch (error) {
-        console.error(`Error al obtener asistente ${assistantId}:`, error);
-        throw error;
-    }
-    
-        /**
+    },
+
+    /**
      * Guarda asistencia en Google Sheets (ACTUALIZADA CON ID_CLASE)
      */
-    SheetsAPI.saveAttendance = async function(attendanceDataArray) {
+    async saveAttendance(attendanceDataArray) {
         debugLog('Guardando asistencia con ID de clase:', attendanceDataArray);
         
         try {
             if (!Array.isArray(attendanceDataArray) || attendanceDataArray.length === 0) {
                 throw new Error('Datos de asistencia inválidos');
             }
-    
+
             // Convertir formato del frontend al formato esperado por Apps Script
             // NUEVO FORMATO: Incluye ID_Clase en la posición 1
             const formattedData = attendanceDataArray.map(record => ({
@@ -357,11 +358,11 @@ SheetsAPI.getAssistantById = async function(assistantId) {
                 enviado_por: record.enviado_por || window.AppState.user?.email || 'usuario',
                 timestamp: record.timestamp || DateUtils.getCurrentTimestamp()
             }));
-    
+
             const result = await this.makePostRequest('saveAttendance', {
                 attendanceData: formattedData
             });
-    
+
             debugLog(`Asistencia guardada: ${result.count || 'desconocido'} registros`);
             return result;
             
@@ -511,124 +512,125 @@ SheetsAPI.getAssistantById = async function(assistantId) {
             console.error('Error al obtener información del spreadsheet:', error);
             throw error;
         }
-    }
-};
+    },
 
-/ ===========================================
-// NUEVOS ENDPOINTS PARA CONTROL DE CLASES
-// ===========================================
+    // ===========================================
+    // NUEVOS ENDPOINTS PARA CONTROL DE CLASES
+    // ===========================================
 
-/**
- * Verifica si una clase ya fue reportada
- */
-SheetsAPI.checkClassExists = async function(fecha, grupoCode, horaGrupo) {
-    debugLog(`Verificando si clase existe: ${fecha}, ${grupoCode}, ${horaGrupo}`);
-    
-    try {
-        const result = await this.makeGetRequest('checkClassExists', {
-            fecha,
-            grupo_codigo: grupoCode,
-            hora_grupo: horaGrupo
-        });
+    /**
+     * Verifica si una clase ya fue reportada
+     */
+    async checkClassExists(fecha, grupoCode, horaGrupo) {
+        debugLog(`Verificando si clase existe: ${fecha}, ${grupoCode}, ${horaGrupo}`);
         
-        debugLog(`Resultado verificación clase:`, result);
-        return result;
-        
-    } catch (error) {
-        console.error('Error al verificar clase existente:', error);
-        throw error;
-    }
-};
-
-/**
- * Crea un registro de clase programada
- */
-SheetsAPI.createClassRecord = async function(classData) {
-    debugLog('Creando registro de clase:', classData);
-    
-    try {
-        const result = await this.makePostRequest('createClassRecord', {
-            fecha: classData.fecha,
-            grupo_codigo: classData.grupo_codigo,
-            hora_grupo: classData.hora_grupo,
-            estado: classData.estado,
-            motivo_cancelacion: classData.motivo_cancelacion || '',
-            asistente_id: classData.asistente_id || '',
-            creado_por: classData.creado_por || window.AppState.user?.email || 'usuario'
-        });
-        
-        debugLog('Clase creada correctamente:', result);
-        return result;
-        
-    } catch (error) {
-        console.error('Error al crear registro de clase:', error);
-        throw error;
-    }
-};
-
-/**
- * Obtiene un grupo específico por código
- */
-SheetsAPI.getGroupByCode = async function(groupCode) {
-    debugLog(`Obteniendo grupo por código: ${groupCode}`);
-    
-    try {
-        const result = await this.makeGetRequest('getGroupByCode', {
-            groupCode
-        });
-        
-        debugLog(`Grupo obtenido:`, result);
-        return result;
-        
-    } catch (error) {
-        console.error(`Error al obtener grupo ${groupCode}:`, error);
-        
-        // Fallback: buscar en cache local
         try {
-            const cachedGroups = StorageUtils.get('cached_groups', []);
-            const group = cachedGroups.find(g => g.codigo === groupCode);
+            const result = await this.makeGetRequest('checkClassExists', {
+                fecha,
+                grupo_codigo: grupoCode,
+                hora_grupo: horaGrupo
+            });
             
-            if (group) {
-                UIUtils.showWarning('Usando datos de grupo guardados localmente');
-                return { success: true, data: group };
-            }
-        } catch (fallbackError) {
-            // Ignorar error de fallback
+            debugLog(`Resultado verificación clase:`, result);
+            return result;
+            
+        } catch (error) {
+            console.error('Error al verificar clase existente:', error);
+            throw error;
         }
+    },
+
+    /**
+     * Crea un registro de clase programada
+     */
+    async createClassRecord(classData) {
+        debugLog('Creando registro de clase:', classData);
         
-        throw error;
+        try {
+            const result = await this.makePostRequest('createClassRecord', {
+                fecha: classData.fecha,
+                grupo_codigo: classData.grupo_codigo,
+                hora_grupo: classData.hora_grupo,
+                estado: classData.estado,
+                motivo_cancelacion: classData.motivo_cancelacion || '',
+                asistente_id: classData.asistente_id || '',
+                creado_por: classData.creado_por || window.AppState.user?.email || 'usuario'
+            });
+            
+            debugLog('Clase creada correctamente:', result);
+            return result;
+            
+        } catch (error) {
+            console.error('Error al crear registro de clase:', error);
+            throw error;
+        }
+    },
+
+    /**
+     * Obtiene un grupo específico por código
+     */
+    async getGroupByCode(groupCode) {
+        debugLog(`Obteniendo grupo por código: ${groupCode}`);
+        
+        try {
+            const result = await this.makeGetRequest('getGroupByCode', {
+                groupCode
+            });
+            
+            debugLog(`Grupo obtenido:`, result);
+            return result;
+            
+        } catch (error) {
+            console.error(`Error al obtener grupo ${groupCode}:`, error);
+            
+            // Fallback: buscar en cache local
+            try {
+                const cachedGroups = StorageUtils.get('cached_groups', []);
+                const group = cachedGroups.find(g => g.codigo === groupCode);
+                
+                if (group) {
+                    UIUtils.showWarning('Usando datos de grupo guardados localmente');
+                    return { success: true, data: group };
+                }
+            } catch (fallbackError) {
+                // Ignorar error de fallback
+            }
+            
+            throw error;
+        }
+    },
+
+    // ===========================================
+    // MÉTODOS AUXILIARES PARA VALIDACIÓN
+    // ===========================================
+
+    /**
+     * Función auxiliar para verificar si el endpoint GET es válido
+     */
+    _isValidEndpoint(action) {
+        const validEndpoints = [
+            'getGroups', 'getTodayGroups', 'getStudents', 'getStudentsByGroup',
+            'getProfessors', 'getAssistants', 'getGroupByCode', 'checkClassExists',
+            'getSpreadsheetInfo', 'testConnection', 'getAttendanceByDateRange',
+            'getAttendanceByStudent'
+        ];
+        
+        return validEndpoints.includes(action);
+    },
+
+    /**
+     * Función auxiliar para verificar si el endpoint POST es válido
+     */
+    _isValidPostEndpoint(action) {
+        const validPostEndpoints = [
+            'saveAttendance', 'createClassRecord', 'createScheduledClass',
+            'createRepositionClass', 'saveScheduledClass'
+        ];
+        
+        return validPostEndpoints.includes(action);
     }
 };
 
-
- // ===========================================
-// ACTUALIZACIÓN DE MAKEGETREQUEST PARA NUEVOS ENDPOINTS
-// ===========================================
-
-/**
- * Función auxiliar para verificar si el endpoint es válido
- */
-SheetsAPI._isValidEndpoint = function(action) {
-    const validEndpoints = [
-        'getGroups', 'getTodayGroups', 'getStudents', 'getStudentsByGroup',
-        'getProfessors', 'getAssistants', 'getGroupByCode', 'checkClassExists',
-        'getSpreadsheetInfo', 'testConnection'
-    ];
-    
-    return validEndpoints.includes(action);
-};
-
-/**
- * Función auxiliar para verificar si el endpoint POST es válido
- */
-SheetsAPI._isValidPostEndpoint = function(action) {
-    const validPostEndpoints = [
-        'saveAttendance', 'createClassRecord', 'createScheduledClass',
-        'createRepositionClass', 'saveScheduledClass'
-    ];
-    
-    return validPostEndpoints.includes(action);
-};   
 // ===========================================
 // MANAGER DE SINCRONIZACIÓN ACTUALIZADO
 // ===========================================
