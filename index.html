@@ -160,6 +160,10 @@
     <script src="js/services/group-service.js" onload="console.log('✅ GroupService cargado')" onerror="console.error('❌ Error: group-service.js')"></script>
     <script src="js/services/student-service.js" onload="console.log('✅ StudentService cargado')" onerror="console.error('❌ Error: student-service.js')"></script>
     <script src="js/services/attendance-service.js" onload="console.log('✅ AttendanceService cargado')" onerror="console.error('❌ Error: attendance-service.js')"></script>
+    
+    <!-- 🚨 SERVICIOS FALTANTES - AGREGAR ESTAS LÍNEAS -->
+    <script src="js/services/assistant-service.js" onload="console.log('✅ AssistantService cargado')" onerror="console.error('❌ Error: assistant-service.js')"></script>
+    <script src="js/services/class-control-service.js" onload="console.log('✅ ClassControlService cargado')" onerror="console.error('❌ Error: class-control-service.js')"></script>
 
     <!-- COMPONENTES DE UI (Capa de presentación) -->
     <script src="js/components/date-selector.js" onload="console.log('✅ DateSelectorView cargado')" onerror="console.error('❌ Error: date-selector.js')"></script>
@@ -185,6 +189,9 @@
             
             // API y servicios
             'SheetsAPI', 'GroupService', 'StudentService', 'AttendanceService',
+            
+            // 🚨 SERVICIOS QUE ESTABAN FALTANDO
+            'AssistantService', 'ClassControlService',
             
             // Componentes de UI
             'DateSelectorView', 'DashboardView', 'AttendanceFormView', 'ModalsView', 'ModalsController',
@@ -329,6 +336,8 @@
         console.log('   - getAppDebugInfo() para información completa');
         console.log('   - clearAppData() para limpiar datos locales');
         console.log('   - AppRouter.navigateTo(view, params) para navegación manual');
+        console.log('   - testAssistantIntegration() para probar asistentes');
+        console.log('   - testClassControlIntegration() para probar control de clases');
     </script>
 </body>
 </html>
