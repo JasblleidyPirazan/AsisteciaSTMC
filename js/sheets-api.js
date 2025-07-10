@@ -347,17 +347,17 @@ const SheetsAPI = {
             // Convertir formato del frontend al formato esperado por Apps Script
             // NUEVO FORMATO: Incluye ID_Clase en la posición 1
             const formattedData = attendanceDataArray.map(record => ({
-                id: record.id || DataUtils.generateId('AST'),
-                id_clase: record.id_clase || '',  // NUEVO: ID de la clase
-                fecha: record.fecha || DateUtils.getCurrentDate(),
-                estudiante_id: record.estudiante_id,
-                grupo_codigo: record.grupo_codigo,
-                tipo_clase: record.tipo_clase || 'Regular',
-                estado: record.estado,
-                justificacion: record.justificacion || '',
-                descripcion: record.descripcion || '',
-                enviado_por: record.enviado_por || window.AppState.user?.email || 'usuario',
-                timestamp: record.timestamp || DateUtils.getCurrentTimestamp()
+                ID: record.id || DataUtils.generateId('AST'),
+                ID_Clase: record.id_clase || '',  // NUEVO: ID de la clase
+                Ffecha: record.fecha || DateUtils.getCurrentDate(),
+                Estudiante_ID: record.estudiante_id,
+                Grupo_Codigo: record.grupo_codigo,
+                Tipo_Clase: record.tipo_clase || 'Regular',
+                Estado: record.estado,
+                Justificacion: record.justificacion || '',
+                Descripcion: record.descripcion || '',
+                Enviado_por: record.enviado_por || window.AppState.user?.email || 'usuario',
+                Timestamp: record.timestamp || DateUtils.getCurrentTimestamp()
             }));
 
             const result = await this.makePostRequest('saveAttendance', {
