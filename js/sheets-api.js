@@ -2,6 +2,7 @@
  * SISTEMA DE ASISTENCIA TENIS - API GOOGLE APPS SCRIPT (CON PROXY)
  * =================================================================
  * Funciones para interactuar con Google Apps Script a través de Netlify Functions
+ * VERSIÓN CORREGIDA: Incluye fix para checkClassExists
  */
 
 // ===========================================
@@ -515,28 +516,77 @@ const SheetsAPI = {
     },
 
     // ===========================================
-    // NUEVOS ENDPOINTS PARA CONTROL DE CLASES
+    // NUEVOS ENDPOINTS PARA CONTROL DE CLASES - CORREGIDOS
     // ===========================================
 
     /**
-     * Verifica si una clase ya fue reportada
+     * CORREGIDO: Verifica si una clase ya fue reportada
      */
     async checkClassExists(fecha, grupoCode, horaGrupo) {
-        debugLog(`Verificando si clase existe: ${fecha}, ${grupoCode}, ${horaGrupo}`);
+        debugLog(`SheetsAPI.checkClassExists llamado con:`, {
+            fecha: fecha,
+            grupoCode: grupoCode, 
+            horaGrupo: horaGrupo
+        });
+        
+        // VALIDAR PARÁMETROS ANTES DE ENVIAR
+        if (!fecha || fecha === undefined || fecha === null) {
+            throw new Error('Parámetro "fecha" es requerido para checkClassExists');
+        }
+        
+        if (!grupoCode || grupoCode === undefined || grupoCode === null) {
+            throw new Error('Parámetro "grupoCode" es requerido para checkClassExists');
+        }
+        
+        if (!horaGrupo || horaGrupo === undefined || horaGrupo === null) {
+            throw new Error('Parámetro "horaGrupo" es requerido para checkClassExists');
+        }
         
         try {
-            const result = await this.makeGetRequest('checkClassExists', {
-                fecha,
-                grupo_codigo: grupoCode,
-                hora_grupo: horaGrupo
+            // HACER PETICIÓN GET CON PARÁMETROS EXPLÍCITOS
+            const url = new URL(this.webAppUrl, window.location.origin);
+            url.searchParams.append('action', 'checkClassExists');
+            url.searchParams.append('fecha', fecha);
+            url.searchParams.append('grupo_codigo', grupoCode);
+            url.searchParams.append('hora_grupo', horaGrupo);
+
+            debugLog(`SheetsAPI checkClassExists URL:`, url.toString());
+
+            const response = await this.fetchWithRetry(url.toString(), {
+                method: 'GET',
+                headers: {
+                    'Content-Type': 'application/json',
+                }
             });
+
+            const result = await response.json();
+            debugLog(`SheetsAPI.checkClassExists respuesta raw:`, result);
+
+            // VALIDAR ESTRUCTURA DE RESPUESTA
+            if (typeof result !== 'object' || result === null) {
+                throw new Error('Respuesta inválida del servidor - no es un objeto');
+            }
             
-            debugLog(`Resultado verificación clase:`, result);
+            if (result.success === undefined) {
+                throw new Error('Respuesta inválida del servidor - falta campo "success"');
+            }
+
+            if (!result.success) {
+                throw new Error(`Error del backend: ${result.error || 'Error desconocido'}`);
+            }
+
+            debugLog(`SheetsAPI.checkClassExists resultado final:`, result);
             return result;
             
         } catch (error) {
-            console.error('Error al verificar clase existente:', error);
-            throw error;
+            console.error('SheetsAPI.checkClassExists error:', error);
+            
+            // RETORNAR ESTRUCTURA CONSISTENTE EN CASO DE ERROR
+            return {
+                success: false,
+                error: error.message,
+                details: 'Error en comunicación con backend'
+            };
         }
     },
 
@@ -711,4 +761,4 @@ document.addEventListener('DOMContentLoaded', () => {
     debugLog('sheets-api.js configurado para usar proxy de Netlify');
 });
 
-debugLog('sheets-api.js (Netlify Proxy version) cargado correctamente');
+debugLog('sheets-api.js (Netlify Proxy version - CORREGIDO) cargado correctamente');
