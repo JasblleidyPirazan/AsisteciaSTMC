@@ -132,7 +132,7 @@ renderAssistantSelector(data = {}) {
             <div class="bg-gradient-to-r from-blue-500 to-blue-600 rounded-lg p-6 mb-6 text-white">
                 <div class="text-center">
                     <h2 class="text-xl font-bold mb-2">${group.descriptor || 'Grupo sin nombre'}</h2>
-                    <p class="opacity-90">¿Quién está tomando la asistencia?</p>
+                    <p class="opacity-90">¿Quién es el asistente de esta clase?</p>
                 </div>
             </div>
 
