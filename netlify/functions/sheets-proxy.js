@@ -1,7 +1,7 @@
 // netlify/functions/sheets-proxy.js
 // Función proxy para evitar errores CORS con Google Apps Script
 
-const GOOGLE_SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbxKcaVmGVzbw8tuxK7qWLm6Y3MEknZhEs98sNFrE2ua5APc2hf1HO1Yh8VdltkPNr_HZg/exec';
+const GOOGLE_SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbwg4Vec-9Jcz1-WaI3Rf9DIyT0yOYNjXzNfubL5ji4Y0GNKQW6g0lUeiwBMjUNZXnOD/exec';
 const TIMEOUT_MS = 25000; // 25 segundos
 
 exports.handler = async (event, context) => {
