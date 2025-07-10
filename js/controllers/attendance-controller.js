@@ -1,7 +1,8 @@
 /**
- * CONTROLADOR DE ASISTENCIA - FLUJO SIMPLIFICADO
- * ===============================================
- * Mantiene TODO lo que funciona + agrega nuevo flujo simple
+ * CONTROLADOR DE ASISTENCIA - FLUJO CORREGIDO
+ * ============================================
+ * FIX: Elimina duplicidad de pregunta de asistente
+ * SOLUCIÓN: Pregunta asistente SOLO después de confirmar que clase se realizó
  */
 
 const AttendanceController = {
@@ -38,7 +39,7 @@ const AttendanceController = {
     },
 
     /**
-     * Selecciona un grupo y muestra selector de asistente (SIN CAMBIOS)
+     * ✨ CORREGIDO: Selecciona un grupo y va DIRECTO a pregunta de estado
      */
     async selectGroup(groupCode) {
         debugLog(`AttendanceController: Seleccionando grupo ${groupCode}`);
@@ -50,13 +51,13 @@ const AttendanceController = {
             const group = await GroupService.getGroupByCode(groupCode);
             this._setState({ currentGroup: group });
             
-            // Inicializar si no se ha hecho
+            // Inicializar asistentes si no se ha hecho
             if (this._state.availableAssistants.length === 0) {
                 await this.initialize();
             }
             
-            // Mostrar selector de asistente
-            await this.showAssistantSelector(groupCode);
+            // ✨ FIX: Ir DIRECTO a pregunta de estado (eliminar primer selector de asistente)
+            await this.showClassStatusQuestion(groupCode);
             
         } catch (error) {
             console.error('AttendanceController: Error al seleccionar grupo:', error);
@@ -68,7 +69,7 @@ const AttendanceController = {
     },
 
     /**
-     * Muestra selector de asistente (SIN CAMBIOS)
+     * Muestra selector de asistente (MANTENER para uso futuro si es necesario)
      */
     async showAssistantSelector(groupCode) {
         debugLog(`AttendanceController: Mostrando selector de asistente para ${groupCode}`);
@@ -93,7 +94,7 @@ const AttendanceController = {
     },
 
     /**
-     * Selecciona un asistente y continúa con la pregunta de estado (SIN CAMBIOS)
+     * Selecciona un asistente y continúa con la pregunta de estado (MANTENER para compatibilidad)
      */
     async selectAssistant(assistantId) {
         debugLog(`AttendanceController: Seleccionando asistente ${assistantId}`);
@@ -117,7 +118,7 @@ const AttendanceController = {
     },
 
     /**
-     * Continúa sin seleccionar asistente (SIN CAMBIOS)
+     * Continúa sin seleccionar asistente (MANTENER para compatibilidad)
      */
     async continueWithoutAssistant(groupCode) {
         debugLog('AttendanceController: Continuando sin asistente seleccionado');
@@ -136,7 +137,7 @@ const AttendanceController = {
     },
 
     /**
-     * Muestra la pregunta inicial sobre el estado de la clase (SIN CAMBIOS)
+     * ✨ CORREGIDO: Muestra la pregunta inicial sobre el estado de la clase (SIN asistente)
      */
     async showClassStatusQuestion(groupCode) {
         debugLog(`AttendanceController: Mostrando pregunta de estado para ${groupCode}`);
@@ -144,12 +145,12 @@ const AttendanceController = {
         try {
             const group = this._state.currentGroup || await GroupService.getGroupByCode(groupCode);
             const selectedDate = window.AppState.selectedDate || DateUtils.getCurrentDate();
-            const selectedAssistant = this._state.selectedAssistant;
             
+            // ✨ FIX: NO pasar selectedAssistant porque aún no se ha seleccionado
             const html = AttendanceFormView.renderClassStatusQuestion({
                 group,
                 selectedDate,
-                selectedAssistant
+                selectedAssistant: null // Siempre null en esta etapa
             });
             
             document.getElementById('app').innerHTML = html;
@@ -161,10 +162,10 @@ const AttendanceController = {
     },
 
     /**
-     * ✨ NUEVO FLUJO: La clase se realizó - ahora pregunta por asistente DESPUÉS
+     * ✨ CORREGIDO: La clase se realizó - AHORA pregunta por asistente por primera vez
      */
     async classWasHeld(groupCode) {
-        debugLog(`AttendanceController: Clase realizada para grupo ${groupCode} - NUEVO FLUJO`);
+        debugLog(`AttendanceController: Clase realizada para grupo ${groupCode} - NUEVO FLUJO CORREGIDO`);
         
         try {
             this._setState({ isProcessing: true, attendanceType: 'regular' });
@@ -213,7 +214,7 @@ const AttendanceController = {
                 attendanceData: {}
             });
             
-            // 4. Ir DIRECTAMENTE a preguntar por el asistente (PARA ASISTENCIA)
+            // ✨ FIX: AHORA SÍ preguntar por asistente (primera y única vez)
             await this.showAssistantSelectorForAttendance(groupCode);
             
         } catch (error) {
@@ -226,7 +227,7 @@ const AttendanceController = {
     },
 
     /**
-     * ✨ NUEVO: Selector de asistente PARA ASISTENCIA (no para estado de clase)
+     * ✨ NUEVO: Selector de asistente PARA ASISTENCIA (única vez en el flujo)
      */
     async showAssistantSelectorForAttendance(groupCode) {
         debugLog(`AttendanceController: Mostrando selector de asistente para asistencia ${groupCode}`);
@@ -531,7 +532,7 @@ const AttendanceController = {
     },
 
     /**
-     * ✨ MODIFICADO: Guarda datos de asistencia con botón "Volver al Inicio"
+     * Guarda datos de asistencia con botón "Volver al Inicio" (SIN CAMBIOS)
      */
     async saveAttendanceData(groupCode) {
         debugLog('AttendanceController: Guardando datos de asistencia con flujo simplificado');
@@ -609,7 +610,7 @@ const AttendanceController = {
                 UIUtils.updateConnectionStatus('offline');
             }
             
-            // ✨ NUEVO: Modal de éxito con botón para volver al inicio
+            // Modal de éxito con botón para volver al inicio
             const successData = {
                 title: '🎉 ¡Asistencia Guardada!',
                 message: message,
@@ -685,7 +686,7 @@ const AttendanceController = {
                 selectedAssistant?.id || ''
             );
             
-            // MEJORA: Mostrar resultado basado en método real usado
+            // Mostrar resultado basado en método real usado
             let message;
             if (result.attendanceResult.method === 'online') {
                 message = `Cancelación registrada exitosamente para ${result.studentsAffected} estudiantes`;
@@ -1046,4 +1047,4 @@ const AttendanceController = {
 // Hacer disponible globalmente
 window.AttendanceController = AttendanceController;
 
-debugLog('AttendanceController - FLUJO SIMPLIFICADO implementado (mantiene todo lo que funciona)');
+debugLog('AttendanceController - FLUJO CORREGIDO: Una sola pregunta de asistente (después de confirmar clase)');
