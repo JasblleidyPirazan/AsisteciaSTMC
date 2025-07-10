@@ -327,7 +327,7 @@ const AttendanceService = {
         }
 
         const requiredFields = [
-            'ID', 'Ffecha', 'Estudiante_ID', 'Grupo_Codigo', 
+            'ID', 'Fecha', 'Estudiante_ID', 'Grupo_Codigo', 
             'Tipo_Clase', 'Estado', 'Timestamp'
         ];
 
