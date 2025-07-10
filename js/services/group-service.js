@@ -199,91 +199,88 @@ const GroupService = {
     /**
      * Normaliza un grupo desde el backend - VERSIÓN MEJORADA
      */
+    /**
+ * Normaliza un grupo desde el backend - VERSIÓN CORREGIDA CON HEADERS CORRECTOS
+     */
     _normalizeGroup(rawGroup, index = -1) {
         if (!rawGroup || typeof rawGroup !== 'object') {
             debugLog(`GroupService: rawGroup inválido en índice ${index}:`, rawGroup);
             return null;
         }
-
+    
         // DEBUG: Log detallado del grupo que estamos normalizando
         if (window.APP_CONFIG?.DEBUG && index < 3) {
             debugLog(`GroupService: Normalizando grupo ${index}:`, rawGroup);
         }
-
-        // MEJORADO: Mejor extracción del código del grupo
+    
+        // CORREGIDO: Usar los headers exactos de Google Sheets
         let codigo = '';
         
-        // Intentar diferentes campos para el código
-        if (rawGroup.codigo && rawGroup.codigo.toString().trim() !== '') {
-            codigo = rawGroup.codigo.toString().trim();
-        } else if (rawGroup.código && rawGroup.código.toString().trim() !== '') {
-            codigo = rawGroup.código.toString().trim();
-        } else if (rawGroup.Codigo && rawGroup.Codigo.toString().trim() !== '') {
-            codigo = rawGroup.Codigo.toString().trim();
-        } else if (rawGroup.Código && rawGroup.Código.toString().trim() !== '') {
+        // Intentar diferentes campos para el código (incluyendo los headers reales)
+        if (rawGroup.Código && rawGroup.Código.toString().trim() !== '') {
             codigo = rawGroup.Código.toString().trim();
+        } else if (rawGroup.codigo && rawGroup.codigo.toString().trim() !== '') {
+            codigo = rawGroup.codigo.toString().trim();
+        } else if (rawGroup.c_digo && rawGroup.c_digo.toString().trim() !== '') {
+            codigo = rawGroup.c_digo.toString().trim();
         } else {
-            // Si no hay código válido, intentar generar uno o rechazar
             debugLog(`GroupService: Grupo sin código válido en índice ${index}:`, rawGroup);
             return null;
         }
-
-        // MEJORADO: Mejor extracción de otros campos críticos
+    
+        // CORREGIDO: Usar headers exactos para campos críticos
         let hora = '';
-        if (rawGroup.hora && rawGroup.hora.toString().trim() !== '') {
-            hora = rawGroup.hora.toString().trim();
-        } else if (rawGroup.Hora && rawGroup.Hora.toString().trim() !== '') {
+        if (rawGroup.Hora && rawGroup.Hora.toString().trim() !== '') {
             hora = rawGroup.Hora.toString().trim();
+        } else if (rawGroup.hora && rawGroup.hora.toString().trim() !== '') {
+            hora = rawGroup.hora.toString().trim();
         }
-
+    
         let profe = '';
-        if (rawGroup.profe && rawGroup.profe.toString().trim() !== '') {
-            profe = rawGroup.profe.toString().trim();
-        } else if (rawGroup.Profe && rawGroup.Profe.toString().trim() !== '') {
+        if (rawGroup.Profe && rawGroup.Profe.toString().trim() !== '') {
             profe = rawGroup.Profe.toString().trim();
-        } else if (rawGroup.profesor && rawGroup.profesor.toString().trim() !== '') {
-            profe = rawGroup.profesor.toString().trim();
-        } else if (rawGroup.Profesor && rawGroup.Profesor.toString().trim() !== '') {
-            profe = rawGroup.Profesor.toString().trim();
+        } else if (rawGroup.profe && rawGroup.profe.toString().trim() !== '') {
+            profe = rawGroup.profe.toString().trim();
         }
-
+    
         // Si falta información crítica, rechazar el grupo
         if (!codigo || !hora || !profe) {
             debugLog(`GroupService: Grupo ${index} rechazado - faltan campos críticos:`, {
                 codigo: codigo || '(vacío)',
                 hora: hora || '(vacío)',
                 profe: profe || '(vacío)',
-                rawGroup: rawGroup
+                camposDisponibles: Object.keys(rawGroup)
             });
             return null;
         }
-
+    
         const normalized = {
             codigo: codigo,
-            dias: this._extractStringField(rawGroup, ['dias', 'Dias']),
-            lunes: this._normalizeBoolean(rawGroup.lunes || rawGroup.Lunes),
-            martes: this._normalizeBoolean(rawGroup.martes || rawGroup.Martes),
-            miercoles: this._normalizeBoolean(rawGroup.miercoles || rawGroup.Miercoles || rawGroup.miércoles || rawGroup.Miércoles),
-            jueves: this._normalizeBoolean(rawGroup.jueves || rawGroup.Jueves),
-            viernes: this._normalizeBoolean(rawGroup.viernes || rawGroup.Viernes),
-            sabado: this._normalizeBoolean(rawGroup.sabado || rawGroup.Sabado || rawGroup.sábado || rawGroup.Sábado),
-            domingo: this._normalizeBoolean(rawGroup.domingo || rawGroup.Domingo),
+            dias: this._extractStringField(rawGroup, ['Días', 'dias', 'Dias']),
+            // CORREGIDO: Usar headers exactos con mayúsculas
+            lunes: this._normalizeBoolean(rawGroup.Lunes || rawGroup.lunes),
+            martes: this._normalizeBoolean(rawGroup.Martes || rawGroup.martes),
+            miercoles: this._normalizeBoolean(rawGroup.Miercoles || rawGroup.miercoles || rawGroup.miércoles),
+            jueves: this._normalizeBoolean(rawGroup.Jueves || rawGroup.jueves),
+            viernes: this._normalizeBoolean(rawGroup.Viernes || rawGroup.viernes),
+            sabado: this._normalizeBoolean(rawGroup.Sabado || rawGroup.sabado || rawGroup.sábado),
+            domingo: this._normalizeBoolean(rawGroup.Domingo || rawGroup.domingo),
             hora: hora,
             profe: profe,
-            cancha: this._extractStringField(rawGroup, ['cancha', 'Cancha']) || '',
-            frecuencia_semanal: this._extractIntField(rawGroup, ['frecuencia_semanal', 'frecuenciaSemanal', 'Frecuencia_Semanal']) || 0,
-            bola: this._extractStringField(rawGroup, ['bola', 'Bola', 'nivel', 'Nivel']) || 'Verde',
-            descriptor: this._extractStringField(rawGroup, ['descriptor', 'Descriptor', 'descripcion', 'Descripcion']) || '',
-            activo: this._normalizeBoolean(rawGroup.activo || rawGroup.Activo, true) // Default activo
+            cancha: this._extractStringField(rawGroup, ['Cancha', 'cancha']) || '',
+            frecuencia_semanal: this._extractIntField(rawGroup, ['Frecuencia_Semanal', 'frecuencia_semanal', 'frecuenciaSemanal']) || 0,
+            bola: this._extractStringField(rawGroup, ['Bola', 'bola', 'nivel', 'Nivel']) || 'Verde',
+            descriptor: this._extractStringField(rawGroup, ['Descriptor', 'descriptor', 'descripcion', 'Descripcion']) || '',
+            activo: this._normalizeBoolean(rawGroup.Activo || rawGroup.activo, true) // Default activo
         };
-
+    
         // DEBUG: Log del grupo normalizado si es uno de los primeros
         if (window.APP_CONFIG?.DEBUG && index < 3) {
             debugLog(`GroupService: Grupo ${index} normalizado:`, normalized);
         }
-
+    
         return normalized;
-    },
+    }
 
     /**
      * NUEVO: Extrae un campo string probando diferentes variaciones
@@ -412,7 +409,7 @@ const GroupService = {
         if (!group || !group.activo) {
             return false;
         }
-
+    
         const normalizedDay = dayName.toLowerCase().trim();
         
         // Verificar usando columnas booleanas (método preferido)
