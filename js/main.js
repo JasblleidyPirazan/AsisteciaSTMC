@@ -39,9 +39,17 @@ async function initApp() {
  */
 function checkDependencies() {
     const requiredObjects = [
+        // Utilidades base
         'DateUtils', 'DataUtils', 'UIUtils', 'StorageUtils', 'ValidationUtils',
+        
+        // API y servicios
         'SheetsAPI', 'GroupService', 'StudentService', 'AttendanceService',
+        'AssistantService', 'ClassControlService', // NUEVOS
+        
+        // Componentes de UI
         'DateSelectorView', 'DashboardView', 'AttendanceFormView', 'ModalsView',
+        
+        // Controladores
         'AppController', 'DateController', 'AttendanceController', 'GroupController'
     ];
     
@@ -63,14 +71,28 @@ async function initializeControllers() {
     debugLog('🎮 Inicializando controladores...');
     
     try {
-        // Los controladores se auto-inicializan cuando se cargan
-        // Aquí podríamos agregar configuraciones específicas si fuera necesario
+        // Inicializar AttendanceController (NUEVO)
+        if (window.AttendanceController && typeof window.AttendanceController.initialize === 'function') {
+            debugLog('Inicializando AttendanceController...');
+            await window.AttendanceController.initialize();
+        } else {
+            debugLog('AttendanceController no disponible o no tiene método initialize');
+        }
+        
+        // Inicializar DateController si existe
+        if (window.DateController && typeof window.DateController.initialize === 'function') {
+            debugLog('Inicializando DateController...');
+            await window.DateController.initialize();
+        }
+        
+        // Aquí podrías agregar otros controladores en el futuro
         
         debugLog('✅ Controladores inicializados');
         
     } catch (error) {
         console.error('❌ Error inicializando controladores:', error);
-        throw error;
+        // No lanzar error para permitir que la app continúe
+        debugLog('⚠️ Algunos controladores no se pudieron inicializar, continuando...');
     }
 }
 
@@ -397,38 +419,221 @@ window.initApp = initApp;
  */
 window.getAppDebugInfo = function() {
     return {
-        version: '1.0.0-MVP',
+        version: '1.0.0-MVP-WITH-ASSISTANTS',
+        timestamp: new Date().toISOString(),
         config: window.APP_CONFIG,
         state: window.AppState,
         currentView: AppRouter.getCurrentView(),
         services: {
             groups: GroupService.getState ? GroupService.getState() : 'No disponible',
-            students: StudentService.getState ? StudentService.getState() : 'No disponible'
+            students: StudentService.getState ? StudentService.getState() : 'No disponible',
+            assistants: AssistantService._cache || 'No disponible', // NUEVO
+            classControl: 'ClassControlService disponible' // NUEVO
         },
         controllers: {
             app: AppController.getState(),
             date: DateController.getState(),
-            attendance: AttendanceController.getState ? AttendanceController.getState() : 'No disponible',
+            attendance: AttendanceController.getState(), // ACTUALIZADO
             group: GroupController.getState()
         },
         pending: StorageUtils.getPendingAttendance(),
         cache: {
             groups: StorageUtils.get('cached_groups', []).length,
-            students: StorageUtils.get('cached_students', []).length
+            students: StorageUtils.get('cached_students', []).length,
+            assistants: StorageUtils.get('cached_assistants', []).length // NUEVO
         }
     };
 };
 
-/**
- * Función helper para limpiar datos en desarrollo
- */
 window.clearAppData = function() {
-    if (confirm('¿Estás seguro de que quieres limpiar todos los datos locales?')) {
+    const confirmation = confirm('¿Estás seguro de que quieres limpiar todos los datos locales?\n\nEsto incluye:\n- Cache de grupos\n- Cache de estudiantes\n- Cache de asistentes\n- Datos de asistencia pendientes');
+    
+    if (confirmation) {
+        console.log('🧹 Limpiando datos locales...');
+        
+        // Limpiar localStorage
         StorageUtils.clear();
-        location.reload();
+        
+        // Limpiar cache de servicios
+        if (window.GroupService && window.GroupService._clearCache) {
+            window.GroupService._clearCache();
+        }
+        if (window.StudentService && window.StudentService._clearCache) {
+            window.StudentService._clearCache();
+        }
+        if (window.AssistantService && window.AssistantService._clearCache) {
+            window.AssistantService._clearCache();
+        }
+        
+        // Limpiar estado de controladores
+        if (window.AttendanceController) {
+            window.AttendanceController._setState({
+                currentGroup: null,
+                currentStudents: [],
+                availableAssistants: [],
+                selectedAssistant: null,
+                attendanceData: {},
+                attendanceType: 'regular',
+                isProcessing: false,
+                classId: null
+            });
+        }
+        
+        console.log('✅ Datos limpiados');
+        
+        // Preguntar si quiere recargar
+        if (confirm('¿Quieres recargar la página para aplicar los cambios?')) {
+            location.reload();
+        }
     }
 };
 
-debugLog('✅ main.js (refactorizado) cargado correctamente');
-debugLog('🎾 Sistema de Asistencia Tenis - Versión MVP');
-debugLog('💡 Ejecuta getAppDebugInfo() para información de debug');
+// ===========================================
+// FUNCIONES DE TESTING PARA DESARROLLO
+// ===========================================
+
+/**
+ * Función para probar la integración de asistentes
+ */
+window.testAssistantIntegration = async function() {
+    console.log('🧪 Probando integración de asistentes...');
+    
+    try {
+        // Probar carga de asistentes
+        console.log('1. Probando carga de asistentes...');
+        const assistants = await AssistantService.getActiveAssistants();
+        console.log(`✅ ${assistants.length} asistentes cargados:`, assistants);
+        
+        // Probar inicialización de AttendanceController
+        console.log('2. Probando inicialización de AttendanceController...');
+        await AttendanceController.initialize();
+        console.log('✅ AttendanceController inicializado');
+        
+        // Probar estado del AttendanceController
+        console.log('3. Estado del AttendanceController:');
+        const state = AttendanceController.getState();
+        console.log(state);
+        
+        // Probar conexión con backend
+        console.log('4. Probando conexión con backend...');
+        const connection = await SheetsAPI.testConnection();
+        console.log('✅ Conexión:', connection);
+        
+        // Probar endpoint de asistentes
+        if (SheetsAPI.getAssistants) {
+            console.log('5. Probando endpoint de asistentes...');
+            const backendAssistants = await SheetsAPI.getAssistants();
+            console.log(`✅ ${backendAssistants.length} asistentes desde backend:`, backendAssistants);
+        } else {
+            console.log('⚠️ Endpoint getAssistants no disponible');
+        }
+        
+        console.log('🎉 Integración de asistentes funcionando correctamente');
+        
+    } catch (error) {
+        console.error('❌ Error en testing de asistentes:', error);
+        return {
+            success: false,
+            error: error.message
+        };
+    }
+    
+    return {
+        success: true,
+        message: 'Integración de asistentes funcionando correctamente'
+    };
+};
+
+/**
+ * Función para probar la integración de control de clases
+ */
+window.testClassControlIntegration = async function() {
+    console.log('🧪 Probando integración de control de clases...');
+    
+    try {
+        // Probar ClassControlService
+        console.log('1. Verificando ClassControlService...');
+        if (typeof ClassControlService !== 'undefined') {
+            console.log('✅ ClassControlService disponible');
+        } else {
+            throw new Error('ClassControlService no disponible');
+        }
+        
+        // Probar validación de fecha
+        console.log('2. Probando validación de fecha...');
+        const today = DateUtils.getCurrentDate();
+        const validation = await ClassControlService.validateClassReport(today, 'TEST-GROUP');
+        console.log('✅ Validación de fecha:', validation);
+        
+        // Probar endpoints de backend
+        if (SheetsAPI.checkClassExists) {
+            console.log('3. Probando verificación de clase existente...');
+            const existsCheck = await SheetsAPI.checkClassExists(today, 'TEST-GROUP', '15:45-16:30');
+            console.log('✅ Verificación de clase:', existsCheck);
+        } else {
+            console.log('⚠️ Endpoint checkClassExists no disponible');
+        }
+        
+        console.log('🎉 Integración de control de clases funcionando correctamente');
+        
+    } catch (error) {
+        console.error('❌ Error en testing de control de clases:', error);
+        return {
+            success: false,
+            error: error.message
+        };
+    }
+    
+    return {
+        success: true,
+        message: 'Integración de control de clases funcionando correctamente'
+    };
+};
+
+/**
+ * Función para probar el flujo completo
+ */
+window.testCompleteFlow = async function() {
+    console.log('🧪 Probando flujo completo...');
+    
+    try {
+        // Probar todas las integraciones
+        console.log('1. Probando asistentes...');
+        const assistantTest = await testAssistantIntegration();
+        if (!assistantTest.success) {
+            throw new Error('Fallo en testing de asistentes: ' + assistantTest.error);
+        }
+        
+        console.log('2. Probando control de clases...');
+        const classControlTest = await testClassControlIntegration();
+        if (!classControlTest.success) {
+            throw new Error('Fallo en testing de control de clases: ' + classControlTest.error);
+        }
+        
+        console.log('3. Probando servicios básicos...');
+        const groups = await GroupService.getAllGroups();
+        const students = await StudentService.getAllStudents();
+        console.log(`✅ ${groups.length} grupos, ${students.length} estudiantes`);
+        
+        console.log('🎉 ¡FLUJO COMPLETO FUNCIONANDO CORRECTAMENTE!');
+        
+        return {
+            success: true,
+            message: 'Todas las integraciones funcionando correctamente',
+            details: {
+                assistants: assistantTest,
+                classControl: classControlTest,
+                groups: groups.length,
+                students: students.length
+            }
+        };
+        
+    } catch (error) {
+        console.error('❌ Error en testing completo:', error);
+        return {
+            success: false,
+            error: error.message
+        };
+    }
+};
+debugLog('main.js actualizado con soporte para asistentes y control de clases');
