@@ -404,6 +404,45 @@ const AttendanceController = {
     },
 
     /**
+     * Abre el modal de reposición individual
+     */
+    async openRepositionModal() {
+        debugLog('AttendanceController: Abriendo modal de reposición individual');
+        
+        try {
+            const currentGroup = this._state.currentGroup;
+            const classId = this._state.classId;
+            const selectedDate = window.AppState.selectedDate || DateUtils.getCurrentDate();
+            const selectedAssistant = this._state.selectedAssistant;
+            
+            // Validar que estemos en una clase válida
+            if (!currentGroup || !currentGroup.codigo) {
+                UIUtils.showError('Error: No hay grupo seleccionado para la reposición');
+                return;
+            }
+            
+            // Preparar datos de la clase para el modal
+            const classData = {
+                groupCode: currentGroup.codigo,
+                classId: classId, // Puede ser null, se manejará en el servicio
+                selectedDate: selectedDate,
+                sentBy: window.AppState.user?.email || 'usuario',
+                groupData: currentGroup,
+                assistantData: selectedAssistant
+            };
+            
+            debugLog('AttendanceController: Datos de clase para reposición:', classData);
+            
+            // Abrir modal de reposición
+            await RepositionController.openFromAttendance(classData);
+            
+        } catch (error) {
+            console.error('AttendanceController: Error abriendo modal de reposición:', error);
+            UIUtils.showError('Error al abrir el selector de reposición individual');
+        }
+    },
+
+    /**
      * La clase fue cancelada - usar ClassControlService (SIN CAMBIOS)
      */
     async classWasCancelled(groupCode) {
