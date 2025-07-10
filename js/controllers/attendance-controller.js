@@ -1,7 +1,7 @@
 /**
- * CONTROLADOR DE ASISTENCIA
- * =========================
- * Maneja toda la lógica de registro de asistencias, cancelaciones y reposiciones
+ * CONTROLADOR DE ASISTENCIA - ACTUALIZADO CON CLASSCONTROLSERVICE
+ * ===============================================================
+ * Integración completa con control de clases y asistentes
  */
 
 const AttendanceController = {
@@ -9,13 +9,36 @@ const AttendanceController = {
     _state: {
         currentGroup: null,
         currentStudents: [],
+        availableAssistants: [],
+        selectedAssistant: null,
         attendanceData: {},
-        attendanceType: 'regular', // 'regular' | 'reposition'
-        isProcessing: false
+        attendanceType: 'regular',
+        isProcessing: false,
+        classId: null // NUEVO: ID de la clase generada
     },
 
     /**
-     * Selecciona un grupo y muestra la pregunta inicial
+     * Inicializa el controlador y carga asistentes
+     */
+    async initialize() {
+        debugLog('AttendanceController: Inicializando...');
+        
+        try {
+            // Cargar asistentes disponibles
+            const assistants = await AssistantService.getActiveAssistants();
+            this._setState({ availableAssistants: assistants });
+            
+            debugLog(`AttendanceController: ${assistants.length} asistentes disponibles`);
+            
+        } catch (error) {
+            console.error('AttendanceController: Error al inicializar:', error);
+            // Continuar sin asistentes si hay error
+            this._setState({ availableAssistants: [] });
+        }
+    },
+
+    /**
+     * Selecciona un grupo y muestra selector de asistente
      */
     async selectGroup(groupCode) {
         debugLog(`AttendanceController: Seleccionando grupo ${groupCode}`);
@@ -27,8 +50,13 @@ const AttendanceController = {
             const group = await GroupService.getGroupByCode(groupCode);
             this._setState({ currentGroup: group });
             
-            // Mostrar pregunta sobre estado de la clase
-            await this.showClassStatusQuestion(groupCode);
+            // Inicializar si no se ha hecho
+            if (this._state.availableAssistants.length === 0) {
+                await this.initialize();
+            }
+            
+            // Mostrar selector de asistente
+            await this.showAssistantSelector(groupCode);
             
         } catch (error) {
             console.error('AttendanceController: Error al seleccionar grupo:', error);
@@ -36,6 +64,55 @@ const AttendanceController = {
             AppController.showDashboard();
         } finally {
             this._setState({ isProcessing: false });
+        }
+    },
+
+    /**
+     * Muestra selector de asistente
+     */
+    async showAssistantSelector(groupCode) {
+        debugLog(`AttendanceController: Mostrando selector de asistente para ${groupCode}`);
+        
+        try {
+            const group = this._state.currentGroup;
+            const assistants = this._state.availableAssistants;
+            const selectedDate = window.AppState.selectedDate || DateUtils.getCurrentDate();
+            
+            const html = AttendanceFormView.renderAssistantSelector({
+                group,
+                assistants,
+                selectedDate
+            });
+            
+            document.getElementById('app').innerHTML = html;
+            
+        } catch (error) {
+            console.error('AttendanceController: Error mostrando selector de asistente:', error);
+            UIUtils.showError('Error al cargar selector de asistente');
+        }
+    },
+
+    /**
+     * Selecciona un asistente y continúa con la pregunta de estado
+     */
+    async selectAssistant(assistantId) {
+        debugLog(`AttendanceController: Seleccionando asistente ${assistantId}`);
+        
+        try {
+            // Buscar asistente
+            const assistant = this._state.availableAssistants.find(a => a.id === assistantId);
+            if (!assistant) {
+                throw new Error(`Asistente ${assistantId} no encontrado`);
+            }
+            
+            this._setState({ selectedAssistant: assistant });
+            
+            // Continuar con pregunta de estado de clase
+            await this.showClassStatusQuestion(this._state.currentGroup.codigo);
+            
+        } catch (error) {
+            console.error('AttendanceController: Error al seleccionar asistente:', error);
+            UIUtils.showError('Error al seleccionar asistente');
         }
     },
 
@@ -48,10 +125,12 @@ const AttendanceController = {
         try {
             const group = this._state.currentGroup || await GroupService.getGroupByCode(groupCode);
             const selectedDate = window.AppState.selectedDate || DateUtils.getCurrentDate();
+            const selectedAssistant = this._state.selectedAssistant;
             
             const html = AttendanceFormView.renderClassStatusQuestion({
                 group,
-                selectedDate
+                selectedDate,
+                selectedAssistant
             });
             
             document.getElementById('app').innerHTML = html;
@@ -63,7 +142,7 @@ const AttendanceController = {
     },
 
     /**
-     * La clase se realizó - proceder con registro de asistencia (MEJORADO)
+     * La clase se realizó - usar ClassControlService
      */
     async classWasHeld(groupCode) {
         debugLog(`AttendanceController: Clase realizada para grupo ${groupCode}`);
@@ -71,14 +150,52 @@ const AttendanceController = {
         try {
             this._setState({ isProcessing: true, attendanceType: 'regular' });
             
+            UIUtils.showLoading('app', 'Validando clase...');
+            
+            const selectedDate = window.AppState.selectedDate || DateUtils.getCurrentDate();
+            const selectedAssistant = this._state.selectedAssistant;
+            
+            // Validar que se pueda reportar la clase
+            const validation = await ClassControlService.validateClassReport(selectedDate, groupCode);
+            
+            if (!validation.valid) {
+                // Si ya existe, mostrar información
+                if (validation.existingClass) {
+                    const existingClass = validation.existingClass;
+                    const message = `Esta clase ya fue reportada como "${existingClass.estado}" el ${DateUtils.formatDate(existingClass.fecha)}`;
+                    
+                    ModalsController.showConfirmation({
+                        title: 'Clase Ya Reportada',
+                        message: message,
+                        icon: 'ℹ️',
+                        type: 'info'
+                    }, () => {
+                        AppController.showDashboard();
+                    });
+                    return;
+                }
+                
+                throw new Error(validation.error);
+            }
+            
+            // Crear registro de clase
+            const classRecord = await ClassControlService.createClassRecord(
+                selectedDate,
+                groupCode,
+                ClassControlService.CLASS_STATES.REALIZADA,
+                {
+                    asistenteId: selectedAssistant?.id || '',
+                    creadoPor: window.AppState.user?.email || 'usuario'
+                }
+            );
+            
+            this._setState({ classId: classRecord.id });
+            
             UIUtils.showLoading('app', 'Cargando estudiantes...');
             
             // Obtener grupo y estudiantes
             const group = await GroupService.getGroupByCode(groupCode);
             const students = await StudentService.getStudentsByGroup(groupCode);
-            
-            debugLog(`AttendanceController: Grupo obtenido:`, group);
-            debugLog(`AttendanceController: ${students.length} estudiantes obtenidos:`, students);
             
             if (students.length === 0) {
                 UIUtils.showWarning('No hay estudiantes registrados en este grupo');
@@ -86,36 +203,19 @@ const AttendanceController = {
                 return;
             }
             
-            // Inicializar estado de asistencia
+            // Actualizar estado
             this._setState({
                 currentGroup: group,
                 currentStudents: students,
                 attendanceData: {}
             });
             
-            debugLog(`AttendanceController: Estado actualizado con ${students.length} estudiantes`);
-            
-            // Actualizar también el estado global
-            window.AppState.estudiantes = window.AppState.estudiantes || [];
-            
-            // Asegurar que los estudiantes del grupo estén en el estado global
-            students.forEach(student => {
-                const existingIndex = window.AppState.estudiantes.findIndex(s => s.id === student.id);
-                if (existingIndex >= 0) {
-                    window.AppState.estudiantes[existingIndex] = student;
-                } else {
-                    window.AppState.estudiantes.push(student);
-                }
-            });
-            
-            debugLog(`AttendanceController: Estado global actualizado`);
-            
             // Mostrar formulario de asistencia
             await this._showAttendanceForm(group, students, 'regular');
             
         } catch (error) {
             console.error('AttendanceController: Error al procesar clase realizada:', error);
-            UIUtils.showError('Error al cargar estudiantes');
+            UIUtils.showError(error.message || 'Error al procesar la clase');
             await this.showClassStatusQuestion(groupCode);
         } finally {
             this._setState({ isProcessing: false });
@@ -123,19 +223,22 @@ const AttendanceController = {
     },
 
     /**
-     * La clase fue cancelada - registrar cancelación
+     * La clase fue cancelada - usar ClassControlService
      */
     async classWasCancelled(groupCode) {
         debugLog(`AttendanceController: Clase cancelada para grupo ${groupCode}`);
         
         try {
-            const group = await GroupService.getGroupByCode(groupCode);
+            const group = this._state.currentGroup || await GroupService.getGroupByCode(groupCode);
+            const selectedAssistant = this._state.selectedAssistant;
+            
             this._setState({ currentGroup: group });
             
             // Mostrar formulario de cancelación
             const html = AttendanceFormView.renderCancellationForm({
                 group,
-                selectedDate: window.AppState.selectedDate || DateUtils.getCurrentDate()
+                selectedDate: window.AppState.selectedDate || DateUtils.getCurrentDate(),
+                selectedAssistant
             });
             
             document.getElementById('app').innerHTML = html;
@@ -147,135 +250,10 @@ const AttendanceController = {
     },
 
     /**
-     * Marca la asistencia de un estudiante individual (MEJORADO)
-     */
-    markAttendance(studentId, status) {
-        debugLog(`AttendanceController: Marcando ${studentId} como ${status}`);
-        
-        try {
-            // Validar parámetros de entrada
-            if (!studentId || !status) {
-                UIUtils.showError('Parámetros inválidos para marcar asistencia');
-                return;
-            }
-            
-            // Buscar información del estudiante
-            const student = this._findStudent(studentId);
-            if (!student) {
-                debugLog(`AttendanceController: ❌ Estudiante ${studentId} no encontrado`);
-                debugLog(`AttendanceController: currentStudents disponibles:`, this._state.currentStudents);
-                UIUtils.showError(`Estudiante ${studentId} no encontrado. Intenta recargar la página.`);
-                return;
-            }
-            
-            debugLog(`AttendanceController: ✅ Estudiante encontrado:`, student);
-            
-            // Si es justificada, abrir modal
-            if (status === 'Justificada') {
-                this._openJustificationModal(studentId, student.nombre);
-                return;
-            }
-            
-            // Registrar asistencia
-            this._recordAttendance(studentId, status);
-            
-            // Actualizar UI
-            this._updateStudentUI(studentId, status);
-            this._updateAttendanceSummary();
-            
-            // Feedback
-            UIUtils.showSuccess(`${student.nombre} marcado como ${status.toLowerCase()}`);
-            
-            debugLog(`AttendanceController: ✅ Asistencia registrada para ${studentId}`);
-            
-        } catch (error) {
-            console.error('AttendanceController: Error al marcar asistencia:', error);
-            UIUtils.showError('Error al registrar asistencia');
-        }
-    },
-
-    /**
-     * Marca asistencia masiva para todos los estudiantes (MEJORADO)
-     */
-    markAllAttendance(status) {
-        debugLog(`AttendanceController: Marcando todos como ${status}`);
-        
-        try {
-            if (status === 'Justificada') {
-                UIUtils.showInfo('Para justificaciones, marca estudiantes individualmente');
-                return;
-            }
-            
-            const students = this._state.currentStudents;
-            debugLog(`AttendanceController: Marcando ${students.length} estudiantes`);
-            
-            if (students.length === 0) {
-                UIUtils.showWarning('No hay estudiantes cargados');
-                return;
-            }
-            
-            let markedCount = 0;
-            
-            students.forEach(student => {
-                debugLog(`AttendanceController: Marcando individualmente ${student.id} como ${status}`);
-                this._recordAttendance(student.id, status);
-                this._updateStudentUI(student.id, status);
-                markedCount++;
-            });
-            
-            this._updateAttendanceSummary();
-            UIUtils.showSuccess(`${markedCount} estudiantes marcados como ${status.toLowerCase()}`);
-            
-            debugLog(`AttendanceController: Marcado masivo completado - ${markedCount} estudiantes`);
-            
-        } catch (error) {
-            console.error('AttendanceController: Error en marcado masivo:', error);
-            UIUtils.showError('Error al marcar asistencia masiva');
-        }
-    },
-
-    /**
-     * Limpia toda la asistencia registrada
-     */
-    clearAllAttendance() {
-        debugLog('AttendanceController: Limpiando toda la asistencia');
-        
-        try {
-            const attendanceCount = Object.keys(this._state.attendanceData).length;
-            
-            if (attendanceCount === 0) {
-                UIUtils.showInfo('No hay asistencia para limpiar');
-                return;
-            }
-            
-            // Confirmar acción
-            ModalsController.showConfirmation({
-                title: 'Limpiar Asistencia',
-                message: `¿Estás seguro de que quieres limpiar ${attendanceCount} registros de asistencia?`,
-                icon: '🗑️',
-                type: 'warning'
-            }, () => {
-                // Limpiar datos
-                this._setState({ attendanceData: {} });
-                
-                // Actualizar UI
-                this._clearAllStudentUI();
-                this._updateAttendanceSummary();
-                
-                UIUtils.showSuccess('Asistencia limpiada');
-            });
-            
-        } catch (error) {
-            console.error('AttendanceController: Error al limpiar asistencia:', error);
-            UIUtils.showError('Error al limpiar asistencia');
-        }
-    },
-
-    /**
-     * Guarda los datos de asistencia
+     * Guarda los datos de asistencia usando ClassControlService
      */
     async saveAttendanceData(groupCode) {
-        debugLog('AttendanceController: Guardando datos de asistencia');
+        debugLog('AttendanceController: Guardando datos de asistencia con ClassControlService');
         
         try {
             const attendanceData = this._state.attendanceData;
@@ -291,24 +269,17 @@ const AttendanceController = {
             // Mostrar loading
             ModalsController.showLoading('Guardando asistencia...', 'Por favor espera...');
             
-            // Crear registros de asistencia
             const selectedDate = window.AppState.selectedDate || DateUtils.getCurrentDate();
-            const { records, errors } = AttendanceService.createGroupAttendanceRecords(
+            const selectedAssistant = this._state.selectedAssistant;
+            const classId = this._state.classId;
+            
+            // Usar ClassControlService para manejar el flujo completo
+            const result = await ClassControlService.handleClassRealized(
+                selectedDate,
+                groupCode,
                 attendanceData,
-                {
-                    groupCode,
-                    date: selectedDate,
-                    classType: this._state.attendanceType,
-                    sentBy: window.AppState.user?.email || 'usuario'
-                }
+                selectedAssistant?.id || ''
             );
-            
-            if (errors.length > 0) {
-                console.warn('AttendanceController: Errores en algunos registros:', errors);
-            }
-            
-            // Guardar registros
-            const result = await AttendanceService.saveAttendance(records);
             
             // Cerrar loading
             ModalsController.hideLoading();
@@ -316,12 +287,14 @@ const AttendanceController = {
             // Mostrar resultado
             const successData = {
                 title: 'Asistencia Guardada',
-                message: result.method === 'offline' ? result.message : 'Datos guardados correctamente en Google Sheets',
+                message: 'Clase y asistencia registradas correctamente',
                 details: [
                     `Grupo: ${groupCode}`,
                     `Fecha: ${DateUtils.formatDate(selectedDate)}`,
-                    `Registros guardados: ${result.saved}`,
-                    `Método: ${result.method === 'offline' ? 'Offline (se sincronizará automáticamente)' : 'Online'}`
+                    `Asistente: ${selectedAssistant?.nombre || 'No especificado'}`,
+                    `Clase ID: ${classId}`,
+                    `Registros guardados: ${attendanceCount}`,
+                    `Método: ${result.attendanceResult.method === 'offline' ? 'Offline (se sincronizará)' : 'Online'}`
                 ],
                 actions: [{
                     label: '🏠 Ir al Dashboard',
@@ -343,23 +316,25 @@ const AttendanceController = {
             this._setState({
                 attendanceData: {},
                 currentGroup: null,
-                currentStudents: []
+                currentStudents: [],
+                selectedAssistant: null,
+                classId: null
             });
             
         } catch (error) {
             ModalsController.hideLoading();
             console.error('AttendanceController: Error al guardar asistencia:', error);
-            UIUtils.showError('Error al guardar asistencia');
+            UIUtils.showError(error.message || 'Error al guardar asistencia');
         } finally {
             this._setState({ isProcessing: false });
         }
     },
 
     /**
-     * Guarda la cancelación de una clase
+     * Guarda la cancelación usando ClassControlService
      */
     async saveCancellation(groupCode) {
-        debugLog('AttendanceController: Guardando cancelación');
+        debugLog('AttendanceController: Guardando cancelación con ClassControlService');
         
         try {
             // Obtener motivo seleccionado
@@ -372,6 +347,7 @@ const AttendanceController = {
             const reason = selectedReason.value;
             const description = document.getElementById('cancellation-description')?.value?.trim() || '';
             const selectedDate = window.AppState.selectedDate || DateUtils.getCurrentDate();
+            const selectedAssistant = this._state.selectedAssistant;
             
             this._setState({ isProcessing: true });
             
@@ -382,22 +358,19 @@ const AttendanceController = {
                 saveBtn.innerHTML = '<div class="spinner mr-3"></div>Guardando...';
             }
             
-            // Obtener estudiantes del grupo
-            const students = await StudentService.getStudentsByGroup(groupCode);
-            
-            // Guardar cancelación
-            const result = await AttendanceService.saveCancellation(
+            // Usar ClassControlService para manejar el flujo completo
+            const result = await ClassControlService.handleClassCancelled(
+                selectedDate,
                 groupCode,
                 reason,
                 description,
-                selectedDate,
-                students
+                selectedAssistant?.id || ''
             );
             
             // Mostrar resultado
-            const message = result.method === 'offline' 
-                ? `Cancelación guardada offline (${students.length} estudiantes). Se sincronizará cuando haya conexión.`
-                : `Cancelación registrada para ${students.length} estudiantes`;
+            const message = result.attendanceResult.method === 'offline' 
+                ? `Cancelación guardada offline (${result.studentsAffected} estudiantes). Se sincronizará cuando haya conexión.`
+                : `Cancelación registrada para ${result.studentsAffected} estudiantes`;
             
             UIUtils.showSuccess(message);
             
@@ -408,7 +381,7 @@ const AttendanceController = {
             
         } catch (error) {
             console.error('AttendanceController: Error al guardar cancelación:', error);
-            UIUtils.showError('Error al guardar la cancelación');
+            UIUtils.showError(error.message || 'Error al guardar la cancelación');
             
             // Restaurar botón
             const saveBtn = document.getElementById('save-cancellation-btn');
@@ -421,8 +394,113 @@ const AttendanceController = {
         }
     },
 
+    // ===========================================
+    // MÉTODOS EXISTENTES (sin cambios significativos)
+    // ===========================================
+
     /**
-     * Muestra vista previa de la asistencia
+     * Marca la asistencia de un estudiante individual
+     */
+    markAttendance(studentId, status) {
+        debugLog(`AttendanceController: Marcando ${studentId} como ${status}`);
+        
+        try {
+            if (!studentId || !status) {
+                UIUtils.showError('Parámetros inválidos para marcar asistencia');
+                return;
+            }
+            
+            const student = this._findStudent(studentId);
+            if (!student) {
+                UIUtils.showError(`Estudiante ${studentId} no encontrado`);
+                return;
+            }
+            
+            if (status === 'Justificada') {
+                this._openJustificationModal(studentId, student.nombre);
+                return;
+            }
+            
+            this._recordAttendance(studentId, status);
+            this._updateStudentUI(studentId, status);
+            this._updateAttendanceSummary();
+            
+            UIUtils.showSuccess(`${student.nombre} marcado como ${status.toLowerCase()}`);
+            
+        } catch (error) {
+            console.error('AttendanceController: Error al marcar asistencia:', error);
+            UIUtils.showError('Error al registrar asistencia');
+        }
+    },
+
+    /**
+     * Marca asistencia masiva
+     */
+    markAllAttendance(status) {
+        debugLog(`AttendanceController: Marcando todos como ${status}`);
+        
+        try {
+            if (status === 'Justificada') {
+                UIUtils.showInfo('Para justificaciones, marca estudiantes individualmente');
+                return;
+            }
+            
+            const students = this._state.currentStudents;
+            if (students.length === 0) {
+                UIUtils.showWarning('No hay estudiantes cargados');
+                return;
+            }
+            
+            let markedCount = 0;
+            students.forEach(student => {
+                this._recordAttendance(student.id, status);
+                this._updateStudentUI(student.id, status);
+                markedCount++;
+            });
+            
+            this._updateAttendanceSummary();
+            UIUtils.showSuccess(`${markedCount} estudiantes marcados como ${status.toLowerCase()}`);
+            
+        } catch (error) {
+            console.error('AttendanceController: Error en marcado masivo:', error);
+            UIUtils.showError('Error al marcar asistencia masiva');
+        }
+    },
+
+    /**
+     * Limpia toda la asistencia registrada
+     */
+    clearAllAttendance() {
+        debugLog('AttendanceController: Limpiando toda la asistencia');
+        
+        try {
+            const attendanceCount = Object.keys(this._state.attendanceData).length;
+            
+            if (attendanceCount === 0) {
+                UIUtils.showInfo('No hay asistencia para limpiar');
+                return;
+            }
+            
+            ModalsController.showConfirmation({
+                title: 'Limpiar Asistencia',
+                message: `¿Estás seguro de que quieres limpiar ${attendanceCount} registros de asistencia?`,
+                icon: '🗑️',
+                type: 'warning'
+            }, () => {
+                this._setState({ attendanceData: {} });
+                this._clearAllStudentUI();
+                this._updateAttendanceSummary();
+                UIUtils.showSuccess('Asistencia limpiada');
+            });
+            
+        } catch (error) {
+            console.error('AttendanceController: Error al limpiar asistencia:', error);
+            UIUtils.showError('Error al limpiar asistencia');
+        }
+    },
+
+    /**
+     * Muestra vista previa
      */
     previewAttendance(groupCode) {
         debugLog('AttendanceController: Mostrando vista previa');
@@ -436,16 +514,16 @@ const AttendanceController = {
                 return;
             }
             
-            // Calcular estadísticas
             const stats = AttendanceService.calculateAttendanceStats(Object.values(attendanceData));
+            const selectedAssistant = this._state.selectedAssistant;
             
-            // Generar contenido de vista previa
             const previewData = {
                 groupCode,
                 selectedDate: window.AppState.selectedDate || DateUtils.getCurrentDate(),
                 attendance: attendanceData,
                 stats,
-                attendanceType: this._state.attendanceType
+                attendanceType: this._state.attendanceType,
+                selectedAssistant
             };
             
             const previewContent = ModalsView.getAttendancePreviewContent(previewData);
@@ -458,7 +536,7 @@ const AttendanceController = {
     },
 
     /**
-     * Muestra estadísticas de asistencia actual
+     * Muestra estadísticas de asistencia
      */
     showAttendanceStats() {
         debugLog('AttendanceController: Mostrando estadísticas');
@@ -470,7 +548,8 @@ const AttendanceController = {
             const statsData = {
                 totalStudents: students.length,
                 attendanceRecords: attendanceData,
-                groupInfo: this._state.currentGroup
+                groupInfo: this._state.currentGroup,
+                selectedAssistant: this._state.selectedAssistant
             };
             
             ModalsController.showAttendanceStats(statsData);
@@ -482,7 +561,7 @@ const AttendanceController = {
     },
 
     /**
-     * Guarda una justificación
+     * Guarda justificación
      */
     saveJustification() {
         debugLog('AttendanceController: Guardando justificación');
@@ -503,14 +582,10 @@ const AttendanceController = {
                 return;
             }
             
-            // Registrar asistencia justificada
             this._recordAttendance(studentId, 'Justificada', type, description);
-            
-            // Actualizar UI
             this._updateStudentUI(studentId, 'Justificada');
             this._updateAttendanceSummary();
             
-            // Cerrar modal
             ModalsController.close('justification-modal');
             
             const student = this._findStudent(studentId);
@@ -523,55 +598,14 @@ const AttendanceController = {
     },
 
     /**
-     * Exporta los datos de asistencia (placeholder)
-     */
-    exportAttendance(groupCode) {
-        UIUtils.showInfo('Función de exportación en desarrollo');
-    },
-
-    /**
      * Obtiene el estado actual del controlador
      */
     getState() {
         return { ...this._state };
     },
 
-    /**
-     * Función de debug temporal para verificar estudiantes
-     */
-    debugStudentsInfo() {
-        debugLog('=== DEBUG ESTUDIANTES ===');
-        debugLog('currentStudents:', this._state.currentStudents);
-        debugLog('AppState.estudiantes:', window.AppState.estudiantes);
-        debugLog('attendanceData:', this._state.attendanceData);
-        
-        // Crear función global temporal para debugging
-        window.debugAttendanceController = () => {
-            console.log('=== ESTADO DEL ATTENDANCE CONTROLLER ===');
-            console.log('currentStudents:', this._state.currentStudents);
-            console.log('currentGroup:', this._state.currentGroup);
-            console.log('attendanceData:', this._state.attendanceData);
-            console.log('AppState.estudiantes:', window.AppState.estudiantes);
-            
-            // Verificar discrepancias en IDs
-            const currentIds = this._state.currentStudents.map(s => s.id);
-            const globalIds = window.AppState.estudiantes.map(s => s.id);
-            console.log('IDs en currentStudents:', currentIds);
-            console.log('IDs en AppState:', globalIds);
-            
-            return {
-                currentStudents: this._state.currentStudents,
-                currentGroup: this._state.currentGroup,
-                attendanceData: this._state.attendanceData,
-                globalStudents: window.AppState.estudiantes
-            };
-        };
-        
-        debugLog('Función debugAttendanceController() creada. Ejecútala en la consola para más info.');
-    },
-
     // ===========================================
-    // MÉTODOS PRIVADOS
+    // MÉTODOS PRIVADOS (algunos actualizados)
     // ===========================================
 
     /**
@@ -583,29 +617,29 @@ const AttendanceController = {
     },
 
     /**
-     * Muestra el formulario de asistencia (MEJORADO CON DEBUG)
+     * Muestra el formulario de asistencia
      */
     async _showAttendanceForm(group, students, type) {
         debugLog(`AttendanceController: Mostrando formulario para ${students.length} estudiantes`);
+        
+        const selectedAssistant = this._state.selectedAssistant;
         
         const html = AttendanceFormView.renderAttendanceForm({
             group,
             students,
             selectedDate: window.AppState.selectedDate || DateUtils.getCurrentDate(),
-            attendanceType: type
+            attendanceType: type,
+            selectedAssistant
         });
         
         document.getElementById('app').innerHTML = html;
         
         // Agregar modales necesarios
         document.body.insertAdjacentHTML('beforeend', ModalsView.renderJustificationModal());
-        
-        // TEMPORAL: Ejecutar debug info después de renderizar
-        this.debugStudentsInfo();
     },
 
     /**
-     * Registra un dato de asistencia (MEJORADO)
+     * Registra un dato de asistencia
      */
     _recordAttendance(studentId, status, justification = '', description = '') {
         debugLog(`AttendanceController: Registrando asistencia - ${studentId}: ${status}`);
@@ -621,49 +655,20 @@ const AttendanceController = {
         };
         
         attendanceData[studentId] = record;
-        
-        debugLog(`AttendanceController: Registro creado:`, record);
-        debugLog(`AttendanceController: Total registros:`, Object.keys(attendanceData).length);
-        
         this._setState({ attendanceData });
     },
 
     /**
-     * Busca un estudiante por ID (MEJORADO)
+     * Busca un estudiante por ID
      */
     _findStudent(studentId) {
-        debugLog(`AttendanceController: Buscando estudiante ${studentId}`);
-        debugLog(`AttendanceController: Estudiantes en current state:`, this._state.currentStudents.map(s => s.id));
-        debugLog(`AttendanceController: Estudiantes en global state:`, window.AppState.estudiantes.map(s => s.id));
-        
-        // Primero buscar en estudiantes actuales del controlador
         let student = this._state.currentStudents.find(s => s.id === studentId);
         
-        if (student) {
-            debugLog(`AttendanceController: Estudiante encontrado en currentStudents:`, student);
-            return student;
+        if (!student) {
+            student = window.AppState.estudiantes.find(s => s.id === studentId);
         }
         
-        // Luego buscar en estado global
-        student = window.AppState.estudiantes.find(s => s.id === studentId);
-        
-        if (student) {
-            debugLog(`AttendanceController: Estudiante encontrado en AppState.estudiantes:`, student);
-            return student;
-        }
-        
-        // Buscar por ID convertido a string por si acaso
-        const studentIdStr = studentId.toString();
-        student = this._state.currentStudents.find(s => s.id.toString() === studentIdStr) ||
-                  window.AppState.estudiantes.find(s => s.id.toString() === studentIdStr);
-        
-        if (student) {
-            debugLog(`AttendanceController: Estudiante encontrado con conversión a string:`, student);
-            return student;
-        }
-        
-        debugLog(`AttendanceController: ❌ Estudiante ${studentId} NO encontrado`);
-        return null;
+        return student;
     },
 
     /**
@@ -687,20 +692,15 @@ const AttendanceController = {
         const studentItem = document.querySelector(`[data-student-id="${studentId}"]`);
         if (!studentItem) return;
         
-        // Limpiar clases previas
         studentItem.classList.remove('status-presente', 'status-ausente', 'status-justificada');
-        
-        // Agregar nueva clase
         studentItem.classList.add(`status-${status.toLowerCase()}`);
         
-        // Actualizar botones
         const buttons = studentItem.querySelectorAll('.student-actions button');
         buttons.forEach(btn => {
             btn.classList.remove('btn-primary', 'btn-danger', 'btn-secondary');
             btn.classList.add('btn-outline');
         });
         
-        // Resaltar botón activo
         const activeButton = studentItem.querySelector(`button[onclick*="'${status}'"]`);
         if (activeButton) {
             activeButton.classList.remove('btn-outline');
@@ -758,7 +758,6 @@ const AttendanceController = {
             <span class="text-yellow-600">${stats.justified} justificadas</span>
         `;
         
-        // Habilitar botón de guardar si hay registros
         const saveBtn = document.getElementById('save-attendance-btn');
         if (saveBtn) {
             saveBtn.disabled = total === 0;
@@ -770,4 +769,4 @@ const AttendanceController = {
 // Hacer disponible globalmente
 window.AttendanceController = AttendanceController;
 
-debugLog('attendance-controller.js cargado correctamente');
+debugLog('AttendanceController actualizado con ClassControlService cargado correctamente');
