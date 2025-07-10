@@ -56,7 +56,7 @@ const AttendanceFormView = {
                 ${this.renderGroupInfo(group, attendanceType === 'reposition' ? 'Reposición Individual' : null, students.length)}
 
                 <!-- Controles de Asistencia Masiva -->
-                ${this.renderMassControls(attendanceType)}
+                ${this.(attendanceType)}
 
                 <!-- Lista de Estudiantes -->
                 ${this.renderStudentsList(students, attendanceType)}
@@ -270,7 +270,7 @@ renderAssistantSelector(data = {}) {
                 ${this.renderGroupInfoWithAssistant(group, selectedAssistant)}
     
                 <!-- Controles de Asistencia Masiva -->
-                ${this.renderMassControls(attendanceType)}
+                ${this.(attendanceType)}
     
                 <!-- Lista de Estudiantes -->
                 ${this.renderStudentsList(students, attendanceType)}
@@ -468,6 +468,15 @@ renderAssistantSelector(data = {}) {
                     <button onclick="AttendanceController.showAttendanceStats()" class="btn btn-outline">
                         📊 Ver Estadísticas
                     </button>
+                </div>
+                <!-- Información sobre reposición individual -->
+                <div class="mt-4 p-3 bg-amber-50 border border-amber-200 rounded-lg">
+                    <div class="flex items-start">
+                        <span class="text-amber-500 mr-2 text-lg">💡</span>
+                        <div class="text-sm text-amber-700">
+                            <strong>Reposición Individual:</strong> Agrega estudiantes de otros grupos que toman esta clase como reposición.
+                        </div>
+                    </div>
                 </div>
             </div>
         `;
