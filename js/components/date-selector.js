@@ -37,10 +37,10 @@ const DateSelectorView = {
 
     /**
      * Renderiza el selector de fecha principal
-     */
-    renderDateSelector(selectedDate, currentDay, groupsCount) {
+         */
+        renderDateSelector(selectedDate, currentDay, groupsCount) {
         const formattedDate = DateUtils.formatDate(selectedDate);
-
+    
         return `
             <div class="bg-white rounded-lg p-6 shadow-sm mb-6">
                 <h2 class="text-xl font-semibold mb-4">Seleccionar Fecha de Reporte</h2>
@@ -85,7 +85,6 @@ const DateSelectorView = {
             </div>
         `;
     },
-
     /**
      * Renderiza el contador de grupos
      */
