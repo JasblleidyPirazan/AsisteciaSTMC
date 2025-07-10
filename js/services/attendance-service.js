@@ -53,16 +53,16 @@ const AttendanceService = {
         }
 
         return {
-            id: DataUtils.generateId('AST'),
-            fecha: options.date || DateUtils.getCurrentDate(),
-            estudiante_id: studentId,
-            grupo_codigo: groupCode,
-            tipo_clase: options.classType || this.ATTENDANCE_TYPES.REGULAR,
-            estado: status,
-            justificacion: options.justification || '',
-            descripcion: options.description || '',
-            tarde: options.late || false,
-            enviado_por: options.sentBy || window.AppState.user?.email || 'usuario',
+            ID: DataUtils.generateId('AST'),
+            ID_Clase: options.idClase || null,  // Se agregará después
+            Fecha: options.date || DateUtils.getCurrentDate(),
+            Estudiante_ID: studentId,
+            Grupo_Codigo: groupCode,
+            Tipo_Clase: options.classType || this.ATTENDANCE_TYPES.REGULAR,
+            Estado: status,
+            Justificacion: options.justification || '',
+            Descripcion: options.description || '',
+            Enviado_por: options.sentBy || window.AppState.user?.email || 'usuario',
             timestamp: DateUtils.getCurrentTimestamp()
         };
     },
