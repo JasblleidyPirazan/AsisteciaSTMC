@@ -349,7 +349,7 @@ const SheetsAPI = {
             const formattedData = attendanceDataArray.map(record => ({
                 ID: record.id || DataUtils.generateId('AST'),
                 ID_Clase: record.id_clase || '',  // NUEVO: ID de la clase
-                Ffecha: record.fecha || DateUtils.getCurrentDate(),
+                Fecha: record.fecha || DateUtils.getCurrentDate(),
                 Estudiante_ID: record.estudiante_id,
                 Grupo_Codigo: record.grupo_codigo,
                 Tipo_Clase: record.tipo_clase || 'Regular',
