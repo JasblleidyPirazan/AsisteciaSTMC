@@ -1,8 +1,8 @@
 /**
- * SERVICIO DE ASISTENCIAS - SOLUCIÓN HÍBRIDA
- * ==========================================
- * FIX: Intenta guardado online primero, offline como fallback
- * Elimina dependencia de window.AppState.connectionStatus poco confiable
+ * SERVICIO DE ASISTENCIAS - CORREGIDO COMPLETAMENTE
+ * =================================================
+ * FIX: Elimina doble formateo y corrige nombres de campos
+ * SOLUCIÓN: Mantiene objetos correctos, elimina conversión a arrays
  */
 
 const AttendanceService = {
@@ -36,7 +36,7 @@ const AttendanceService = {
     },
 
     /**
-     * Crea un nuevo registro de asistencia
+     * Crea un nuevo registro de asistencia - CORREGIDO
      */
     createAttendanceRecord(studentId, groupCode, status, options = {}) {
         debugLog(`AttendanceService: Creando registro - ${studentId}: ${status}`);
@@ -62,7 +62,7 @@ const AttendanceService = {
             Estado: status,
             Justificacion: options.justification || '',
             Descripcion: options.description || '',
-            Enviado_por: options.sentBy || window.AppState.user?.email || 'usuario',
+            Enviado_Por: options.sentBy || window.AppState.user?.email || 'usuario', // CORREGIDO: Enviado_Por
             Timestamp: DateUtils.getCurrentTimestamp()
         };
     },
@@ -106,23 +106,13 @@ const AttendanceService = {
     },
 
     /**
-     * Convierte registros de asistencia al formato esperado por Google Sheets
+     * CORREGIDO: Los registros ya están en formato correcto - no necesitan conversión
      */
     formatForBackend(attendanceRecords) {
-        debugLog(`AttendanceService: Formateando ${attendanceRecords.length} registros para backend`);
+        debugLog(`AttendanceService: Registros ya están en formato correcto - ${attendanceRecords.length} registros`);
 
-        return attendanceRecords.map(record => [
-            record.id,
-            record.fecha,
-            record.estudiante_id,
-            record.grupo_codigo,
-            record.tipo_clase,
-            record.estado,
-            record.justificacion,
-            record.descripcion,
-            record.enviado_por,
-            record.timestamp
-        ]);
+        // SOLUCIÓN: No convertir a arrays, los registros ya están en el formato correcto
+        return attendanceRecords;
     },
 
     /**
@@ -146,7 +136,7 @@ const AttendanceService = {
                 throw new Error(`Errores de validación: ${validationErrors.join('; ')}`);
             }
 
-            // Formatear para backend
+            // CORREGIDO: No formatear para backend - mantener objetos como están
             const formattedData = this.formatForBackend(attendanceRecords);
 
             // SOLUCIÓN HÍBRIDA: Intentar online primero SIEMPRE
@@ -316,7 +306,7 @@ const AttendanceService = {
     },
 
     /**
-     * Valida un registro de asistencia completo
+     * Valida un registro de asistencia completo - CORREGIDO
      */
     validateAttendanceRecord(record) {
         const errors = [];
@@ -326,6 +316,7 @@ const AttendanceService = {
             return { valid: false, errors };
         }
 
+        // CORREGIDO: Usar nombres correctos de campos (PascalCase)
         const requiredFields = [
             'ID', 'Fecha', 'Estudiante_ID', 'Grupo_Codigo', 
             'Tipo_Clase', 'Estado', 'Timestamp'
@@ -337,13 +328,13 @@ const AttendanceService = {
             }
         });
 
-        // Validar fecha
-        if (record.fecha && !ValidationUtils.isValidDate(record.fecha)) {
+        // CORREGIDO: Validar fecha con nombre correcto
+        if (record.Fecha && !ValidationUtils.isValidDate(record.Fecha)) {
             errors.push('Formato de fecha inválido');
         }
 
-        // Validar estado
-        if (record.estado && !Object.values(this.ATTENDANCE_STATUS).includes(record.estado)) {
+        // CORREGIDO: Validar estado con nombre correcto
+        if (record.Estado && !Object.values(this.ATTENDANCE_STATUS).includes(record.Estado)) {
             errors.push('Estado de asistencia inválido');
         }
 
@@ -377,7 +368,8 @@ const AttendanceService = {
         };
 
         attendanceRecords.forEach(record => {
-            switch (record.estado || record.status) {
+            // CORREGIDO: Usar nombres correctos de campos
+            switch (record.Estado || record.status) {
                 case this.ATTENDANCE_STATUS.PRESENT:
                     stats.present++;
                     break;
@@ -406,7 +398,7 @@ const AttendanceService = {
     // ===========================================
 
     /**
-     * Guarda registros de asistencia offline
+     * Guarda registros de asistencia offline - CORREGIDO
      */
     _saveOffline(attendanceRecords, options = {}) {
         debugLog('AttendanceService: Guardando registros offline');
@@ -417,8 +409,8 @@ const AttendanceService = {
             try {
                 StorageUtils.savePendingAttendance({
                     data: record,
-                    groupCode: record.grupo_codigo,
-                    date: record.fecha,
+                    groupCode: record.Grupo_Codigo, // CORREGIDO: Usar nombre correcto
+                    date: record.Fecha,             // CORREGIDO: Usar nombre correcto
                     type: options.type || 'attendance',
                     originalOptions: options
                 });
@@ -436,4 +428,4 @@ const AttendanceService = {
 // Hacer disponible globalmente
 window.AttendanceService = AttendanceService;
 
-debugLog('attendance-service.js SOLUCIONADO - Lógica híbrida implementada');
+debugLog('attendance-service.js COMPLETAMENTE CORREGIDO - Doble formateo eliminado, campos corregidos');
