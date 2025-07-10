@@ -334,8 +334,6 @@ const SheetsAPI = {
     },
 
   
-     * Guarda asistencia en Google Sheets (CORREGIDO - Sin reformateo innecesario)
-     */
     async saveAttendance(attendanceDataArray) {
         debugLog('Guardando asistencia:', attendanceDataArray);
         
