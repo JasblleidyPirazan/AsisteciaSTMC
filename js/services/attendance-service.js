@@ -327,8 +327,8 @@ const AttendanceService = {
         }
 
         const requiredFields = [
-            'id', 'fecha', 'estudiante_id', 'grupo_codigo', 
-            'tipo_clase', 'estado', 'timestamp'
+            'ID', 'Ffecha', 'Estudiante_ID', 'Grupo_Codigo', 
+            'Tipo_Clase', 'Estado', 'Timestamp'
         ];
 
         requiredFields.forEach(field => {
