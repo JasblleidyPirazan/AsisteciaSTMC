@@ -9,25 +9,26 @@ const AttendanceFormView = {
      * Renderiza la pregunta inicial sobre el estado de la clase
      */
     renderClassStatusQuestion(data = {}) {
-        const {
-            group = {},
-            selectedDate = DateUtils.getCurrentDate()
-        } = data;
+    const {
+        group = {},
+        selectedDate = DateUtils.getCurrentDate(),
+        selectedAssistant = null
+    } = data;
 
-        const formattedDate = DateUtils.formatDate(selectedDate);
+    const formattedDate = DateUtils.formatDate(selectedDate);
 
-        return `
-            <div class="container">
-                <!-- Header -->
-                ${this.renderHeader('Estado de la Clase', formattedDate, 'AppController.showDashboard()')}
+    return `
+        <div class="container">
+            <!-- Header -->
+            ${this.renderHeader('Estado de la Clase', formattedDate, 'AttendanceController.showAssistantSelector(\'' + group.codigo + '\')')}
 
-                <!-- Información del Grupo -->
-                ${this.renderGroupInfo(group, 'Verificar Estado')}
+            <!-- Información del Grupo (con asistente) -->
+            ${this.renderGroupInfoWithAssistant(group, selectedAssistant)}
 
-                <!-- Pregunta Principal -->
-                ${this.renderClassStatusOptions(group.codigo)}
-            </div>
-        `;
+            <!-- Pregunta Principal -->
+            ${this.renderClassStatusOptions(group.codigo)}
+        </div>
+    `;
     },
 
     /**
@@ -66,31 +67,220 @@ const AttendanceFormView = {
         `;
     },
 
-    /**
-     * Renderiza el formulario de cancelación
+        /**
+     * Renderiza el formulario de cancelación (ACTUALIZADO)
      */
     renderCancellationForm(data = {}) {
         const {
             group = {},
-            selectedDate = DateUtils.getCurrentDate()
+            selectedDate = DateUtils.getCurrentDate(),
+            selectedAssistant = null
         } = data;
-
+    
         const formattedDate = DateUtils.formatDate(selectedDate);
-
+    
         return `
             <div class="container">
                 <!-- Header -->
                 ${this.renderHeader('Registrar Cancelación', formattedDate, `AttendanceController.showClassStatusQuestion('${group.codigo}')`)}
-
-                <!-- Información del Grupo (Cancelada) -->
-                ${this.renderCancelledGroupInfo(group)}
-
+    
+                <!-- Información del Grupo Cancelado con Asistente -->
+                ${this.renderCancelledGroupInfoWithAssistant(group, selectedAssistant)}
+    
                 <!-- Formulario de Cancelación -->
                 ${this.renderCancellationOptions(group.codigo)}
             </div>
         `;
     },
+    
+    /**
+     * Renderiza la información del grupo cancelado con asistente
+     */
+    renderCancelledGroupInfoWithAssistant(group, selectedAssistant) {
+        const assistantInfo = selectedAssistant ? 
+            `<p class="opacity-90 text-sm mt-2">Asistente: ${selectedAssistant.nombre}</p>` : '';
+    
+        return `
+            <div class="bg-gradient-to-r from-red-500 to-red-600 rounded-lg p-6 mb-6 text-white">
+                <div class="text-center">
+                    <h2 class="text-xl font-bold mb-2">${group.descriptor || 'Grupo sin nombre'}</h2>
+                    <p class="opacity-90">Clase cancelada</p>
+                    ${assistantInfo}
+                </div>
+            </div>
+        `;
+    },
 
+    /**
+ * Renderiza el selector de asistente
+ */
+renderAssistantSelector(data = {}) {
+    const {
+        group = {},
+        assistants = [],
+        selectedDate = DateUtils.getCurrentDate()
+    } = data;
+
+    const formattedDate = DateUtils.formatDate(selectedDate);
+
+    return `
+        <div class="container">
+            <!-- Header -->
+            ${this.renderHeader('Seleccionar Asistente', formattedDate, 'AppController.showDashboard()')}
+
+            <!-- Información del Grupo -->
+            <div class="bg-gradient-to-r from-blue-500 to-blue-600 rounded-lg p-6 mb-6 text-white">
+                <div class="text-center">
+                    <h2 class="text-xl font-bold mb-2">${group.descriptor || 'Grupo sin nombre'}</h2>
+                    <p class="opacity-90">¿Quién está tomando la asistencia?</p>
+                </div>
+            </div>
+
+            <!-- Selector de Asistente -->
+            ${this.renderAssistantOptions(assistants, group.codigo)}
+        </div>
+    `;
+},
+
+    /**
+     * Renderiza las opciones de asistente
+     */
+    renderAssistantOptions(assistants, groupCode) {
+        if (assistants.length === 0) {
+            return `
+                <div class="bg-white rounded-lg p-8 shadow-sm text-center">
+                    <div class="text-6xl mb-6">👨‍🏫</div>
+                    <h3 class="text-2xl font-bold text-gray-900 mb-4">No hay asistentes disponibles</h3>
+                    <p class="text-gray-600 mb-6">No se encontraron asistentes configurados en el sistema</p>
+                    <div class="space-y-3">
+                        <button onclick="AttendanceController.continueWithoutAssistant('${groupCode}')" 
+                                class="btn btn-primary w-full">
+                            Continuar Sin Asistente
+                        </button>
+                        <button onclick="AppController.showDashboard()" 
+                                class="btn btn-outline w-full">
+                            Volver al Dashboard
+                        </button>
+                    </div>
+                </div>
+            `;
+        }
+    
+        return `
+            <div class="bg-white rounded-lg p-6 shadow-sm">
+                <h3 class="text-lg font-semibold mb-6">Selecciona el asistente:</h3>
+                
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    ${assistants.map(assistant => this.renderAssistantOption(assistant)).join('')}
+                </div>
+                
+                <div class="mt-6 pt-6 border-t border-gray-200">
+                    <button onclick="AttendanceController.continueWithoutAssistant('${groupCode}')" 
+                            class="btn btn-outline w-full">
+                        Continuar Sin Asistente
+                    </button>
+                </div>
+            </div>
+        `;
+    },
+    
+    /**
+     * Renderiza una opción de asistente
+     */
+    renderAssistantOption(assistant) {
+        return `
+            <div class="assistant-option border-2 border-gray-200 rounded-lg p-4 hover:border-primary-300 hover:bg-primary-50 transition-colors cursor-pointer"
+                 onclick="AttendanceController.selectAssistant('${assistant.id}')">
+                <div class="flex items-center">
+                    <div class="w-12 h-12 bg-primary-100 rounded-full flex items-center justify-center mr-4">
+                        <span class="text-2xl">👨‍🏫</span>
+                    </div>
+                    <div>
+                        <h4 class="font-medium text-gray-900">${assistant.nombre}</h4>
+                        <p class="text-sm text-gray-500">ID: ${assistant.id}</p>
+                    </div>
+                </div>
+            </div>
+        `;
+    },
+
+        /**
+     * Renderiza la información del grupo con asistente
+     */
+    renderGroupInfoWithAssistant(group, selectedAssistant) {
+        const assistantInfo = selectedAssistant ? 
+            `<div class="flex items-center">
+                <span class="mr-2">👨‍🏫</span>
+                <span>Asistente: ${selectedAssistant.nombre}</span>
+            </div>` : '';
+    
+        return `
+            <div class="bg-gradient-to-r from-primary-500 to-primary-600 rounded-lg p-6 mb-6 text-white">
+                <div class="flex items-center justify-between">
+                    <div>
+                        <h2 class="text-xl font-bold mb-2">${group.descriptor || 'Grupo sin nombre'}</h2>
+                        <div class="grid grid-cols-2 md:grid-cols-4 gap-4 text-sm mt-4">
+                            <div class="flex items-center">
+                                <span class="mr-2">👨‍🏫</span>
+                                <span>Prof. ${group.profe || 'Sin profesor'}</span>
+                            </div>
+                            <div class="flex items-center">
+                                <span class="mr-2">🕐</span>
+                                <span>${group.hora || 'Sin horario'}</span>
+                            </div>
+                            <div class="flex items-center">
+                                <span class="mr-2">🎾</span>
+                                <span>Cancha ${group.cancha || 'N/A'}</span>
+                            </div>
+                            <div class="flex items-center">
+                                <span class="mr-2">🏆</span>
+                                <span>Nivel ${group.bola || 'Verde'}</span>
+                            </div>
+                        </div>
+                        ${assistantInfo ? `<div class="mt-2">${assistantInfo}</div>` : ''}
+                    </div>
+                </div>
+            </div>
+        `;
+    },
+    
+        /**
+     * Renderiza el formulario de asistencia (ACTUALIZADO)
+     */
+    renderAttendanceForm(data = {}) {
+        const {
+            group = {},
+            students = [],
+            selectedDate = DateUtils.getCurrentDate(),
+            attendanceType = 'regular',
+            selectedAssistant = null
+        } = data;
+    
+        const formattedDate = DateUtils.formatDate(selectedDate);
+        const backAction = attendanceType === 'reposition' 
+            ? 'RepositionController.showSelector()' 
+            : `AttendanceController.showClassStatusQuestion('${group.codigo}')`;
+    
+        return `
+            <div class="container">
+                <!-- Header -->
+                ${this.renderHeader('Registro de Asistencia', formattedDate, backAction)}
+    
+                <!-- Información del Grupo con Asistente -->
+                ${this.renderGroupInfoWithAssistant(group, selectedAssistant)}
+    
+                <!-- Controles de Asistencia Masiva -->
+                ${this.renderMassControls(attendanceType)}
+    
+                <!-- Lista de Estudiantes -->
+                ${this.renderStudentsList(students, attendanceType)}
+    
+                <!-- Acciones Finales -->
+                ${this.renderFinalActions(group.codigo, attendanceType)}
+            </div>
+        `;
+    },
+    
     /**
      * Renderiza el selector de estudiantes para reposición
      */
@@ -121,7 +311,6 @@ const AttendanceFormView = {
             </div>
         `;
     },
-
     // ===========================================
     // COMPONENTES REUTILIZABLES
     // ===========================================
