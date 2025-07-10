@@ -1,11 +1,11 @@
 /**
- * CONTROLADOR DE ASISTENCIA - UI FEEDBACK MEJORADO
- * ================================================
- * Mejora el feedback al usuario basado en resultados reales
+ * CONTROLADOR DE ASISTENCIA - FLUJO SIMPLIFICADO
+ * ===============================================
+ * Mantiene TODO lo que funciona + agrega nuevo flujo simple
  */
 
 const AttendanceController = {
-    // Estado interno del controlador
+    // Estado interno del controlador (SIN CAMBIOS)
     _state: {
         currentGroup: null,
         currentStudents: [],
@@ -18,7 +18,7 @@ const AttendanceController = {
     },
 
     /**
-     * Inicializa el controlador y carga asistentes
+     * Inicializa el controlador y carga asistentes (SIN CAMBIOS)
      */
     async initialize() {
         debugLog('AttendanceController: Inicializando...');
@@ -38,7 +38,7 @@ const AttendanceController = {
     },
 
     /**
-     * Selecciona un grupo y muestra selector de asistente
+     * Selecciona un grupo y muestra selector de asistente (SIN CAMBIOS)
      */
     async selectGroup(groupCode) {
         debugLog(`AttendanceController: Seleccionando grupo ${groupCode}`);
@@ -68,7 +68,7 @@ const AttendanceController = {
     },
 
     /**
-     * Muestra selector de asistente
+     * Muestra selector de asistente (SIN CAMBIOS)
      */
     async showAssistantSelector(groupCode) {
         debugLog(`AttendanceController: Mostrando selector de asistente para ${groupCode}`);
@@ -93,7 +93,7 @@ const AttendanceController = {
     },
 
     /**
-     * Selecciona un asistente y continúa con la pregunta de estado
+     * Selecciona un asistente y continúa con la pregunta de estado (SIN CAMBIOS)
      */
     async selectAssistant(assistantId) {
         debugLog(`AttendanceController: Seleccionando asistente ${assistantId}`);
@@ -117,7 +117,7 @@ const AttendanceController = {
     },
 
     /**
-     * Continúa sin seleccionar asistente
+     * Continúa sin seleccionar asistente (SIN CAMBIOS)
      */
     async continueWithoutAssistant(groupCode) {
         debugLog('AttendanceController: Continuando sin asistente seleccionado');
@@ -136,7 +136,7 @@ const AttendanceController = {
     },
 
     /**
-     * Muestra la pregunta inicial sobre el estado de la clase
+     * Muestra la pregunta inicial sobre el estado de la clase (SIN CAMBIOS)
      */
     async showClassStatusQuestion(groupCode) {
         debugLog(`AttendanceController: Mostrando pregunta de estado para ${groupCode}`);
@@ -161,20 +161,19 @@ const AttendanceController = {
     },
 
     /**
-     * La clase se realizó - usar ClassControlService
+     * ✨ NUEVO FLUJO: La clase se realizó - ahora pregunta por asistente DESPUÉS
      */
     async classWasHeld(groupCode) {
-        debugLog(`AttendanceController: Clase realizada para grupo ${groupCode}`);
+        debugLog(`AttendanceController: Clase realizada para grupo ${groupCode} - NUEVO FLUJO`);
         
         try {
             this._setState({ isProcessing: true, attendanceType: 'regular' });
             
-            UIUtils.showLoading('app', 'Validando clase...');
+            UIUtils.showLoading('app', 'Cargando estudiantes...');
             
             const selectedDate = window.AppState.selectedDate || DateUtils.getCurrentDate();
-            const selectedAssistant = this._state.selectedAssistant;
             
-            // Validar que se pueda reportar la clase
+            // 1. Validar que se pueda reportar la clase
             const validation = await ClassControlService.validateClassReport(selectedDate, groupCode);
             
             if (!validation.valid) {
@@ -197,22 +196,7 @@ const AttendanceController = {
                 throw new Error(validation.error);
             }
             
-            // Crear registro de clase
-            const classRecord = await ClassControlService.createClassRecord(
-                selectedDate,
-                groupCode,
-                ClassControlService.CLASS_STATES.REALIZADA,
-                {
-                    asistenteId: selectedAssistant?.id || '',
-                    creadoPor: window.AppState.user?.email || 'usuario'
-                }
-            );
-            
-            this._setState({ classId: classRecord.id });
-            
-            UIUtils.showLoading('app', 'Cargando estudiantes...');
-            
-            // Obtener grupo y estudiantes
+            // 2. Obtener grupo y estudiantes PRIMERO
             const group = await GroupService.getGroupByCode(groupCode);
             const students = await StudentService.getStudentsByGroup(groupCode);
             
@@ -222,15 +206,15 @@ const AttendanceController = {
                 return;
             }
             
-            // Actualizar estado
+            // 3. Actualizar estado
             this._setState({
                 currentGroup: group,
                 currentStudents: students,
                 attendanceData: {}
             });
             
-            // Mostrar formulario de asistencia
-            await this._showAttendanceForm(group, students, 'regular');
+            // 4. Ir DIRECTAMENTE a preguntar por el asistente (PARA ASISTENCIA)
+            await this.showAssistantSelectorForAttendance(groupCode);
             
         } catch (error) {
             console.error('AttendanceController: Error al procesar clase realizada:', error);
@@ -242,7 +226,184 @@ const AttendanceController = {
     },
 
     /**
-     * La clase fue cancelada - usar ClassControlService
+     * ✨ NUEVO: Selector de asistente PARA ASISTENCIA (no para estado de clase)
+     */
+    async showAssistantSelectorForAttendance(groupCode) {
+        debugLog(`AttendanceController: Mostrando selector de asistente para asistencia ${groupCode}`);
+        
+        try {
+            const group = this._state.currentGroup;
+            const assistants = this._state.availableAssistants;
+            const selectedDate = window.AppState.selectedDate || DateUtils.getCurrentDate();
+            
+            const html = `
+                <div class="container">
+                    <!-- Header -->
+                    <header class="flex items-center justify-between mb-6 bg-white rounded-lg p-6 shadow-sm">
+                        <div class="flex items-center">
+                            <button onclick="AttendanceController.showClassStatusQuestion('${groupCode}')" class="btn btn-neutral mr-4">
+                                ← Volver
+                            </button>
+                            <div>
+                                <h1 class="text-2xl font-bold text-gray-900">Seleccionar Asistente</h1>
+                                <p class="text-gray-600">${DateUtils.formatDate(selectedDate)}</p>
+                            </div>
+                        </div>
+                    </header>
+
+                    <!-- Información del Grupo -->
+                    <div class="bg-gradient-to-r from-primary-500 to-primary-600 rounded-lg p-6 mb-6 text-white">
+                        <div class="text-center">
+                            <h2 class="text-xl font-bold mb-2">${group.descriptor || 'Grupo sin nombre'}</h2>
+                            <p class="opacity-90">Clase confirmada como realizada</p>
+                            <p class="text-sm opacity-75 mt-2">¿Quién está tomando la asistencia hoy?</p>
+                        </div>
+                    </div>
+
+                    <!-- Selector de Asistente -->
+                    ${this.renderAssistantOptionsForAttendance(assistants, groupCode)}
+                </div>
+            `;
+            
+            document.getElementById('app').innerHTML = html;
+            
+        } catch (error) {
+            console.error('AttendanceController: Error mostrando selector de asistente para asistencia:', error);
+            UIUtils.showError('Error al cargar selector de asistente');
+        }
+    },
+
+    /**
+     * ✨ NUEVO: Opciones de asistente para asistencia
+     */
+    renderAssistantOptionsForAttendance(assistants, groupCode) {
+        if (assistants.length === 0) {
+            return `
+                <div class="bg-white rounded-lg p-8 shadow-sm text-center">
+                    <div class="text-6xl mb-6">👨‍🏫</div>
+                    <h3 class="text-2xl font-bold text-gray-900 mb-4">No hay asistentes disponibles</h3>
+                    <p class="text-gray-600 mb-6">No se encontraron asistentes configurados en el sistema</p>
+                    <div class="space-y-3">
+                        <button onclick="AttendanceController.continueToAttendanceWithoutAssistant('${groupCode}')" 
+                                class="btn btn-primary w-full">
+                            Continuar Sin Asistente
+                        </button>
+                        <button onclick="AttendanceController.showClassStatusQuestion('${groupCode}')" 
+                                class="btn btn-outline w-full">
+                            ← Volver
+                        </button>
+                    </div>
+                </div>
+            `;
+        }
+
+        return `
+            <div class="bg-white rounded-lg p-6 shadow-sm">
+                <h3 class="text-lg font-semibold mb-6">Selecciona el asistente:</h3>
+                
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    ${assistants.map(assistant => `
+                        <div class="assistant-option border-2 border-gray-200 rounded-lg p-4 hover:border-primary-300 hover:bg-primary-50 transition-colors cursor-pointer"
+                             onclick="AttendanceController.selectAssistantForAttendance('${assistant.id}')">
+                            <div class="flex items-center">
+                                <div class="w-12 h-12 bg-primary-100 rounded-full flex items-center justify-center mr-4">
+                                    <span class="text-2xl">👨‍🏫</span>
+                                </div>
+                                <div>
+                                    <h4 class="font-medium text-gray-900">${assistant.nombre}</h4>
+                                    <p class="text-sm text-gray-500">ID: ${assistant.id}</p>
+                                </div>
+                            </div>
+                        </div>
+                    `).join('')}
+                </div>
+                
+                <div class="mt-6 pt-6 border-t border-gray-200">
+                    <button onclick="AttendanceController.continueToAttendanceWithoutAssistant('${groupCode}')" 
+                            class="btn btn-outline w-full">
+                        Continuar Sin Asistente
+                    </button>
+                </div>
+            </div>
+        `;
+    },
+
+    /**
+     * ✨ NUEVO: Selecciona asistente y va directo a asistencia
+     */
+    async selectAssistantForAttendance(assistantId) {
+        debugLog(`AttendanceController: Asistente seleccionado para asistencia: ${assistantId}`);
+        
+        try {
+            // Buscar asistente
+            const assistant = this._state.availableAssistants.find(a => a.id === assistantId);
+            if (!assistant) {
+                throw new Error(`Asistente ${assistantId} no encontrado`);
+            }
+            
+            this._setState({ selectedAssistant: assistant });
+            
+            // Ir DIRECTAMENTE al formulario de asistencia
+            await this.showAttendanceFormDirect();
+            
+        } catch (error) {
+            console.error('AttendanceController: Error al seleccionar asistente para asistencia:', error);
+            UIUtils.showError('Error al seleccionar asistente');
+        }
+    },
+
+    /**
+     * ✨ NUEVO: Continúa sin asistente y va directo a asistencia
+     */
+    async continueToAttendanceWithoutAssistant(groupCode) {
+        debugLog('AttendanceController: Continuando sin asistente a asistencia');
+        
+        try {
+            this._setState({ selectedAssistant: null });
+            await this.showAttendanceFormDirect();
+            
+        } catch (error) {
+            console.error('AttendanceController: Error al continuar sin asistente:', error);
+            UIUtils.showError('Error al continuar');
+        }
+    },
+
+    /**
+     * ✨ NUEVO: Muestra formulario de asistencia directamente
+     */
+    async showAttendanceFormDirect() {
+        debugLog('AttendanceController: Mostrando formulario de asistencia directamente');
+        
+        try {
+            const group = this._state.currentGroup;
+            const students = this._state.currentStudents;
+            const selectedAssistant = this._state.selectedAssistant;
+            const selectedDate = window.AppState.selectedDate || DateUtils.getCurrentDate();
+            
+            // Usar el componente existente
+            const html = AttendanceFormView.renderAttendanceForm({
+                group,
+                students,
+                selectedDate,
+                attendanceType: 'regular',
+                selectedAssistant
+            });
+            
+            document.getElementById('app').innerHTML = html;
+            
+            // Agregar modales necesarios si no existen
+            if (!document.getElementById('justification-modal')) {
+                document.body.insertAdjacentHTML('beforeend', ModalsView.renderJustificationModal());
+            }
+            
+        } catch (error) {
+            console.error('AttendanceController: Error mostrando formulario de asistencia:', error);
+            UIUtils.showError('Error al cargar formulario de asistencia');
+        }
+    },
+
+    /**
+     * La clase fue cancelada - usar ClassControlService (SIN CAMBIOS)
      */
     async classWasCancelled(groupCode) {
         debugLog(`AttendanceController: Clase cancelada para grupo ${groupCode}`);
@@ -269,7 +430,7 @@ const AttendanceController = {
     },
 
     /**
-     * Marca la asistencia de un estudiante individual
+     * Marca la asistencia de un estudiante individual (SIN CAMBIOS)
      */
     markAttendance(studentId, status) {
         debugLog(`AttendanceController: Marcando ${studentId} como ${status}`);
@@ -304,7 +465,7 @@ const AttendanceController = {
     },
 
     /**
-     * Marca asistencia masiva
+     * Marca asistencia masiva (SIN CAMBIOS)
      */
     markAllAttendance(status) {
         debugLog(`AttendanceController: Marcando todos como ${status}`);
@@ -338,7 +499,7 @@ const AttendanceController = {
     },
 
     /**
-     * Limpia toda la asistencia registrada
+     * Limpia toda la asistencia registrada (SIN CAMBIOS)
      */
     clearAllAttendance() {
         debugLog('AttendanceController: Limpiando toda la asistencia');
@@ -370,10 +531,10 @@ const AttendanceController = {
     },
 
     /**
-     * MEJORADO: Guarda los datos de asistencia con feedback en tiempo real
+     * ✨ MODIFICADO: Guarda datos de asistencia con botón "Volver al Inicio"
      */
     async saveAttendanceData(groupCode) {
-        debugLog('AttendanceController: Guardando datos de asistencia con feedback mejorado');
+        debugLog('AttendanceController: Guardando datos de asistencia con flujo simplificado');
         
         try {
             const attendanceData = this._state.attendanceData;
@@ -386,36 +547,44 @@ const AttendanceController = {
             
             this._setState({ isProcessing: true });
             
-            // MEJORA: Mostrar loading específico en lugar de asumir offline
-            ModalsController.showLoading('Guardando asistencia...', 'Intentando guardar datos...');
+            ModalsController.showLoading('Guardando asistencia...', 'Procesando datos...');
             
             const selectedDate = window.AppState.selectedDate || DateUtils.getCurrentDate();
             const selectedAssistant = this._state.selectedAssistant;
-            const classId = this._state.classId;
             
-            // Crear registros de asistencia con ID de clase
+            // 1. Crear registro de clase
+            const classRecord = await ClassControlService.createClassRecord(
+                selectedDate,
+                groupCode,
+                ClassControlService.CLASS_STATES.REALIZADA,
+                {
+                    asistenteId: selectedAssistant?.id || '',
+                    creadoPor: window.AppState.user?.email || 'usuario'
+                }
+            );
+            
+            // 2. Crear registros de asistencia
             const { records, errors } = AttendanceService.createGroupAttendanceRecords(
                 attendanceData,
                 {
                     groupCode,
                     date: selectedDate,
-                    classType: this._state.attendanceType,
+                    classType: 'Regular',
                     sentBy: window.AppState.user?.email || 'usuario'
                 }
             );
             
-            // Agregar ID de clase a cada registro
+            // 3. Agregar ID de clase
             records.forEach(record => {
-                record.ID_Clase = classId;
+                record.ID_Clase = classRecord.id;
             });
             
-            // MEJORA: Usar nueva lógica híbrida de AttendanceService
+            // 4. Guardar asistencias
             const result = await AttendanceService.saveAttendance(records);
             
-            // Cerrar loading
             ModalsController.hideLoading();
             
-            // MEJORA: Mostrar resultado basado en método real usado
+            // 5. Mostrar éxito con botón para volver al inicio
             let message, details;
             
             if (result.method === 'online') {
@@ -424,36 +593,30 @@ const AttendanceController = {
                     `Grupo: ${groupCode}`,
                     `Fecha: ${DateUtils.formatDate(selectedDate)}`,
                     `Asistente: ${selectedAssistant?.nombre || 'No especificado'}`,
-                    `Clase ID: ${classId}`,
                     `Registros guardados: ${attendanceCount}`,
                     `✅ Guardado en línea exitoso`
                 ];
-                
-                // Actualizar estado de conexión
                 UIUtils.updateConnectionStatus('online');
-                
-            } else if (result.method === 'offline') {
+            } else {
                 message = 'Asistencia guardada localmente';
                 details = [
                     `Grupo: ${groupCode}`,
                     `Fecha: ${DateUtils.formatDate(selectedDate)}`,
                     `Asistente: ${selectedAssistant?.nombre || 'No especificado'}`,
-                    `Clase ID: ${classId}`,
                     `Registros guardados: ${attendanceCount}`,
-                    `⏳ Sin conexión - se sincronizará automáticamente`
+                    `⏳ Se sincronizará automáticamente`
                 ];
-                
-                // Actualizar estado de conexión
                 UIUtils.updateConnectionStatus('offline');
             }
             
+            // ✨ NUEVO: Modal de éxito con botón para volver al inicio
             const successData = {
-                title: message,
-                message: 'Clase y asistencia registradas',
+                title: '🎉 ¡Asistencia Guardada!',
+                message: message,
                 details: details,
                 actions: [{
-                    label: '🏠 Ir al Dashboard',
-                    handler: 'AppController.showDashboard()',
+                    label: '🏠 Volver al Inicio',
+                    handler: 'AppController.showDateSelector()',
                     class: 'btn-primary'
                 }]
             };
@@ -486,7 +649,7 @@ const AttendanceController = {
     },
 
     /**
-     * Guarda la cancelación usando ClassControlService
+     * Guarda la cancelación usando ClassControlService (SIN CAMBIOS)
      */
     async saveCancellation(groupCode) {
         debugLog('AttendanceController: Guardando cancelación con ClassControlService');
@@ -555,7 +718,7 @@ const AttendanceController = {
     },
 
     /**
-     * Muestra vista previa
+     * Muestra vista previa (SIN CAMBIOS)
      */
     previewAttendance(groupCode) {
         debugLog('AttendanceController: Mostrando vista previa');
@@ -591,7 +754,7 @@ const AttendanceController = {
     },
 
     /**
-     * Muestra estadísticas de asistencia
+     * Muestra estadísticas de asistencia (SIN CAMBIOS)
      */
     showAttendanceStats() {
         debugLog('AttendanceController: Mostrando estadísticas');
@@ -616,7 +779,7 @@ const AttendanceController = {
     },
 
     /**
-     * Guarda justificación
+     * Guarda justificación (SIN CAMBIOS)
      */
     saveJustification() {
         debugLog('AttendanceController: Guardando justificación');
@@ -653,7 +816,7 @@ const AttendanceController = {
     },
 
     /**
-     * Exporta la asistencia (placeholder mejorado)
+     * Exporta la asistencia (SIN CAMBIOS)
      */
     exportAttendance(groupCode) {
         debugLog('AttendanceController: Exportando asistencia');
@@ -695,18 +858,18 @@ const AttendanceController = {
     },
 
     /**
-     * Obtiene el estado actual del controlador
+     * Obtiene el estado actual del controlador (SIN CAMBIOS)
      */
     getState() {
         return { ...this._state };
     },
 
     // ===========================================
-    // MÉTODOS PRIVADOS (sin cambios significativos)
+    // MÉTODOS PRIVADOS (SIN CAMBIOS)
     // ===========================================
 
     /**
-     * Actualiza el estado interno
+     * Actualiza el estado interno (SIN CAMBIOS)
      */
     _setState(newState) {
         this._state = { ...this._state, ...newState };
@@ -714,7 +877,7 @@ const AttendanceController = {
     },
 
     /**
-     * Muestra el formulario de asistencia
+     * Muestra el formulario de asistencia (SIN CAMBIOS)
      */
     async _showAttendanceForm(group, students, type) {
         debugLog(`AttendanceController: Mostrando formulario para ${students.length} estudiantes`);
@@ -738,7 +901,7 @@ const AttendanceController = {
     },
 
     /**
-     * Registra un dato de asistencia
+     * Registra un dato de asistencia (SIN CAMBIOS)
      */
     _recordAttendance(studentId, status, justification = '', description = '') {
         debugLog(`AttendanceController: Registrando asistencia - ${studentId}: ${status}`);
@@ -758,7 +921,7 @@ const AttendanceController = {
     },
 
     /**
-     * Busca un estudiante por ID
+     * Busca un estudiante por ID (SIN CAMBIOS)
      */
     _findStudent(studentId) {
         // Buscar en estudiantes actuales del controlador
@@ -780,7 +943,7 @@ const AttendanceController = {
     },
 
     /**
-     * Abre el modal de justificación
+     * Abre el modal de justificación (SIN CAMBIOS)
      */
     _openJustificationModal(studentId, studentName) {
         const modal = document.getElementById('justification-modal');
@@ -794,7 +957,7 @@ const AttendanceController = {
     },
 
     /**
-     * Actualiza la UI de un estudiante específico
+     * Actualiza la UI de un estudiante específico (SIN CAMBIOS)
      */
     _updateStudentUI(studentId, status) {
         const studentItem = document.querySelector(`[data-student-id="${studentId}"]`);
@@ -832,7 +995,7 @@ const AttendanceController = {
     },
 
     /**
-     * Limpia la UI de todos los estudiantes
+     * Limpia la UI de todos los estudiantes (SIN CAMBIOS)
      */
     _clearAllStudentUI() {
         const studentItems = document.querySelectorAll('.student-item');
@@ -848,7 +1011,7 @@ const AttendanceController = {
     },
 
     /**
-     * Actualiza el resumen de asistencia
+     * Actualiza el resumen de asistencia (SIN CAMBIOS)
      */
     _updateAttendanceSummary() {
         const summary = document.getElementById('attendance-summary');
@@ -883,4 +1046,4 @@ const AttendanceController = {
 // Hacer disponible globalmente
 window.AttendanceController = AttendanceController;
 
-debugLog('AttendanceController MEJORADO - Feedback UI en tiempo real implementado');
+debugLog('AttendanceController - FLUJO SIMPLIFICADO implementado (mantiene todo lo que funciona)');
