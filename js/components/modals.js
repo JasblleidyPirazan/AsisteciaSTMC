@@ -285,7 +285,117 @@ const ModalsView = {
             </div>
         `;
     },
+    /**
+     * Genera contenido para vista previa de asistencia (ACTUALIZADA CON ASISTENTE)
+     */
+    ModalsView.getAttendancePreviewContent = function(data = {}) {
+        const {
+            groupCode = '',
+            selectedDate = '',
+            attendance = {},
+            stats = {},
+            selectedAssistant = null,
+            attendanceType = 'regular'
+        } = data;
+    
+        const formattedDate = DateUtils.formatDate(selectedDate);
+        const attendanceEntries = Object.values(attendance);
+    
+        return `
+            <div>
+                <div class="mb-6">
+                    <h4 class="font-bold text-lg mb-2">Resumen de Asistencia</h4>
+                    <div class="grid grid-cols-2 gap-4 text-sm">
+                        <div><strong>Grupo:</strong> ${groupCode}</div>
+                        <div><strong>Fecha:</strong> ${formattedDate}</div>
+                        <div><strong>Total registros:</strong> ${attendanceEntries.length}</div>
+                        <div><strong>Tipo:</strong> ${attendanceType === 'reposition' ? 'Reposición Individual' : 'Clase Regular'}</div>
+                    </div>
+                    
+                    ${selectedAssistant ? `
+                        <div class="mt-3 p-3 bg-blue-50 rounded-lg">
+                            <div class="flex items-center text-blue-800">
+                                <span class="text-xl mr-2">👨‍🏫</span>
+                                <div>
+                                    <strong>Asistente:</strong> ${selectedAssistant.nombre}
+                                    <div class="text-sm text-blue-600">ID: ${selectedAssistant.id}</div>
+                                </div>
+                            </div>
+                        </div>
+                    ` : `
+                        <div class="mt-3 p-3 bg-gray-50 rounded-lg">
+                            <div class="flex items-center text-gray-600">
+                                <span class="text-xl mr-2">👤</span>
+                                <span><strong>Asistente:</strong> No especificado</span>
+                            </div>
+                        </div>
+                    `}
+                </div>
+    
+                <!-- Estadísticas -->
+                <div class="grid grid-cols-3 gap-4 mb-6">
+                    <div class="bg-green-100 p-3 rounded text-center">
+                        <div class="font-bold text-green-800 text-xl">${stats.present || 0}</div>
+                        <div class="text-sm text-green-600">Presentes</div>
+                    </div>
+                    <div class="bg-red-100 p-3 rounded text-center">
+                        <div class="font-bold text-red-800 text-xl">${stats.absent || 0}</div>
+                        <div class="text-sm text-red-600">Ausentes</div>
+                    </div>
+                    <div class="bg-yellow-100 p-3 rounded text-center">
+                        <div class="font-bold text-yellow-800 text-xl">${stats.justified || 0}</div>
+                        <div class="text-sm text-yellow-600">Justificadas</div>
+                    </div>
+                </div>
+    
+                <!-- Lista detallada -->
+                <div class="space-y-2">
+                    <h5 class="font-semibold mb-3">Detalle por Estudiante:</h5>
+                    ${attendanceEntries.length > 0 ? attendanceEntries.map(record => `
+                        <div class="flex justify-between items-center p-2 bg-gray-50 rounded">
+                            <span class="font-medium">${this._getStudentName(record.studentId)}</span>
+                            <div class="flex items-center">
+                                <span class="mr-2">${this._getStatusIcon(record.status)}</span>
+                                <span class="font-medium">${record.status}</span>
+                                ${record.justification ? `<span class="text-xs text-gray-500 ml-2">(${record.justification})</span>` : ''}
+                            </div>
+                        </div>
+                    `).join('') : `
+                        <div class="text-center py-4 text-gray-500">
+                            <p>No hay registros de asistencia</p>
+                        </div>
+                    `}
+                </div>
+    
+                <!-- Información adicional -->
+                <div class="mt-6 pt-4 border-t border-gray-200">
+                    <div class="grid grid-cols-1 md:grid-cols-2 gap-4 text-sm text-gray-600">
+                        <div>
+                            <strong>Porcentaje de asistencia:</strong> 
+                            ${attendanceEntries.length > 0 ? Math.round(((stats.present || 0) / attendanceEntries.length) * 100) : 0}%
+                        </div>
+                        <div>
+                            <strong>Total procesado:</strong> 
+                            ${attendanceEntries.length} de ${attendanceEntries.length} estudiantes
+                        </div>
+                    </div>
+                </div>
+    
+                <!-- Nota importante -->
+                <div class="mt-4 p-3 bg-blue-50 rounded-lg">
+                    <div class="flex items-start">
+                        <span class="text-blue-500 mr-2">ℹ️</span>
+                        <div class="text-sm text-blue-700">
+                            <strong>Nota:</strong> Esta vista previa muestra los datos tal como se van a guardar. 
+                            Una vez guardados, los datos no podrán ser modificados.
+                        </div>
+                    </div>
+                </div>
+            </div>
+        `;
+    };
 
+    
     /**
      * Genera contenido para estadísticas de asistencia
      */
@@ -476,6 +586,128 @@ const ModalsController = {
             debugLog(`Modal cerrado: ${modalId}`);
         }
     },
+
+
+        /**
+     * Genera contenido para estadísticas de asistencia (ACTUALIZADA CON ASISTENTE)
+     */
+    ModalsView.getAttendanceStatsContent = function(data = {}) {
+        const {
+            totalStudents = 0,
+            attendanceRecords = {},
+            groupInfo = {},
+            selectedAssistant = null
+        } = data;
+    
+        const registeredCount = Object.keys(attendanceRecords).length;
+        const stats = AttendanceService.calculateAttendanceStats(Object.values(attendanceRecords));
+    
+        return `
+            <div>
+                <!-- Información del responsable -->
+                ${selectedAssistant ? `
+                    <div class="mb-6 p-4 bg-blue-50 rounded-lg">
+                        <div class="flex items-center">
+                            <span class="text-2xl mr-3">👨‍🏫</span>
+                            <div>
+                                <h5 class="font-semibold text-blue-800">Asistente Responsable</h5>
+                                <p class="text-blue-600">${selectedAssistant.nombre} (ID: ${selectedAssistant.id})</p>
+                            </div>
+                        </div>
+                    </div>
+                ` : `
+                    <div class="mb-6 p-4 bg-gray-50 rounded-lg">
+                        <div class="flex items-center">
+                            <span class="text-2xl mr-3">👤</span>
+                            <div>
+                                <h5 class="font-semibold text-gray-700">Asistente Responsable</h5>
+                                <p class="text-gray-600">No especificado</p>
+                            </div>
+                        </div>
+                    </div>
+                `}
+    
+                <!-- Resumen general -->
+                <div class="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
+                    <div class="text-center p-4 bg-blue-50 rounded">
+                        <div class="text-2xl font-bold text-blue-600">${totalStudents}</div>
+                        <div class="text-sm text-blue-600">Total Estudiantes</div>
+                    </div>
+                    <div class="text-center p-4 bg-gray-50 rounded">
+                        <div class="text-2xl font-bold text-gray-600">${registeredCount}</div>
+                        <div class="text-sm text-gray-600">Registrados</div>
+                    </div>
+                    <div class="text-center p-4 bg-green-50 rounded">
+                        <div class="text-2xl font-bold text-green-600">${stats.present}</div>
+                        <div class="text-sm text-green-600">Presentes</div>
+                    </div>
+                    <div class="text-center p-4 bg-yellow-50 rounded">
+                        <div class="text-2xl font-bold text-yellow-600">${Math.round((registeredCount / totalStudents) * 100)}%</div>
+                        <div class="text-sm text-yellow-600">Progreso</div>
+                    </div>
+                </div>
+    
+                <!-- Gráfico de barras simple -->
+                <div class="mb-6">
+                    <h5 class="font-semibold mb-3">Distribución de Asistencia:</h5>
+                    <div class="space-y-2">
+                        <div class="flex items-center">
+                            <div class="w-20 text-sm">Presentes:</div>
+                            <div class="flex-1 bg-gray-200 rounded h-6 overflow-hidden">
+                                <div class="bg-green-500 h-full transition-all duration-300" style="width: ${totalStudents > 0 ? (stats.present / totalStudents) * 100 : 0}%"></div>
+                            </div>
+                            <div class="w-12 text-right text-sm">${stats.present}</div>
+                        </div>
+                        <div class="flex items-center">
+                            <div class="w-20 text-sm">Ausentes:</div>
+                            <div class="flex-1 bg-gray-200 rounded h-6 overflow-hidden">
+                                <div class="bg-red-500 h-full transition-all duration-300" style="width: ${totalStudents > 0 ? (stats.absent / totalStudents) * 100 : 0}%"></div>
+                            </div>
+                            <div class="w-12 text-right text-sm">${stats.absent}</div>
+                        </div>
+                        <div class="flex items-center">
+                            <div class="w-20 text-sm">Justificadas:</div>
+                            <div class="flex-1 bg-gray-200 rounded h-6 overflow-hidden">
+                                <div class="bg-yellow-500 h-full transition-all duration-300" style="width: ${totalStudents > 0 ? (stats.justified / totalStudents) * 100 : 0}%"></div>
+                            </div>
+                            <div class="w-12 text-right text-sm">${stats.justified}</div>
+                        </div>
+                        <div class="flex items-center">
+                            <div class="w-20 text-sm">Sin registrar:</div>
+                            <div class="flex-1 bg-gray-200 rounded h-6 overflow-hidden">
+                                <div class="bg-gray-400 h-full transition-all duration-300" style="width: ${totalStudents > 0 ? ((totalStudents - registeredCount) / totalStudents) * 100 : 0}%"></div>
+                            </div>
+                            <div class="w-12 text-right text-sm">${totalStudents - registeredCount}</div>
+                        </div>
+                    </div>
+                </div>
+    
+                <!-- Información del grupo -->
+                ${groupInfo.descriptor ? `
+                    <div class="mb-6 p-4 bg-primary-50 rounded-lg">
+                        <h5 class="font-semibold text-primary-800 mb-2">Información del Grupo:</h5>
+                        <div class="grid grid-cols-2 gap-2 text-sm text-primary-700">
+                            <div><strong>Grupo:</strong> ${groupInfo.descriptor}</div>
+                            <div><strong>Profesor:</strong> ${groupInfo.profe || 'N/A'}</div>
+                            <div><strong>Horario:</strong> ${groupInfo.hora || 'N/A'}</div>
+                            <div><strong>Cancha:</strong> ${groupInfo.cancha || 'N/A'}</div>
+                        </div>
+                    </div>
+                ` : ''}
+    
+                <!-- Información adicional -->
+                <div class="bg-blue-50 p-4 rounded">
+                    <h6 class="font-medium text-blue-800 mb-2">💡 Información:</h6>
+                    <ul class="text-sm text-blue-700 space-y-1">
+                        <li>• Completa el registro de todos los estudiantes antes de guardar</li>
+                        <li>• Las justificaciones requieren especificar el tipo y motivo</li>
+                        <li>• Los datos se sincronizan automáticamente cuando hay conexión</li>
+                        ${selectedAssistant ? `<li>• Asistente responsable: ${selectedAssistant.nombre}</li>` : `<li>• No se especificó asistente responsable</li>`}
+                    </ul>
+                </div>
+            </div>
+        `;
+    };
 
     /**
      * Muestra modal de confirmación
