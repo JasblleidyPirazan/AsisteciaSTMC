@@ -172,16 +172,21 @@ const RepositionController = {
     },
 
     /**
-     * Alterna la selección de un estudiante
+     * Alterna la selección de un estudiante - ✅ CORREGIDO
      */
     toggleStudent(studentId) {
         debugLog(`RepositionController: Alternando selección de estudiante ${studentId}`);
         
         const currentSelected = this._state.selectedStudents;
+        
+        // 🔧 FIX PRINCIPAL: Buscar en allStudents, NO en selectedStudents
         const student = this._state.allStudents.find(s => s.id === studentId);
         
         if (!student) {
-            console.error(`RepositionController: Estudiante ${studentId} no encontrado`);
+            console.error(`RepositionController: Estudiante ${studentId} no encontrado en allStudents`);
+            debugLog('RepositionController: Primeros 3 estudiantes disponibles:', 
+                this._state.allStudents.slice(0, 3).map(s => ({id: s.id, nombre: s.nombre}))
+            );
             return;
         }
         
@@ -191,9 +196,11 @@ const RepositionController = {
         if (isCurrentlySelected) {
             // Remover de selección
             newSelected = currentSelected.filter(s => s.id !== studentId);
+            debugLog(`RepositionController: Removiendo estudiante ${studentId} de selección`);
         } else {
             // Agregar a selección
             newSelected = [...currentSelected, student];
+            debugLog(`RepositionController: Agregando estudiante ${studentId} (${student.nombre}) a selección`);
         }
         
         this._setState({ selectedStudents: newSelected });
@@ -202,7 +209,7 @@ const RepositionController = {
         this._updateStudentSelection(studentId, !isCurrentlySelected);
         this._updateSelectionCount();
         
-        debugLog(`RepositionController: ${newSelected.length} estudiantes seleccionados`);
+        debugLog(`RepositionController: ${newSelected.length} estudiantes seleccionados total`);
     },
 
     /**
