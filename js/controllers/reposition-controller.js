@@ -16,39 +16,93 @@ const RepositionController = {
     },
 
     /**
-     * Abre el modal de reposición individual desde el formulario de asistencia
-     * VERSIÓN CORREGIDA: Limpia estado cada vez y crea modal fresco
-     */
+ * VERSIÓN ACTUALIZADA del método openFromAttendance
+ * =================================================
+ * Usa múltiples fallbacks para garantizar que el modal se abra
+ */
+
     async openFromAttendance(classData) {
-        debugLog('RepositionController: Abriendo modal de reposición individual - VERSIÓN CORREGIDA');
+        debugLog('RepositionController: Abriendo modal de reposición individual - VERSIÓN CON FALLBACKS');
         
         try {
-            // 1. LIMPIAR ESTADO COMPLETAMENTE cada vez (como solicitaste)
+            // 1. LIMPIAR ESTADO COMPLETAMENTE cada vez
             this._setState({
                 isOpen: true,
                 isLoading: true,
                 currentClassData: classData,
-                selectedStudents: [], // Limpio cada vez
-                searchTerm: '',       // Limpio cada vez
-                allStudents: []       // Limpio cada vez
+                selectedStudents: [],
+                searchTerm: '',
+                allStudents: []
             });
-
+    
             debugLog('RepositionController: Estado limpiado y configurado');
-
-            // 2. CREAR MODAL FRESCO cada vez (eliminar anterior si existe)
+    
+            // 2. CREAR MODAL FRESCO cada vez
             this._createFreshModal();
             
-            // 3. MOSTRAR MODAL usando el método corregido
-            const modalShown = RepositionModal.show();
+            // 3. INTENTAR MOSTRAR MODAL con múltiples fallbacks
+            let modalShown = false;
             
-            if (!modalShown) {
-                // Fallback: usar el método que sabemos que funciona
-                debugLog('RepositionController: Fallback a forceShowRepositionModal');
-                window.forceShowRepositionModal();
+            // Intento 1: Método corregido
+            try {
+                modalShown = RepositionModal.show();
+                if (modalShown) {
+                    debugLog('RepositionController: Modal mostrado con RepositionModal.show() corregido');
+                }
+            } catch (error) {
+                debugLog('RepositionController: Error con RepositionModal.show():', error.message);
             }
             
-            debugLog('RepositionController: Modal mostrado exitosamente');
-
+            // Intento 2: Método directo alternativo
+            if (!modalShown && window.showRepositionModalDirect) {
+                try {
+                    modalShown = window.showRepositionModalDirect();
+                    if (modalShown) {
+                        debugLog('RepositionController: Modal mostrado con showRepositionModalDirect()');
+                    }
+                } catch (error) {
+                    debugLog('RepositionController: Error con showRepositionModalDirect():', error.message);
+                }
+            }
+            
+            // Intento 3: Fallback conocido que funciona
+            if (!modalShown && window.forceShowRepositionModal) {
+                try {
+                    window.forceShowRepositionModal();
+                    modalShown = true;
+                    debugLog('RepositionController: Modal mostrado con forceShowRepositionModal()');
+                } catch (error) {
+                    debugLog('RepositionController: Error con forceShowRepositionModal():', error.message);
+                }
+            }
+            
+            // Intento 4: Método manual directo
+            if (!modalShown) {
+                try {
+                    const modal = document.getElementById('reposition-modal');
+                    if (modal) {
+                        modal.classList.remove('hidden');
+                        modal.style.display = 'flex';
+                        modal.style.position = 'fixed';
+                        modal.style.inset = '0';
+                        modal.style.zIndex = '9999';
+                        modal.style.backgroundColor = 'rgba(0, 0, 0, 0.5)';
+                        modal.style.alignItems = 'center';
+                        modal.style.justifyContent = 'center';
+                        modal.style.padding = '1rem';
+                        document.body.style.overflow = 'hidden';
+                        modalShown = true;
+                        debugLog('RepositionController: Modal mostrado con método manual directo');
+                    }
+                } catch (error) {
+                    debugLog('RepositionController: Error con método manual:', error.message);
+                }
+            }
+            
+            if (!modalShown) {
+                throw new Error('No se pudo mostrar el modal con ningún método');
+            }
+    
             // 4. CARGAR ESTUDIANTES en el modal ya visible
             await this._loadStudents();
             
@@ -59,31 +113,7 @@ const RepositionController = {
         }
     },
 
-    /**
-     * NUEVO: Crea un modal completamente fresco eliminando el anterior
-     */
-    _createFreshModal() {
-        debugLog('RepositionController: Creando modal fresco');
-        
-        // Remover modal existente si existe
-        const existingModal = document.getElementById('reposition-modal');
-        if (existingModal) {
-            existingModal.remove();
-            debugLog('RepositionController: Modal anterior eliminado');
-        }
-        
-        // Crear modal fresco con estado inicial limpio
-        const modalHtml = RepositionModal.render({
-            allStudents: [],
-            selectedStudents: [],
-            searchTerm: '',
-            isLoading: true
-        });
-        
-        document.body.insertAdjacentHTML('beforeend', modalHtml);
-        debugLog('RepositionController: Modal fresco creado en DOM');
-    },
-
+    
     /**
      * Carga todos los estudiantes disponibles
      */
@@ -275,6 +305,32 @@ const RepositionController = {
         }
     },
 
+        /**
+     * NUEVO: Crea un modal completamente fresco eliminando el anterior
+     */
+    _createFreshModal() {
+        debugLog('RepositionController: Creando modal fresco');
+        
+        // Remover modal existente si existe
+        const existingModal = document.getElementById('reposition-modal');
+        if (existingModal) {
+            existingModal.remove();
+            debugLog('RepositionController: Modal anterior eliminado');
+        }
+        
+        // Crear modal fresco con estado inicial limpio
+        const modalHtml = RepositionModal.render({
+            allStudents: [],
+            selectedStudents: [],
+            searchTerm: '',
+            isLoading: true
+        });
+        
+        document.body.insertAdjacentHTML('beforeend', modalHtml);
+        debugLog('RepositionController: Modal fresco creado en DOM');
+    },
+
+    
     /**
      * Renderiza el modal con el estado actual
      */
