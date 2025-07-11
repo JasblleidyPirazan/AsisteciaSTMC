@@ -757,6 +757,33 @@ const SyncManager = {
     }
 };
 
+// AGREGAR al final del archivo js/sheets-api.js, antes de la exportación
+
+/**
+ * Guarda reposición grupal completa
+ */
+async saveGroupReposition(repositionData) {
+    debugLog('Guardando reposición grupal:', repositionData);
+    
+    try {
+        if (!repositionData.repositionRecord || !repositionData.attendanceRecords) {
+            throw new Error('Datos de reposición incompletos');
+        }
+
+        const result = await this.makePostRequest('saveGroupReposition', {
+            repositionRecord: repositionData.repositionRecord,
+            attendanceRecords: repositionData.attendanceRecords
+        });
+
+        debugLog(`Reposición grupal guardada: ${result.attendanceCount || 'desconocido'} registros`);
+        return result;
+        
+    } catch (error) {
+        console.error('Error al guardar reposición grupal:', error);
+        throw error;
+    }
+}
+
 // ===========================================
 // EXPORTAR AL OBJETO GLOBAL WINDOW
 // ===========================================
