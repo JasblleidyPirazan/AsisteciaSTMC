@@ -2,7 +2,7 @@
  * SISTEMA DE ASISTENCIA TENIS - API GOOGLE APPS SCRIPT (CON PROXY)
  * =================================================================
  * Funciones para interactuar con Google Apps Script a través de Netlify Functions
- * VERSIÓN CORREGIDA: Incluye fix para checkClassExists
+ * VERSIÓN CORREGIDA: Incluye fix para checkClassExists y saveGroupReposition
  */
 
 // ===========================================
@@ -333,7 +333,9 @@ const SheetsAPI = {
         }
     },
 
-  
+    /**
+     * Guarda registros de asistencia
+     */
     async saveAttendance(attendanceDataArray) {
         debugLog('Guardando asistencia:', attendanceDataArray);
         
@@ -382,6 +384,40 @@ const SheetsAPI = {
             
         } catch (error) {
             console.error('Error al guardar asistencia:', error);
+            throw error;
+        }
+    },
+
+    /**
+     * ✅ CORREGIDO: Guarda reposición grupal completa - MOVIDO DENTRO DEL OBJETO
+     */
+    async saveGroupReposition(repositionData) {
+        debugLog('Guardando reposición grupal:', repositionData);
+        
+        try {
+            // Validar estructura completa (implementando sugerencias de consistencia)
+            if (!repositionData || typeof repositionData !== 'object') {
+                throw new Error('Datos de reposición inválidos');
+            }
+            
+            if (!repositionData.repositionRecord || !repositionData.attendanceRecords) {
+                throw new Error('Datos de reposición incompletos');
+            }
+            
+            if (!Array.isArray(repositionData.attendanceRecords) || repositionData.attendanceRecords.length === 0) {
+                throw new Error('Se requieren registros de asistencia válidos');
+            }
+
+            const result = await this.makePostRequest('saveGroupReposition', {
+                repositionRecord: repositionData.repositionRecord,
+                attendanceRecords: repositionData.attendanceRecords
+            });
+
+            debugLog(`Reposición grupal guardada: ${result.attendanceCount || 'desconocido'} registros`);
+            return result;
+            
+        } catch (error) {
+            console.error('Error al guardar reposición grupal:', error);
             throw error;
         }
     },
@@ -687,7 +723,7 @@ const SheetsAPI = {
     _isValidPostEndpoint(action) {
         const validPostEndpoints = [
             'saveAttendance', 'createClassRecord', 'createScheduledClass',
-            'createRepositionClass', 'saveScheduledClass'
+            'createRepositionClass', 'saveScheduledClass', 'saveGroupReposition'
         ];
         
         return validPostEndpoints.includes(action);
@@ -756,33 +792,6 @@ const SyncManager = {
         }
     }
 };
-
-// AGREGAR al final del archivo js/sheets-api.js, antes de la exportación
-
-/**
- * Guarda reposición grupal completa
- */
-async saveGroupReposition(repositionData) {
-    debugLog('Guardando reposición grupal:', repositionData);
-    
-    try {
-        if (!repositionData.repositionRecord || !repositionData.attendanceRecords) {
-            throw new Error('Datos de reposición incompletos');
-        }
-
-        const result = await this.makePostRequest('saveGroupReposition', {
-            repositionRecord: repositionData.repositionRecord,
-            attendanceRecords: repositionData.attendanceRecords
-        });
-
-        debugLog(`Reposición grupal guardada: ${result.attendanceCount || 'desconocido'} registros`);
-        return result;
-        
-    } catch (error) {
-        console.error('Error al guardar reposición grupal:', error);
-        throw error;
-    }
-}
 
 // ===========================================
 // EXPORTAR AL OBJETO GLOBAL WINDOW
