@@ -1,12 +1,18 @@
 /**
- * CONTROLADOR DE ASISTENCIA - FLUJO CORREGIDO
- * ============================================
- * FIX: Elimina duplicidad de pregunta de asistente
- * SOLUCIÓN: Pregunta asistente SOLO después de confirmar que clase se realizó
+ * CONTROLADOR DE ASISTENCIA - FLUJO CORREGIDO COMPLETO
+ * ===================================================
+ * FLUJO ACTUALIZADO:
+ * 1. Seleccionar grupo ✅ 
+ * 2. "¿Se realizó la clase?" ✅ 
+ * 3. "Sí, se realizó" ✅ 
+ * 4. Seleccionar asistente → 🎉 CLASE CREADA AQUÍ 
+ * 5. Formulario de asistencia (classId ya disponible) ✅ 
+ * 6. Botón "Reposición Individual" → 🎉 FUNCIONA 
+ * 7. Guardar asistencia → Solo guarda asistencias ✅
  */
 
 const AttendanceController = {
-    // Estado interno del controlador (SIN CAMBIOS)
+    // Estado interno del controlador
     _state: {
         currentGroup: null,
         currentStudents: [],
@@ -19,7 +25,7 @@ const AttendanceController = {
     },
 
     /**
-     * Inicializa el controlador y carga asistentes (SIN CAMBIOS)
+     * Inicializa el controlador y carga asistentes
      */
     async initialize() {
         debugLog('AttendanceController: Inicializando...');
@@ -330,42 +336,91 @@ const AttendanceController = {
     },
 
     /**
-     * ✨ NUEVO: Selecciona asistente y va directo a asistencia
+     * ✨ CORREGIDO: Selecciona asistente, CREA CLASE y va a asistencia
      */
     async selectAssistantForAttendance(assistantId) {
         debugLog(`AttendanceController: Asistente seleccionado para asistencia: ${assistantId}`);
         
         try {
-            // Buscar asistente
+            // 1. Buscar asistente
             const assistant = this._state.availableAssistants.find(a => a.id === assistantId);
             if (!assistant) {
                 throw new Error(`Asistente ${assistantId} no encontrado`);
             }
             
+            // 2. Guardar asistente en estado
             this._setState({ selectedAssistant: assistant });
             
-            // Ir DIRECTAMENTE al formulario de asistencia
+            // 3. ✨ CREAR REGISTRO DE CLASE INMEDIATAMENTE
+            await this._createClassRecord(assistantId);
+            
+            // 4. Ir al formulario de asistencia (ya con classId válido)
             await this.showAttendanceFormDirect();
             
         } catch (error) {
             console.error('AttendanceController: Error al seleccionar asistente para asistencia:', error);
-            UIUtils.showError('Error al seleccionar asistente');
+            UIUtils.showError(`Error al registrar la clase: ${error.message}`);
+            // Volver al selector de asistente en caso de error
+            await this.showAssistantSelectorForAttendance(this._state.currentGroup.codigo);
         }
     },
 
     /**
-     * ✨ NUEVO: Continúa sin asistente y va directo a asistencia
+     * ✨ CORREGIDO: Continúa sin asistente, CREA CLASE y va a asistencia
      */
     async continueToAttendanceWithoutAssistant(groupCode) {
         debugLog('AttendanceController: Continuando sin asistente a asistencia');
         
         try {
+            // 1. Establecer asistente como null
             this._setState({ selectedAssistant: null });
+            
+            // 2. ✨ CREAR REGISTRO DE CLASE SIN ASISTENTE
+            await this._createClassRecord('');
+            
+            // 3. Ir al formulario de asistencia (ya con classId válido)
             await this.showAttendanceFormDirect();
             
         } catch (error) {
             console.error('AttendanceController: Error al continuar sin asistente:', error);
-            UIUtils.showError('Error al continuar');
+            UIUtils.showError(`Error al registrar la clase: ${error.message}`);
+            // Volver al selector de asistente en caso de error
+            await this.showAssistantSelectorForAttendance(groupCode);
+        }
+    },
+
+    /**
+     * ✨ NUEVO: Crea el registro de clase inmediatamente después de seleccionar asistente
+     */
+    async _createClassRecord(assistantId) {
+        debugLog('AttendanceController: Creando registro de clase...');
+        
+        try {
+            const selectedDate = window.AppState.selectedDate || DateUtils.getCurrentDate();
+            const groupCode = this._state.currentGroup.codigo;
+            
+            // Mostrar indicador de carga
+            UIUtils.showLoading('app', 'Creando registro de clase...');
+            
+            // Crear el registro de clase usando ClassControlService
+            const classRecord = await ClassControlService.createClassRecord(
+                selectedDate,
+                groupCode,
+                ClassControlService.CLASS_STATES.REALIZADA,
+                {
+                    asistenteId: assistantId || '',
+                    creadoPor: window.AppState.user?.email || 'usuario'
+                }
+            );
+            
+            // Guardar el ID de clase en el estado
+            this._setState({ classId: classRecord.id });
+            
+            debugLog(`AttendanceController: Clase creada con ID: ${classRecord.id}`);
+            
+        } catch (error) {
+            console.error('AttendanceController: Error creando registro de clase:', error);
+            throw new Error(`No se pudo crear el registro de clase: ${error.message}`);
         }
     },
 
@@ -464,7 +519,7 @@ const AttendanceController = {
     },
 
     /**
-     * La clase fue cancelada - usar ClassControlService (SIN CAMBIOS)
+     * La clase fue cancelada - usar ClassControlService
      */
     async classWasCancelled(groupCode) {
         debugLog(`AttendanceController: Clase cancelada para grupo ${groupCode}`);
@@ -491,7 +546,7 @@ const AttendanceController = {
     },
 
     /**
-     * Marca la asistencia de un estudiante individual (SIN CAMBIOS)
+     * Marca la asistencia de un estudiante individual
      */
     markAttendance(studentId, status) {
         debugLog(`AttendanceController: Marcando ${studentId} como ${status}`);
@@ -526,7 +581,7 @@ const AttendanceController = {
     },
 
     /**
-     * Marca asistencia masiva (SIN CAMBIOS)
+     * Marca asistencia masiva
      */
     markAllAttendance(status) {
         debugLog(`AttendanceController: Marcando todos como ${status}`);
@@ -560,7 +615,7 @@ const AttendanceController = {
     },
 
     /**
-     * Limpia toda la asistencia registrada (SIN CAMBIOS)
+     * Limpia toda la asistencia registrada
      */
     clearAllAttendance() {
         debugLog('AttendanceController: Limpiando toda la asistencia');
@@ -592,10 +647,10 @@ const AttendanceController = {
     },
 
     /**
-     * Guarda datos de asistencia con botón "Volver al Inicio" (SIN CAMBIOS)
+     * ✨ CORREGIDO: Guarda solo asistencias (la clase ya fue creada en paso 4)
      */
     async saveAttendanceData(groupCode) {
-        debugLog('AttendanceController: Guardando datos de asistencia con flujo simplificado');
+        debugLog('AttendanceController: Guardando SOLO asistencias (clase ya creada)');
         
         try {
             const attendanceData = this._state.attendanceData;
@@ -612,19 +667,9 @@ const AttendanceController = {
             
             const selectedDate = window.AppState.selectedDate || DateUtils.getCurrentDate();
             const selectedAssistant = this._state.selectedAssistant;
+            const classId = this._state.classId; // Ya existe desde paso 4
             
-            // 1. Crear registro de clase
-            const classRecord = await ClassControlService.createClassRecord(
-                selectedDate,
-                groupCode,
-                ClassControlService.CLASS_STATES.REALIZADA,
-                {
-                    asistenteId: selectedAssistant?.id || '',
-                    creadoPor: window.AppState.user?.email || 'usuario'
-                }
-            );
-            
-            // 2. Crear registros de asistencia
+            // ✨ SOLO crear registros de asistencia (la clase ya existe)
             const { records, errors } = AttendanceService.createGroupAttendanceRecords(
                 attendanceData,
                 {
@@ -635,17 +680,17 @@ const AttendanceController = {
                 }
             );
             
-            // 3. Agregar ID de clase
+            // Agregar ID de clase existente
             records.forEach(record => {
-                record.ID_Clase = classRecord.id;
+                record.ID_Clase = classId;
             });
             
-            // 4. Guardar asistencias
+            // Guardar solo asistencias
             const result = await AttendanceService.saveAttendance(records);
             
             ModalsController.hideLoading();
             
-            // 5. Mostrar éxito con botón para volver al inicio
+            // Mostrar éxito con botón para volver al inicio
             let message, details;
             
             if (result.method === 'online') {
@@ -710,7 +755,7 @@ const AttendanceController = {
     },
 
     /**
-     * Guarda la cancelación usando ClassControlService (SIN CAMBIOS)
+     * Guarda la cancelación usando ClassControlService
      */
     async saveCancellation(groupCode) {
         debugLog('AttendanceController: Guardando cancelación con ClassControlService');
@@ -779,7 +824,7 @@ const AttendanceController = {
     },
 
     /**
-     * Muestra vista previa (SIN CAMBIOS)
+     * Muestra vista previa
      */
     previewAttendance(groupCode) {
         debugLog('AttendanceController: Mostrando vista previa');
@@ -815,7 +860,7 @@ const AttendanceController = {
     },
 
     /**
-     * Muestra estadísticas de asistencia (SIN CAMBIOS)
+     * Muestra estadísticas de asistencia
      */
     showAttendanceStats() {
         debugLog('AttendanceController: Mostrando estadísticas');
@@ -840,7 +885,7 @@ const AttendanceController = {
     },
 
     /**
-     * Guarda justificación (SIN CAMBIOS)
+     * Guarda justificación
      */
     saveJustification() {
         debugLog('AttendanceController: Guardando justificación');
@@ -877,7 +922,7 @@ const AttendanceController = {
     },
 
     /**
-     * Exporta la asistencia (SIN CAMBIOS)
+     * Exporta la asistencia
      */
     exportAttendance(groupCode) {
         debugLog('AttendanceController: Exportando asistencia');
@@ -919,18 +964,18 @@ const AttendanceController = {
     },
 
     /**
-     * Obtiene el estado actual del controlador (SIN CAMBIOS)
+     * Obtiene el estado actual del controlador
      */
     getState() {
         return { ...this._state };
     },
 
     // ===========================================
-    // MÉTODOS PRIVADOS (SIN CAMBIOS)
+    // MÉTODOS PRIVADOS
     // ===========================================
 
     /**
-     * Actualiza el estado interno (SIN CAMBIOS)
+     * Actualiza el estado interno
      */
     _setState(newState) {
         this._state = { ...this._state, ...newState };
@@ -938,7 +983,7 @@ const AttendanceController = {
     },
 
     /**
-     * Muestra el formulario de asistencia (SIN CAMBIOS)
+     * Muestra el formulario de asistencia
      */
     async _showAttendanceForm(group, students, type) {
         debugLog(`AttendanceController: Mostrando formulario para ${students.length} estudiantes`);
@@ -962,7 +1007,7 @@ const AttendanceController = {
     },
 
     /**
-     * Registra un dato de asistencia (SIN CAMBIOS)
+     * Registra un dato de asistencia
      */
     _recordAttendance(studentId, status, justification = '', description = '') {
         debugLog(`AttendanceController: Registrando asistencia - ${studentId}: ${status}`);
@@ -982,7 +1027,7 @@ const AttendanceController = {
     },
 
     /**
-     * Busca un estudiante por ID (SIN CAMBIOS)
+     * Busca un estudiante por ID
      */
     _findStudent(studentId) {
         // Buscar en estudiantes actuales del controlador
@@ -1004,7 +1049,7 @@ const AttendanceController = {
     },
 
     /**
-     * Abre el modal de justificación (SIN CAMBIOS)
+     * Abre el modal de justificación
      */
     _openJustificationModal(studentId, studentName) {
         const modal = document.getElementById('justification-modal');
@@ -1018,7 +1063,7 @@ const AttendanceController = {
     },
 
     /**
-     * Actualiza la UI de un estudiante específico (SIN CAMBIOS)
+     * Actualiza la UI de un estudiante específico
      */
     _updateStudentUI(studentId, status) {
         const studentItem = document.querySelector(`[data-student-id="${studentId}"]`);
@@ -1056,7 +1101,7 @@ const AttendanceController = {
     },
 
     /**
-     * Limpia la UI de todos los estudiantes (SIN CAMBIOS)
+     * Limpia la UI de todos los estudiantes
      */
     _clearAllStudentUI() {
         const studentItems = document.querySelectorAll('.student-item');
@@ -1072,7 +1117,7 @@ const AttendanceController = {
     },
 
     /**
-     * Actualiza el resumen de asistencia (SIN CAMBIOS)
+     * Actualiza el resumen de asistencia
      */
     _updateAttendanceSummary() {
         const summary = document.getElementById('attendance-summary');
@@ -1107,4 +1152,4 @@ const AttendanceController = {
 // Hacer disponible globalmente
 window.AttendanceController = AttendanceController;
 
-debugLog('AttendanceController - FLUJO CORREGIDO: Una sola pregunta de asistente (después de confirmar clase)');
+debugLog('AttendanceController - FLUJO CORREGIDO COMPLETO: Clase se crea en paso 4, reposiciones funcionan correctamente');
