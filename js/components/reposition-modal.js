@@ -277,69 +277,74 @@ const RepositionModal = {
         return selectedStudents.some(student => student.id === studentId);
     },
 
-  /**
- * ✅ MÉTODO SHOW() CORREGIDO - Reemplaza la versión defectuosa
- */
-show() {
-    debugLog('RepositionModal.show() - VERSIÓN CORREGIDA FUNCIONANDO');
-    
-    const modal = document.getElementById('reposition-modal');
-    if (!modal) {
-        console.error('RepositionModal: Modal no encontrado en DOM');
-        return false;
-    }
-    
-    debugLog('RepositionModal: Modal encontrado, mostrando...');
-    
-    // Usar el patrón simple que funciona en otros modales
-    modal.classList.remove('hidden');
-    modal.style.display = 'flex';
-    modal.style.position = 'fixed';
-    modal.style.top = '0';
-    modal.style.left = '0';
-    modal.style.right = '0';
-    modal.style.bottom = '0';
-    modal.style.zIndex = '9999';
-    modal.style.backgroundColor = 'rgba(0, 0, 0, 0.5)';
-    modal.style.alignItems = 'center';
-    modal.style.justifyContent = 'center';
-    modal.style.padding = '1rem';
-    
-    // Prevenir scroll del body
-    document.body.classList.add('no-scroll');
-    document.body.style.overflow = 'hidden';
-    
-    // Focus en el buscador
-    setTimeout(() => {
-        const searchInput = document.getElementById('reposition-search');
-        if (searchInput) {
-            searchInput.focus();
-            debugLog('RepositionModal: Focus establecido en buscador');
+    /**
+     * ✅ MÉTODO SHOW() CORREGIDO - Reemplaza la versión defectuosa
+     */
+    show() {
+        debugLog('RepositionModal.show() - VERSIÓN CORREGIDA FUNCIONANDO');
+        
+        const modal = document.getElementById('reposition-modal');
+        if (!modal) {
+            console.error('RepositionModal: Modal no encontrado en DOM');
+            return false;
         }
-    }, 100);
-    
-    debugLog('RepositionModal: Modal mostrado exitosamente');
-    return true;
-},
+        
+        debugLog('RepositionModal: Modal encontrado, mostrando...');
+        
+        // Usar el patrón simple que funciona en otros modales
+        modal.classList.remove('hidden');
+        modal.style.display = 'flex';
+        modal.style.position = 'fixed';
+        modal.style.top = '0';
+        modal.style.left = '0';
+        modal.style.right = '0';
+        modal.style.bottom = '0';
+        modal.style.zIndex = '9999';
+        modal.style.backgroundColor = 'rgba(0, 0, 0, 0.5)';
+        modal.style.alignItems = 'center';
+        modal.style.justifyContent = 'center';
+        modal.style.padding = '1rem';
+        
+        // Prevenir scroll del body
+        document.body.classList.add('no-scroll');
+        document.body.style.overflow = 'hidden';
+        
+        // Focus en el buscador
+        setTimeout(() => {
+            const searchInput = document.getElementById('reposition-search');
+            if (searchInput) {
+                searchInput.focus();
+                debugLog('RepositionModal: Focus establecido en buscador');
+            }
+        }, 100);
+        
+        debugLog('RepositionModal: Modal mostrado exitosamente');
+        return true;
+    },
 
-/**
- * ✅ MÉTODO HIDE() CORREGIDO - Reemplaza la versión defectuosa
- */
-hide() {
-    debugLog('RepositionModal.hide() - VERSIÓN CORREGIDA');
-    
-    const modal = document.getElementById('reposition-modal');
-    if (modal) {
-        modal.classList.add('hidden');
-        modal.style.display = 'none';
+    /**
+     * ✅ MÉTODO HIDE() CORREGIDO - Reemplaza la versión defectuosa
+     */
+    hide() {
+        debugLog('RepositionModal.hide() - VERSIÓN CORREGIDA');
         
-        // Restaurar scroll del body
-        document.body.classList.remove('no-scroll');
-        document.body.style.overflow = '';
-        
-        debugLog('RepositionModal: Modal ocultado exitosamente');
+        const modal = document.getElementById('reposition-modal');
+        if (modal) {
+            modal.classList.add('hidden');
+            modal.style.display = 'none';
+            
+            // Restaurar scroll del body
+            document.body.classList.remove('no-scroll');
+            document.body.style.overflow = '';
+            
+            debugLog('RepositionModal: Modal ocultado exitosamente');
+        }
     }
-}
+};
+
+// ===========================================
+// MEJORAS Y SOBRESCRITURA DE MÉTODOS
+// ===========================================
 
 // 2. SEGUNDO: Forzar la sobrescritura del objeto RepositionModal
 debugLog('Sobrescribiendo métodos defectuosos de RepositionModal...');
