@@ -298,7 +298,7 @@ const DashboardView = {
                 </button>
             </div>
         `;
-    }
+    },
 
     /**
      * Actualiza solo la sección de grupos sin recargar todo
