@@ -278,10 +278,10 @@ const RepositionModal = {
     },
 
     /**
-     * ✅ MÉTODO SHOW() CORREGIDO - Reemplaza la versión defectuosa
+     * ✅ MÉTODO SHOW() CORREGIDO - FUERZA VISUALIZACIÓN
      */
     show() {
-        debugLog('RepositionModal.show() - VERSIÓN CORREGIDA FUNCIONANDO');
+        debugLog('RepositionModal.show() - VERSIÓN CORREGIDA CON FUERZA');
         
         const modal = document.getElementById('reposition-modal');
         if (!modal) {
@@ -291,19 +291,24 @@ const RepositionModal = {
         
         debugLog('RepositionModal: Modal encontrado, mostrando...');
         
-        // Usar el patrón simple que funciona en otros modales
+        // 🔧 FORZAR la remoción de hidden y aplicar estilos
         modal.classList.remove('hidden');
-        modal.style.display = 'flex';
-        modal.style.position = 'fixed';
-        modal.style.top = '0';
-        modal.style.left = '0';
-        modal.style.right = '0';
-        modal.style.bottom = '0';
-        modal.style.zIndex = '9999';
-        modal.style.backgroundColor = 'rgba(0, 0, 0, 0.5)';
-        modal.style.alignItems = 'center';
-        modal.style.justifyContent = 'center';
-        modal.style.padding = '1rem';
+        modal.className = modal.className.replace('hidden', '').trim();
+        
+        // 🔧 FORZAR estilos directamente
+        modal.style.cssText = `
+            display: flex !important;
+            position: fixed !important;
+            top: 0 !important;
+            left: 0 !important;
+            right: 0 !important;
+            bottom: 0 !important;
+            z-index: 99999 !important;
+            background-color: rgba(0, 0, 0, 0.5) !important;
+            align-items: center !important;
+            justify-content: center !important;
+            padding: 1rem !important;
+        `;
         
         // Prevenir scroll del body
         document.body.classList.add('no-scroll');
@@ -318,7 +323,7 @@ const RepositionModal = {
             }
         }, 100);
         
-        debugLog('RepositionModal: Modal mostrado exitosamente');
+        debugLog('RepositionModal: Modal FORZADO a mostrarse');
         return true;
     },
 
