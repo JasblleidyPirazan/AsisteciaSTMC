@@ -229,6 +229,40 @@ const ReportsController = {
 
 
 
+const SyncController = {
+    async showPending() {
+        debugLog('SyncController: Mostrando datos pendientes');
+        
+        const pendingData = StorageUtils.getPendingAttendance();
+        
+        if (pendingData.length === 0) {
+            UIUtils.showInfo('No hay datos pendientes de sincronización');
+            return;
+        }
+        
+        const html = `
+            <div class="container">
+                <div class="min-h-screen flex items-center justify-center">
+                    <div class="text-center max-w-md">
+                        <span class="text-6xl mb-4 block">⏳</span>
+                        <h2 class="text-2xl font-bold text-gray-900 mb-4">Datos Pendientes</h2>
+                        <p class="text-gray-600 mb-6">Hay ${pendingData.length} registros esperando sincronización.</p>
+                        <div class="space-y-3">
+                            <button onclick="SyncController.forcSync()" class="btn btn-primary w-full">
+                                🔄 Sincronizar Ahora
+                            </button>
+                            <button onclick="AppController.showDashboard()" class="btn btn-outline w-full">
+                                🏠 Volver al Dashboard
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        `;
+        
+        document.getElementById('app').innerHTML = html;
+    },
+
     async forcSync() {
         try {
             UIUtils.showInfo('Intentando sincronizar datos pendientes...');
@@ -346,8 +380,8 @@ document.addEventListener('visibilitychange', () => {
 // Router global
 window.AppRouter = AppRouter;
 
-// Controladores placeholder
-window.RepositionController = RepositionController;
+// Controladores placeholder (solo los que no están implementados)
+// RepositionController se carga desde js/controllers/reposition-controller.js
 window.ReportsController = ReportsController;
 window.SyncController = SyncController;
 
