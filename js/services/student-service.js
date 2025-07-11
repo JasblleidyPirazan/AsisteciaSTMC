@@ -1,7 +1,7 @@
 /**
- * SERVICIO DE ESTUDIANTES
- * ========================
- * Maneja toda la lógica relacionada con estudiantes
+ * SERVICIO DE ESTUDIANTES - NORMALIZACIÓN DE IDs CORREGIDA
+ * =========================================================
+ * SOLUCIÓN: Garantizar que todos los IDs sean strings desde el origen
  */
 
 const StudentService = {
@@ -32,15 +32,49 @@ const StudentService = {
                 throw new Error('Respuesta inválida del servidor');
             }
 
-            // Validar y limpiar datos
+            debugLog(`StudentService: Datos brutos recibidos - ${students.length} estudiantes`);
+
+            // ✅ MEJORA: Log de algunos ejemplos para debugging
+            if (students.length > 0 && window.APP_CONFIG?.DEBUG) {
+                debugLog('StudentService: Muestra de datos brutos (primeros 3):', 
+                    students.slice(0, 3).map(s => ({
+                        id: s.id,
+                        id_type: typeof s.id,
+                        nombre: s.nombre
+                    }))
+                );
+            }
+
+            // Validar y limpiar datos con normalización mejorada
             const validStudents = students
-                .map(student => this._normalizeStudent(student))
-                .filter(student => this._isValidStudent(student));
+                .map((student, index) => {
+                    const normalized = this._normalizeStudent(student, index);
+                    if (!normalized) {
+                        debugLog(`StudentService: Estudiante ${index} no se pudo normalizar:`, student);
+                    }
+                    return normalized;
+                })
+                .filter(student => {
+                    if (!student) return false;
+                    const isValid = this._isValidStudent(student);
+                    if (!isValid) {
+                        debugLog(`StudentService: Estudiante rechazado en validación:`, student);
+                    }
+                    return isValid;
+                });
+
+            // ✅ NUEVO: Verificar normalización de IDs después del procesamiento
+            const idTypeCheck = validStudents.slice(0, 3).map(s => ({
+                id: s.id,
+                type: typeof s.id,
+                isString: typeof s.id === 'string'
+            }));
+            debugLog('StudentService: Verificación de tipos de ID después de normalización:', idTypeCheck);
 
             // Actualizar cache
             this._updateCache(validStudents);
             
-            debugLog(`StudentService: ${validStudents.length} estudiantes cargados`);
+            debugLog(`StudentService: ${validStudents.length} estudiantes válidos de ${students.length} totales`);
             return validStudents;
 
         } catch (error) {
@@ -102,14 +136,17 @@ const StudentService = {
     },
 
     /**
-     * Busca un estudiante por ID
+     * ✅ CORREGIDO: Busca un estudiante por ID con normalización
      */
     async getStudentById(studentId, forceRefresh = false) {
         debugLog(`StudentService: Buscando estudiante ${studentId}`);
         
         try {
             const allStudents = await this.getAllStudents(forceRefresh);
-            const student = allStudents.find(s => s.id === studentId);
+            
+            // ✅ FIX: Normalizar ID para búsqueda
+            const normalizedSearchId = String(studentId);
+            const student = allStudents.find(s => String(s.id) === normalizedSearchId);
             
             if (!student) {
                 throw new Error(`Estudiante ${studentId} no encontrado`);
@@ -139,7 +176,7 @@ const StudentService = {
             const term = searchTerm.toLowerCase().trim();
             const matchingStudents = allStudents.filter(student => {
                 return student.nombre.toLowerCase().includes(term) ||
-                       student.id.toLowerCase().includes(term);
+                       String(student.id).toLowerCase().includes(term); // ✅ FIX: Normalizar ID
             });
 
             debugLog(`StudentService: ${matchingStudents.length} estudiantes encontrados`);
@@ -256,26 +293,74 @@ const StudentService = {
         return this.getAllStudents(true);
     },
 
+    /**
+     * ✅ NUEVO: Obtiene el estado del servicio para debugging
+     */
+    getState() {
+        return {
+            cacheSize: this._cache.allStudents.length,
+            lastUpdate: this._cache.lastUpdate,
+            cacheValid: this._isCacheValid(),
+            sampleIds: this._cache.allStudents.slice(0, 3).map(s => ({
+                id: s.id,
+                type: typeof s.id
+            }))
+        };
+    },
+
     // ===========================================
-    // MÉTODOS PRIVADOS
+    // MÉTODOS PRIVADOS CORREGIDOS
     // ===========================================
 
     /**
-     * Normaliza un estudiante desde el backend
+     * ✅ CORREGIDO: Normaliza un estudiante desde el backend con IDs consistentes
      */
-    _normalizeStudent(rawStudent) {
+    _normalizeStudent(rawStudent, index = -1) {
         if (!rawStudent || typeof rawStudent !== 'object') {
+            debugLog(`StudentService: rawStudent inválido en índice ${index}:`, rawStudent);
             return null;
         }
 
-        return {
-            id: rawStudent.id || '',
-            nombre: rawStudent.nombre || '',
-            grupo_principal: rawStudent.grupo_principal || '',
-            grupo_secundario: rawStudent.grupo_secundario || '',
+        // ✅ DEBUG: Log detallado del estudiante que estamos normalizando
+        if (window.APP_CONFIG?.DEBUG && index < 3) {
+            debugLog(`StudentService: Normalizando estudiante ${index}:`, {
+                id: rawStudent.id,
+                id_type: typeof rawStudent.id,
+                nombre: rawStudent.nombre
+            });
+        }
+
+        // ✅ FIX CRÍTICO: Asegurar que el ID sea siempre string
+        let normalizedId = '';
+        if (rawStudent.id !== null && rawStudent.id !== undefined) {
+            normalizedId = String(rawStudent.id).trim();
+        }
+
+        // Si no hay ID válido, rechazar el estudiante
+        if (!normalizedId) {
+            debugLog(`StudentService: Estudiante sin ID válido en índice ${index}:`, rawStudent);
+            return null;
+        }
+
+        const normalized = {
+            id: normalizedId, // ✅ SIEMPRE STRING
+            nombre: rawStudent.nombre ? String(rawStudent.nombre).trim() : '',
+            grupo_principal: rawStudent.grupo_principal ? String(rawStudent.grupo_principal).trim() : '',
+            grupo_secundario: rawStudent.grupo_secundario ? String(rawStudent.grupo_secundario).trim() : '',
             max_clases: parseInt(rawStudent.max_clases) || 40,
             activo: this._normalizeBoolean(rawStudent.activo, true) // Default activo
         };
+
+        // ✅ DEBUG: Log del estudiante normalizado si es uno de los primeros
+        if (window.APP_CONFIG?.DEBUG && index < 3) {
+            debugLog(`StudentService: Estudiante ${index} normalizado:`, {
+                id: normalized.id,
+                id_type: typeof normalized.id,
+                nombre: normalized.nombre
+            });
+        }
+
+        return normalized;
     },
 
     /**
@@ -291,7 +376,7 @@ const StudentService = {
     },
 
     /**
-     * Valida que un estudiante tenga la estructura mínima requerida
+     * ✅ MEJORADO: Valida que un estudiante tenga la estructura mínima requerida
      */
     _isValidStudent(student) {
         if (!student) return false;
@@ -300,6 +385,16 @@ const StudentService = {
         
         if (!validation.valid) {
             debugLog(`StudentService: Estudiante inválido:`, validation.errors, student);
+            return false;
+        }
+
+        // ✅ NUEVA VALIDACIÓN: Verificar que el ID sea string
+        if (typeof student.id !== 'string') {
+            debugLog(`StudentService: ID no es string:`, {
+                id: student.id,
+                type: typeof student.id,
+                nombre: student.nombre
+            });
             return false;
         }
 
@@ -319,18 +414,26 @@ const StudentService = {
     },
 
     /**
-     * Actualiza el cache interno
+     * ✅ CORREGIDO: Actualiza el cache interno con normalización
      */
     _updateCache(students) {
-        this._cache.allStudents = students || [];
+        // ✅ NUEVO: Verificar que todos los IDs sean strings antes de guardar en cache
+        const normalizedStudents = students.map(student => ({
+            ...student,
+            id: String(student.id) // Doble verificación
+        }));
+
+        this._cache.allStudents = normalizedStudents || [];
         this._cache.lastUpdate = Date.now();
         
         // También guardar en localStorage como backup
-        StorageUtils.save('cached_students', students);
+        StorageUtils.save('cached_students', normalizedStudents);
+
+        debugLog(`StudentService: Cache actualizado con ${normalizedStudents.length} estudiantes`);
     },
 
     /**
-     * Obtiene datos de fallback en caso de error
+     * ✅ CORREGIDO: Obtiene datos de fallback con normalización
      */
     _getFallbackStudents() {
         // Primero intentar cache interno
@@ -341,8 +444,14 @@ const StudentService = {
         // Luego intentar localStorage
         const cachedStudents = StorageUtils.get('cached_students', []);
         if (cachedStudents.length > 0) {
-            this._cache.allStudents = cachedStudents;
-            return cachedStudents;
+            // ✅ FIX: Normalizar IDs del localStorage también
+            const normalizedCached = cachedStudents.map(student => ({
+                ...student,
+                id: String(student.id)
+            }));
+            
+            this._cache.allStudents = normalizedCached;
+            return normalizedCached;
         }
         
         return [];
@@ -360,4 +469,4 @@ const StudentService = {
 // Hacer disponible globalmente
 window.StudentService = StudentService;
 
-debugLog('student-service.js cargado correctamente');
+debugLog('student-service.js CORREGIDO - Normalización consistente de IDs como strings');
