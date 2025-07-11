@@ -17,28 +17,39 @@ const RepositionController = {
 
     /**
      * Abre el modal de reposición individual desde el formulario de asistencia
+     * VERSIÓN CORREGIDA: Limpia estado cada vez y crea modal fresco
      */
     async openFromAttendance(classData) {
-        debugLog('RepositionController: Abriendo modal de reposición individual');
+        debugLog('RepositionController: Abriendo modal de reposición individual - VERSIÓN CORREGIDA');
         
         try {
-            // Guardar datos de la clase actual
+            // 1. LIMPIAR ESTADO COMPLETAMENTE cada vez (como solicitaste)
             this._setState({
                 isOpen: true,
                 isLoading: true,
                 currentClassData: classData,
-                selectedStudents: [],
-                searchTerm: ''
+                selectedStudents: [], // Limpio cada vez
+                searchTerm: '',       // Limpio cada vez
+                allStudents: []       // Limpio cada vez
             });
 
-            // Crear modal en DOM si no existe
-            this._ensureModalExists();
+            debugLog('RepositionController: Estado limpiado y configurado');
+
+            // 2. CREAR MODAL FRESCO cada vez (eliminar anterior si existe)
+            this._createFreshModal();
             
-            // Mostrar modal con loading
-            this._renderModal();
-            RepositionModal.show();
+            // 3. MOSTRAR MODAL usando el método corregido
+            const modalShown = RepositionModal.show();
             
-            // Cargar estudiantes
+            if (!modalShown) {
+                // Fallback: usar el método que sabemos que funciona
+                debugLog('RepositionController: Fallback a forceShowRepositionModal');
+                window.forceShowRepositionModal();
+            }
+            
+            debugLog('RepositionController: Modal mostrado exitosamente');
+
+            // 4. CARGAR ESTUDIANTES en el modal ya visible
             await this._loadStudents();
             
         } catch (error) {
@@ -46,6 +57,31 @@ const RepositionController = {
             UIUtils.showError('Error al cargar estudiantes para reposición');
             this.closeModal();
         }
+    },
+
+    /**
+     * NUEVO: Crea un modal completamente fresco eliminando el anterior
+     */
+    _createFreshModal() {
+        debugLog('RepositionController: Creando modal fresco');
+        
+        // Remover modal existente si existe
+        const existingModal = document.getElementById('reposition-modal');
+        if (existingModal) {
+            existingModal.remove();
+            debugLog('RepositionController: Modal anterior eliminado');
+        }
+        
+        // Crear modal fresco con estado inicial limpio
+        const modalHtml = RepositionModal.render({
+            allStudents: [],
+            selectedStudents: [],
+            searchTerm: '',
+            isLoading: true
+        });
+        
+        document.body.insertAdjacentHTML('beforeend', modalHtml);
+        debugLog('RepositionController: Modal fresco creado en DOM');
     },
 
     /**
@@ -226,6 +262,7 @@ const RepositionController = {
     },
 
     /**
+     * DEPRECATED: Ya no se usa - reemplazado por _createFreshModal
      * Asegura que el modal existe en el DOM
      */
     _ensureModalExists() {
