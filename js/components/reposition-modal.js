@@ -278,32 +278,85 @@ const RepositionModal = {
     },
 
     /**
-     * Muestra/oculta el modal
-     */
-    show() {
-        const modal = document.getElementById('reposition-modal');
-        if (modal) {
-            modal.classList.remove('hidden');
-            document.body.classList.add('no-scroll');
-            
-            // Focus en el buscador
-            setTimeout(() => {
-                const searchInput = document.getElementById('reposition-search');
-                if (searchInput) {
-                    searchInput.focus();
-                }
-            }, 100);
-        }
-    },
-
-    hide() {
-        const modal = document.getElementById('reposition-modal');
-        if (modal) {
-            modal.classList.add('hidden');
-            document.body.classList.remove('no-scroll');
-        }
+ * ✅ CORREGIDO: Muestra el modal con debugging y estilos forzados
+ */
+show() {
+    debugLog('RepositionModal.show() llamado - VERSIÓN CORREGIDA');
+    
+    const modal = document.getElementById('reposition-modal');
+    if (!modal) {
+        console.error('RepositionModal: Modal no encontrado en DOM');
+        return false;
     }
-};
+    
+    debugLog('RepositionModal: Modal encontrado, aplicando estilos...');
+    
+    // CORREGIDO: Remover clase hidden
+    modal.classList.remove('hidden');
+    
+    // CORREGIDO: Forzar estilos para asegurar visibilidad
+    modal.style.display = 'flex';
+    modal.style.position = 'fixed';
+    modal.style.top = '0';
+    modal.style.left = '0';
+    modal.style.right = '0';
+    modal.style.bottom = '0';
+    modal.style.zIndex = '9999';
+    modal.style.backgroundColor = 'rgba(0, 0, 0, 0.5)';
+    modal.style.alignItems = 'center';
+    modal.style.justifyContent = 'center';
+    modal.style.padding = '1rem';
+    
+    // Prevenir scroll del body
+    document.body.classList.add('no-scroll');
+    document.body.style.overflow = 'hidden';
+    
+    // Focus en el buscador con más delay
+    setTimeout(() => {
+        const searchInput = document.getElementById('reposition-search');
+        if (searchInput) {
+            searchInput.focus();
+            debugLog('RepositionModal: Focus establecido en buscador');
+        } else {
+            debugLog('RepositionModal: Input de búsqueda no encontrado');
+        }
+    }, 300);
+    
+    debugLog('RepositionModal: Modal mostrado exitosamente');
+    
+    // NUEVO: Verificar que realmente sea visible
+    setTimeout(() => {
+        const isVisible = window.getComputedStyle(modal).display !== 'none';
+        debugLog('RepositionModal: Verificación de visibilidad:', isVisible);
+        if (!isVisible) {
+            console.error('RepositionModal: El modal no es visible después de show()');
+        }
+    }, 100);
+    
+    return true;
+},
+
+/**
+ * ✅ CORREGIDO: Oculta el modal correctamente
+ */
+hide() {
+    debugLog('RepositionModal.hide() llamado - VERSIÓN CORREGIDA');
+    
+    const modal = document.getElementById('reposition-modal');
+    if (modal) {
+        // Agregar clase hidden y forzar display none
+        modal.classList.add('hidden');
+        modal.style.display = 'none';
+        
+        // Restaurar scroll del body
+        document.body.classList.remove('no-scroll');
+        document.body.style.overflow = '';
+        
+        debugLog('RepositionModal: Modal ocultado exitosamente');
+    } else {
+        debugLog('RepositionModal: Modal no encontrado para ocultar');
+    }
+}
 
 // Hacer disponible globalmente
 window.RepositionModal = RepositionModal;
