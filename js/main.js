@@ -3,6 +3,7 @@
  * ================================================
  * Solo inicialización y routing básico - Toda la lógica está en controladores
  * ✅ VERSIÓN CORREGIDA: Con soporte robusto para RepositionModal y debugging mejorado
+ * 🆕 NUEVA: Incluye módulo de reposición grupal
  */
 
 // ===========================================
@@ -36,7 +37,7 @@ async function initApp() {
 }
 
 /**
- * Verifica que todas las dependencias estén disponibles - VERSIÓN MEJORADA
+ * Verifica que todas las dependencias estén disponibles - VERSIÓN MEJORADA CON REPOSICIÓN GRUPAL
  */
 function checkDependencies() {
     const requiredObjects = [
@@ -45,10 +46,13 @@ function checkDependencies() {
         
         // API y servicios
         'SheetsAPI', 'GroupService', 'StudentService', 'AttendanceService',
-        'AssistantService', 'ClassControlService', // NUEVOS
+        'AssistantService', 'ClassControlService',
 
         // 🆕 NUEVO: Servicio de Reposición Individual
         'RepositionService',
+        
+        // 🆕 NUEVO: Servicio de Reposición Grupal
+        'GroupRepositionService',
         
         // Componentes de UI
         'DateSelectorView', 'DashboardView', 'AttendanceFormView', 'ModalsView',
@@ -56,11 +60,17 @@ function checkDependencies() {
         // 🆕 NUEVO: Componente de Reposición Individual
         'RepositionModal',
         
+        // 🆕 NUEVO: Componente de Reposición Grupal
+        'GroupRepositionFormView',
+        
         // Controladores
         'AppController', 'DateController', 'AttendanceController', 'GroupController',
 
         // 🆕 NUEVO: Controlador de Reposición Individual  
-        'RepositionController'
+        'RepositionController',
+        
+        // 🆕 NUEVO: Controlador de Reposición Grupal
+        'GroupRepositionController'
     ];
     
     const missing = requiredObjects.filter(obj => typeof window[obj] === 'undefined');
@@ -174,6 +184,11 @@ const AppRouter = {
                     await RepositionController.showSelector();
                     break;
                     
+                // 🆕 NUEVO: Navegación para reposición grupal
+                case 'group-reposition':
+                    await GroupRepositionController.show();
+                    break;
+                    
                 case 'reports':
                     await ReportsController.show();
                     break;
@@ -209,6 +224,7 @@ const AppRouter = {
                 break;
             case 'group-attendance':
             case 'all-groups':
+            case 'group-reposition': // 🆕 NUEVO
                 await this.navigateTo('dashboard');
                 break;
             default:
@@ -405,6 +421,7 @@ window.AppRouter = AppRouter;
 
 // Controladores placeholder (solo los que no están implementados)
 // RepositionController se carga desde js/controllers/reposition-controller.js
+// GroupRepositionController se carga desde js/controllers/group-reposition-controller.js
 window.ReportsController = ReportsController;
 window.SyncController = SyncController;
 
@@ -420,7 +437,7 @@ window.initApp = initApp;
  */
 window.getAppDebugInfo = function() {
     return {
-        version: '1.0.0-MVP-WITH-ASSISTANTS',
+        version: '1.0.0-MVP-WITH-ASSISTANTS-AND-GROUP-REPOSITION',
         timestamp: new Date().toISOString(),
         config: window.APP_CONFIG,
         state: window.AppState,
@@ -428,20 +445,22 @@ window.getAppDebugInfo = function() {
         services: {
             groups: GroupService.getState ? GroupService.getState() : 'No disponible',
             students: StudentService.getState ? StudentService.getState() : 'No disponible',
-            assistants: AssistantService._cache || 'No disponible', // NUEVO
-            classControl: 'ClassControlService disponible' // NUEVO
+            assistants: AssistantService._cache || 'No disponible',
+            classControl: 'ClassControlService disponible',
+            groupReposition: typeof GroupRepositionService !== 'undefined' ? 'Disponible' : 'No disponible' // 🆕 NUEVO
         },
         controllers: {
             app: AppController.getState(),
             date: DateController.getState(),
-            attendance: AttendanceController.getState(), // ACTUALIZADO
-            group: GroupController.getState()
+            attendance: AttendanceController.getState(),
+            group: GroupController.getState(),
+            groupReposition: typeof GroupRepositionController !== 'undefined' ? 'Disponible' : 'No disponible' // 🆕 NUEVO
         },
         pending: StorageUtils.getPendingAttendance(),
         cache: {
             groups: StorageUtils.get('cached_groups', []).length,
             students: StorageUtils.get('cached_students', []).length,
-            assistants: StorageUtils.get('cached_assistants', []).length // NUEVO
+            assistants: StorageUtils.get('cached_assistants', []).length
         }
     };
 };
@@ -592,7 +611,74 @@ window.testClassControlIntegration = async function() {
 };
 
 /**
- * Función para probar el flujo completo
+ * 🆕 NUEVA: Función para probar la integración de reposición grupal
+ */
+window.testGroupRepositionIntegration = async function() {
+    console.log('🧪 Probando integración de reposición grupal...');
+    
+    try {
+        // Probar carga de servicios
+        console.log('1. Verificando servicios...');
+        if (typeof GroupRepositionService !== 'undefined') {
+            console.log('✅ GroupRepositionService disponible');
+        } else {
+            throw new Error('GroupRepositionService no disponible');
+        }
+        
+        if (typeof GroupRepositionFormView !== 'undefined') {
+            console.log('✅ GroupRepositionFormView disponible');
+        } else {
+            throw new Error('GroupRepositionFormView no disponible');
+        }
+        
+        if (typeof GroupRepositionController !== 'undefined') {
+            console.log('✅ GroupRepositionController disponible');
+        } else {
+            throw new Error('GroupRepositionController no disponible');
+        }
+        
+        // Probar carga de datos
+        console.log('2. Probando carga de datos...');
+        const formData = await GroupRepositionService.getFormData();
+        console.log(`✅ Datos cargados - ${formData.professors.length} profesores, ${formData.students.length} estudiantes, ${formData.assistants.length} asistentes`);
+        
+        // Probar validación
+        console.log('3. Probando validación...');
+        const testData = {
+            fecha: '2025-07-15',
+            hora: '15:00-16:30',
+            profesorId: 'PROF001',
+            cancha: 1,
+            numeroReposiciones: 2,
+            estudiantesSeleccionados: [{id: 'EST001', nombre: 'Test'}]
+        };
+        
+        const validation = GroupRepositionService.validateFormData(testData);
+        console.log(`✅ Validación: ${validation.valid ? 'Exitosa' : 'Fallida'}`);
+        
+        // Probar generación de ID
+        console.log('4. Probando generación de ID...');
+        const classId = GroupRepositionService.generateClassId('2025-07-15', '15:00-16:30', 1);
+        console.log(`✅ ID generado: ${classId}`);
+        
+        console.log('🎉 ¡Integración de reposición grupal funcionando correctamente!');
+        
+        return {
+            success: true,
+            message: 'Integración de reposición grupal funcionando correctamente'
+        };
+        
+    } catch (error) {
+        console.error('❌ Error en testing de reposición grupal:', error);
+        return {
+            success: false,
+            error: error.message
+        };
+    }
+};
+
+/**
+ * Función para probar el flujo completo (ACTUALIZADA)
  */
 window.testCompleteFlow = async function() {
     console.log('🧪 Probando flujo completo...');
@@ -611,7 +697,14 @@ window.testCompleteFlow = async function() {
             throw new Error('Fallo en testing de control de clases: ' + classControlTest.error);
         }
         
-        console.log('3. Probando servicios básicos...');
+        // 🆕 NUEVO: Probar reposición grupal
+        console.log('3. Probando reposición grupal...');
+        const groupRepositionTest = await testGroupRepositionIntegration();
+        if (!groupRepositionTest.success) {
+            throw new Error('Fallo en testing de reposición grupal: ' + groupRepositionTest.error);
+        }
+        
+        console.log('4. Probando servicios básicos...');
         const groups = await GroupService.getAllGroups();
         const students = await StudentService.getAllStudents();
         console.log(`✅ ${groups.length} grupos, ${students.length} estudiantes`);
@@ -624,6 +717,7 @@ window.testCompleteFlow = async function() {
             details: {
                 assistants: assistantTest,
                 classControl: classControlTest,
+                groupReposition: groupRepositionTest, // 🆕 NUEVO
                 groups: groups.length,
                 students: students.length
             }
@@ -803,4 +897,4 @@ window.loadRepositionModal = function() {
     });
 };
 
-debugLog('main.js actualizado con soporte robusto para asistentes, control de clases y debugging de RepositionModal');
+debugLog('main.js actualizado con soporte completo para asistentes, control de clases, reposición individual, reposición grupal y debugging avanzado');
