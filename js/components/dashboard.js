@@ -283,10 +283,10 @@ const DashboardView = {
                     <span class="text-sm opacity-75 mt-1">Ver estadísticas</span>
                 </button>
                 
-                <!-- Crear reposición -->
-                <button onclick="RepositionController.create()" class="btn btn-primary p-6 h-auto flex-col text-center hover:shadow-md transition-shadow">
-                    <span class="text-4xl mb-3 block">➕</span>
-                    <span class="font-semibold text-lg">Crear Reposición</span>
+                <!-- Crear reposición GRUPAL -->
+                <button onclick="GroupRepositionController.show()" class="btn btn-primary p-6 h-auto flex-col text-center hover:shadow-md transition-shadow">
+                    <span class="text-4xl mb-3 block">👥</span>
+                    <span class="font-semibold text-lg">Reposición Grupal</span>
                     <span class="text-sm opacity-75 mt-1">Clase especial</span>
                 </button>
                 
@@ -298,7 +298,7 @@ const DashboardView = {
                 </button>
             </div>
         `;
-    },
+    }
 
     /**
      * Actualiza solo la sección de grupos sin recargar todo
