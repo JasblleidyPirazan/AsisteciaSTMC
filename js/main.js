@@ -2,6 +2,7 @@
  * SISTEMA DE ASISTENCIA TENIS - MAIN REFACTORIZADO
  * ================================================
  * Solo inicialización y routing básico - Toda la lógica está en controladores
+ * ✅ VERSIÓN CORREGIDA: Con soporte robusto para RepositionModal y debugging mejorado
  */
 
 // ===========================================
@@ -35,7 +36,7 @@ async function initApp() {
 }
 
 /**
- * Verifica que todas las dependencias estén disponibles
+ * Verifica que todas las dependencias estén disponibles - VERSIÓN MEJORADA
  */
 function checkDependencies() {
     const requiredObjects = [
@@ -66,6 +67,30 @@ function checkDependencies() {
     
     if (missing.length > 0) {
         console.error('❌ Dependencias faltantes:', missing);
+        
+        // NUEVO: Mostrar información detallada sobre cada dependencia faltante
+        missing.forEach(dep => {
+            console.error(`   - ${dep}: ${typeof window[dep]}`);
+        });
+        
+        // NUEVO: Si solo falta RepositionModal, intentar continuar con placeholder
+        if (missing.length === 1 && missing[0] === 'RepositionModal') {
+            console.warn('⚠️ Solo falta RepositionModal, creando placeholder...');
+            
+            // Crear un RepositionModal básico para evitar errores
+            window.RepositionModal = {
+                render: () => '<div>Modal no disponible</div>',
+                show: () => {
+                    console.warn('RepositionModal.show() no implementado - usa forceShowRepositionModal()');
+                    return false;
+                },
+                hide: () => console.warn('RepositionModal.hide() no implementado')
+            };
+            
+            console.log('✅ RepositionModal placeholder creado');
+            return true;
+        }
+        
         return false;
     }
     
@@ -226,8 +251,6 @@ const ReportsController = {
         document.getElementById('app').innerHTML = html;
     }
 };
-
-
 
 const SyncController = {
     async showPending() {
@@ -615,4 +638,169 @@ window.testCompleteFlow = async function() {
     }
 };
 
-debugLog('main.js actualizado con soporte para asistentes y control de clases');
+// ===========================================
+// 🆕 NUEVAS FUNCIONES DE DEBUGGING PARA REPOSITION MODAL
+// ===========================================
+
+/**
+ * Función para probar el modal de reposición individual - NUEVA
+ */
+window.testRepositionModal = function() {
+    console.log('🧪 Probando modal de reposición individual...');
+    
+    try {
+        // 1. Verificar si existe en DOM
+        const modal = document.getElementById('reposition-modal');
+        console.log('1. Modal existe en DOM:', !!modal);
+        
+        if (modal) {
+            console.log('   - Classes:', modal.className);
+            console.log('   - Display:', window.getComputedStyle(modal).display);
+            console.log('   - Z-index:', window.getComputedStyle(modal).zIndex);
+        }
+        
+        // 2. Verificar RepositionController
+        console.log('2. RepositionController disponible:', typeof window.RepositionController === 'object');
+        
+        // 3. Verificar RepositionModal
+        console.log('3. RepositionModal disponible:', typeof window.RepositionModal === 'object');
+        
+        if (window.RepositionModal) {
+            console.log('   - show() function:', typeof window.RepositionModal.show === 'function');
+            console.log('   - render() function:', typeof window.RepositionModal.render === 'function');
+        }
+        
+        // 4. Intentar crear modal de prueba
+        if (window.RepositionController) {
+            console.log('4. Creando modal de prueba...');
+            
+            const testClassData = {
+                groupCode: 'TEST-GROUP',
+                classId: 'TEST-CLASS-ID',
+                selectedDate: '2025-07-12',
+                sentBy: 'test-user'
+            };
+            
+            window.RepositionController.openFromAttendance(testClassData)
+                .then(() => {
+                    console.log('✅ Modal de prueba creado exitosamente');
+                })
+                .catch(error => {
+                    console.error('❌ Error creando modal de prueba:', error);
+                });
+        }
+        
+        // 5. Forzar mostrar modal si existe
+        if (modal && window.RepositionModal?.show) {
+            console.log('5. Intentando mostrar modal existente...');
+            const result = window.RepositionModal.show();
+            console.log('   - Resultado:', result);
+        }
+        
+        return {
+            success: true,
+            message: 'Test de modal ejecutado - revisa la consola para detalles'
+        };
+        
+    } catch (error) {
+        console.error('❌ Error en testing de modal:', error);
+        return {
+            success: false,
+            error: error.message
+        };
+    }
+};
+
+/**
+ * Función para forzar mostrar el modal de reposición - NUEVA
+ */
+window.forceShowRepositionModal = function() {
+    console.log('🔧 Forzando mostrar modal de reposición...');
+    
+    // Crear modal básico si no existe
+    let modal = document.getElementById('reposition-modal');
+    
+    if (!modal) {
+        const modalHTML = `
+            <div id="reposition-modal" class="fixed inset-0 bg-black bg-opacity-50 z-50" style="display: flex; align-items: center; justify-content: center;">
+                <div class="bg-white rounded-lg w-full max-w-2xl max-h-[85vh] overflow-hidden shadow-xl m-4">
+                    <div class="p-6 border-b border-gray-200">
+                        <h3 class="text-lg font-semibold text-gray-900">Reposición Individual (Test)</h3>
+                        <p class="text-sm text-gray-600 mt-1">Modal de prueba forzado</p>
+                    </div>
+                    <div class="p-6">
+                        <p>Este es un modal de prueba para verificar que se puede mostrar.</p>
+                        <div class="mt-4">
+                            <button onclick="forceHideRepositionModal()" class="btn btn-primary">
+                                Cerrar Modal de Prueba
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        `;
+        
+        document.body.insertAdjacentHTML('beforeend', modalHTML);
+        modal = document.getElementById('reposition-modal');
+        console.log('✅ Modal de prueba creado forzadamente');
+    } else {
+        // Mostrar modal existente
+        modal.classList.remove('hidden');
+        modal.style.display = 'flex';
+        modal.style.zIndex = '9999';
+        console.log('✅ Modal existente mostrado forzadamente');
+    }
+    
+    // Prevenir scroll
+    document.body.style.overflow = 'hidden';
+    
+    return modal;
+};
+
+/**
+ * Función para ocultar el modal de prueba - NUEVA
+ */
+window.forceHideRepositionModal = function() {
+    const modal = document.getElementById('reposition-modal');
+    if (modal) {
+        modal.style.display = 'none';
+        modal.classList.add('hidden');
+        console.log('✅ Modal ocultado');
+    }
+    
+    // Restaurar scroll
+    document.body.style.overflow = '';
+};
+
+/**
+ * Función para cargar dinámicamente RepositionModal si falta - NUEVA
+ */
+window.loadRepositionModal = function() {
+    console.log('📥 Intentando cargar RepositionModal dinámicamente...');
+    
+    if (window.RepositionModal && typeof window.RepositionModal.show === 'function') {
+        console.log('✅ RepositionModal ya existe y es funcional');
+        return Promise.resolve(window.RepositionModal);
+    }
+    
+    return new Promise((resolve, reject) => {
+        const script = document.createElement('script');
+        script.src = 'js/components/reposition-modal.js';
+        script.onload = () => {
+            if (window.RepositionModal && typeof window.RepositionModal.show === 'function') {
+                console.log('✅ RepositionModal cargado dinámicamente y funcional');
+                resolve(window.RepositionModal);
+            } else {
+                console.error('❌ RepositionModal se cargó pero no es funcional');
+                reject(new Error('RepositionModal no funcional después de carga'));
+            }
+        };
+        script.onerror = (error) => {
+            console.error('❌ Error cargando reposition-modal.js:', error);
+            reject(error);
+        };
+        document.head.appendChild(script);
+    });
+};
+
+debugLog('main.js actualizado con soporte robusto para asistentes, control de clases y debugging de RepositionModal');
