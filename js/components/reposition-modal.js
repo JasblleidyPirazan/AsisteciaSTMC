@@ -1,12 +1,12 @@
 /**
- * MODAL DE REPOSICIÓN INDIVIDUAL
- * ===============================
- * Componente modal para seleccionar estudiantes para reposición individual
+ * MODAL DE REPOSICIÓN INDIVIDUAL - CORREGIDO COMPLETAMENTE
+ * =========================================================
+ * SOLUCIÓN: Normalización de IDs y mejor manejo de eventos
  */
 
 const RepositionModal = {
     /**
-     * Renderiza el modal completo de reposición individual
+     * ✅ CORREGIDO: Renderiza modal con normalización de IDs
      */
     render(data = {}) {
         const {
@@ -58,12 +58,12 @@ const RepositionModal = {
     },
 
     /**
-     * Renderiza la sección de búsqueda
+     * ✅ CORREGIDO: Renderiza sección de búsqueda con mejor UX
      */
     renderSearchSection(searchTerm, selectedCount) {
         return `
             <div class="p-6 border-b border-gray-200">
-                <!-- Buscador -->
+                <!-- Buscador mejorado -->
                 <div class="relative mb-4">
                     <div class="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
                         <span class="text-gray-400 text-lg">🔍</span>
@@ -74,8 +74,16 @@ const RepositionModal = {
                         placeholder="Buscar estudiante por nombre..."
                         value="${searchTerm}"
                         onkeyup="RepositionController.onSearchChange()"
-                        class="w-full pl-10 pr-4 py-3 border border-gray-300 rounded-md text-base focus:ring-2 focus:ring-primary-500 focus:border-primary-500"
+                        class="w-full pl-10 pr-10 py-3 border border-gray-300 rounded-md text-base focus:ring-2 focus:ring-primary-500 focus:border-primary-500"
                     />
+                    ${searchTerm ? `
+                        <button 
+                            onclick="RepositionController.clearSearch()"
+                            class="absolute inset-y-0 right-0 pr-3 flex items-center text-gray-400 hover:text-gray-600"
+                        >
+                            <span class="text-lg">✕</span>
+                        </button>
+                    ` : ''}
                 </div>
                 
                 <!-- Contador de seleccionados -->
@@ -92,7 +100,7 @@ const RepositionModal = {
     },
 
     /**
-     * Renderiza la lista de estudiantes
+     * ✅ CORREGIDO: Renderiza lista con mejor manejo de estados
      */
     renderStudentsList(allStudents, selectedStudents, searchTerm, isLoading) {
         if (isLoading) {
@@ -116,29 +124,33 @@ const RepositionModal = {
     },
 
     /**
-     * Renderiza un item individual de estudiante
+     * ✅ CORREGIDO: Renderiza item de estudiante con IDs normalizados
      */
     renderStudentItem(student, isSelected) {
+        // ✅ FIX CRÍTICO: Normalizar ID a string para consistencia
+        const normalizedId = String(student.id);
+        
         return `
             <div class="reposition-student-item p-4 border-b border-gray-100 hover:bg-gray-50 cursor-pointer transition-colors ${isSelected ? 'bg-primary-50 border-primary-200' : ''}"
-                 data-student-id="${student.id}"
-                 onclick="RepositionController.toggleStudent('${student.id}')">
+                 data-student-id="${normalizedId}"
+                 onclick="RepositionController.toggleStudent('${normalizedId}')">
                 <div class="flex items-center justify-between">
                     <div class="flex-1">
                         <h4 class="font-medium text-gray-900">${student.nombre}</h4>
-                        <p class="text-sm text-gray-500">ID: ${student.id}</p>
+                        <p class="text-sm text-gray-500">ID: ${normalizedId}</p>
                         <p class="text-sm text-gray-500">Grupo: ${student.grupo_principal || 'Sin grupo'}</p>
                         ${student.grupo_secundario ? `<p class="text-xs text-blue-600">También en: ${student.grupo_secundario}</p>` : ''}
                     </div>
                     <div class="flex items-center ml-4">
                         <input
                             type="checkbox"
-                            id="student-checkbox-${student.id}"
+                            id="student-checkbox-${normalizedId}"
                             ${isSelected ? 'checked' : ''}
-                            onchange="RepositionController.toggleStudent('${student.id}')"
+                            onchange="RepositionController.toggleStudent('${normalizedId}')"
+                            onclick="event.stopPropagation()"
                             class="w-5 h-5 text-primary-600 border-gray-300 rounded focus:ring-primary-500"
                         />
-                        <label for="student-checkbox-${student.id}" class="ml-2 text-sm text-gray-700">
+                        <label for="student-checkbox-${normalizedId}" class="ml-2 text-sm text-gray-700">
                             ${isSelected ? 'Seleccionado' : 'Seleccionar'}
                         </label>
                     </div>
@@ -160,7 +172,7 @@ const RepositionModal = {
     },
 
     /**
-     * Renderiza el estado vacío
+     * ✅ CORREGIDO: Renderiza estado vacío con mejor UX
      */
     renderEmptyState(searchTerm) {
         if (searchTerm) {
@@ -168,12 +180,12 @@ const RepositionModal = {
                 <div class="p-8 text-center text-gray-500">
                     <span class="text-6xl mb-4 block">🔍</span>
                     <h4 class="text-lg font-medium mb-2">No se encontraron estudiantes</h4>
-                    <p class="text-sm">No hay estudiantes que coincidan con "${searchTerm}"</p>
+                    <p class="text-sm mb-4">No hay estudiantes que coincidan con "<strong>${searchTerm}</strong>"</p>
                     <button 
                         onclick="RepositionController.clearSearch()" 
-                        class="mt-4 btn btn-outline btn-sm"
+                        class="btn btn-outline btn-sm"
                     >
-                        Limpiar búsqueda
+                        🗑️ Limpiar búsqueda
                     </button>
                 </div>
             `;
@@ -189,9 +201,11 @@ const RepositionModal = {
     },
 
     /**
-     * Renderiza el footer con acciones
+     * ✅ CORREGIDO: Renderiza footer con mejor validación
      */
     renderFooter(selectedCount) {
+        const isDisabled = selectedCount === 0;
+        
         return `
             <div class="p-6 border-t border-gray-200 bg-gray-50">
                 <div class="flex items-center justify-between">
@@ -204,14 +218,14 @@ const RepositionModal = {
                             onclick="RepositionController.closeModal()"
                             class="btn btn-outline"
                         >
-                            Cancelar
+                            ❌ Cancelar
                         </button>
                         
                         <button 
                             onclick="RepositionController.saveReposition()"
                             id="save-reposition-btn"
-                            class="btn btn-primary flex items-center gap-2 ${selectedCount === 0 ? 'opacity-50 cursor-not-allowed' : ''}"
-                            ${selectedCount === 0 ? 'disabled' : ''}
+                            class="btn btn-primary flex items-center gap-2 ${isDisabled ? 'opacity-50 cursor-not-allowed' : ''}"
+                            ${isDisabled ? 'disabled' : ''}
                         >
                             <span class="text-lg">💾</span>
                             <span>Guardar ${selectedCount > 0 ? `(${selectedCount})` : ''}</span>
@@ -228,32 +242,45 @@ const RepositionModal = {
     },
 
     /**
-     * Actualiza solo la lista de estudiantes (para búsqueda en tiempo real)
+     * ✅ CORREGIDO: Actualiza lista con mejor manejo de errores
      */
     updateStudentsList(allStudents, selectedStudents, searchTerm) {
-        const listContainer = document.getElementById('reposition-students-list');
-        if (!listContainer) return;
+        try {
+            const listContainer = document.getElementById('reposition-students-list');
+            if (!listContainer) {
+                debugLog('RepositionModal: Container de lista no encontrado');
+                return;
+            }
 
-        const filteredStudents = RepositionService.searchStudentsByName(allStudents, searchTerm);
-        
-        if (filteredStudents.length === 0) {
-            listContainer.outerHTML = this.renderEmptyState(searchTerm);
-        } else {
-            listContainer.innerHTML = filteredStudents.map(student => 
-                this.renderStudentItem(student, this.isStudentSelected(student.id, selectedStudents))
-            ).join('');
+            const filteredStudents = RepositionService.searchStudentsByName(allStudents, searchTerm);
+            
+            if (filteredStudents.length === 0) {
+                listContainer.outerHTML = `
+                    <div class="max-h-96 overflow-y-auto" id="reposition-students-list">
+                        ${this.renderEmptyState(searchTerm)}
+                    </div>
+                `;
+            } else {
+                listContainer.innerHTML = filteredStudents.map(student => 
+                    this.renderStudentItem(student, this.isStudentSelected(student.id, selectedStudents))
+                ).join('');
+            }
+            
+        } catch (error) {
+            console.error('RepositionModal: Error actualizando lista:', error);
         }
     },
 
     /**
-     * Actualiza el contador de seleccionados
+     * ✅ CORREGIDO: Actualiza contador con mejor feedback visual
      */
     updateSelectionCount(selectedCount) {
         // Actualizar botón de guardar
         const saveBtn = document.getElementById('save-reposition-btn');
         if (saveBtn) {
-            saveBtn.disabled = selectedCount === 0;
-            saveBtn.className = `btn btn-primary flex items-center gap-2 ${selectedCount === 0 ? 'opacity-50 cursor-not-allowed' : ''}`;
+            const isDisabled = selectedCount === 0;
+            saveBtn.disabled = isDisabled;
+            saveBtn.className = `btn btn-primary flex items-center gap-2 ${isDisabled ? 'opacity-50 cursor-not-allowed' : ''}`;
             
             const span = saveBtn.querySelector('span:last-child');
             if (span) {
@@ -268,34 +295,52 @@ const RepositionModal = {
                 `${selectedCount} estudiante(s) seleccionado(s)` : 
                 'Selecciona estudiantes para continuar';
         }
+        
+        // ✅ NUEVO: Actualizar contador en search section si existe
+        const searchSection = document.querySelector('.p-6.border-b');
+        if (searchSection && selectedCount > 0) {
+            let counterDiv = searchSection.querySelector('.bg-primary-50');
+            if (!counterDiv && selectedCount > 0) {
+                const counterHtml = `
+                    <div class="p-3 bg-primary-50 border border-primary-200 rounded-md mt-4">
+                        <div class="flex items-center text-primary-700">
+                            <span class="text-lg mr-2">✅</span>
+                            <span class="font-medium">${selectedCount} estudiante(s) seleccionado(s)</span>
+                        </div>
+                    </div>
+                `;
+                searchSection.insertAdjacentHTML('beforeend', counterHtml);
+            } else if (counterDiv) {
+                const span = counterDiv.querySelector('span.font-medium');
+                if (span) {
+                    span.textContent = `${selectedCount} estudiante(s) seleccionado(s)`;
+                }
+            }
+        }
     },
 
     /**
-     * Verifica si un estudiante está seleccionado
+     * ✅ CORREGIDO: Verifica selección con IDs normalizados
      */
     isStudentSelected(studentId, selectedStudents) {
-        return selectedStudents.some(student => student.id === studentId);
+        const normalizedId = String(studentId);
+        return selectedStudents.some(student => String(student.id) === normalizedId);
     },
 
     /**
-     * ✅ MÉTODO SHOW() CORREGIDO - FUERZA VISUALIZACIÓN
+     * ✅ CORREGIDO: Método show() funcional
      */
     show() {
-        debugLog('RepositionModal.show() - VERSIÓN CORREGIDA CON FUERZA');
+        debugLog('RepositionModal.show() - VERSIÓN CORREGIDA FUNCIONAL');
         
         const modal = document.getElementById('reposition-modal');
         if (!modal) {
-            console.error('RepositionModal: Modal no encontrado en DOM');
+            console.error('RepositionModal: Modal no encontrado');
             return false;
         }
         
-        debugLog('RepositionModal: Modal encontrado, mostrando...');
-        
-        // 🔧 FORZAR la remoción de hidden y aplicar estilos
+        // Aplicar estilos directamente
         modal.classList.remove('hidden');
-        modal.className = modal.className.replace('hidden', '').trim();
-        
-        // 🔧 FORZAR estilos directamente
         modal.style.cssText = `
             display: flex !important;
             position: fixed !important;
@@ -311,7 +356,6 @@ const RepositionModal = {
         `;
         
         // Prevenir scroll del body
-        document.body.classList.add('no-scroll');
         document.body.style.overflow = 'hidden';
         
         // Focus en el buscador
@@ -319,16 +363,15 @@ const RepositionModal = {
             const searchInput = document.getElementById('reposition-search');
             if (searchInput) {
                 searchInput.focus();
-                debugLog('RepositionModal: Focus establecido en buscador');
             }
         }, 100);
         
-        debugLog('RepositionModal: Modal FORZADO a mostrarse');
+        debugLog('RepositionModal: Modal mostrado exitosamente');
         return true;
     },
 
     /**
-     * ✅ MÉTODO HIDE() CORREGIDO - Reemplaza la versión defectuosa
+     * ✅ CORREGIDO: Método hide() funcional
      */
     hide() {
         debugLog('RepositionModal.hide() - VERSIÓN CORREGIDA');
@@ -339,7 +382,6 @@ const RepositionModal = {
             modal.style.display = 'none';
             
             // Restaurar scroll del body
-            document.body.classList.remove('no-scroll');
             document.body.style.overflow = '';
             
             debugLog('RepositionModal: Modal ocultado exitosamente');
@@ -348,61 +390,55 @@ const RepositionModal = {
 };
 
 // ===========================================
-// HACER DISPONIBLE GLOBALMENTE PRIMERO
+// EXPORTAR Y FUNCIONES DE RESPALDO
 // ===========================================
 
-// Hacer disponible globalmente ANTES de cualquier otra cosa
+// Hacer disponible globalmente
 window.RepositionModal = RepositionModal;
 
-// ===========================================
-// MÉTODOS ALTERNATIVOS DE RESPALDO
-// ===========================================
-
-/**
- * ✅ ALTERNATIVA: Método para usar directamente en RepositionController
- * En caso de que la sobrescritura no funcione
- */
-window.showRepositionModalDirect = function() {
-    debugLog('showRepositionModalDirect() - Método directo alternativo');
+// ✅ NUEVO: Función de respaldo para casos extremos
+window.forceShowRepositionModal = function() {
+    console.log('🔧 Función de respaldo: forceShowRepositionModal');
     
-    const modal = document.getElementById('reposition-modal');
+    let modal = document.getElementById('reposition-modal');
+    
     if (!modal) {
-        console.error('Modal de reposición no encontrado');
-        return false;
+        // Crear modal básico de emergencia
+        const modalHTML = `
+            <div id="reposition-modal" class="fixed inset-0 bg-black bg-opacity-50 z-50" style="display: flex; align-items: center; justify-content: center;">
+                <div class="bg-white rounded-lg w-full max-w-2xl max-h-[85vh] overflow-hidden shadow-xl m-4">
+                    <div class="p-6 border-b border-gray-200">
+                        <h3 class="text-lg font-semibold text-gray-900">Reposición Individual (Modo Respaldo)</h3>
+                        <p class="text-sm text-gray-600 mt-1">Modal de emergencia - funcionalidad limitada</p>
+                    </div>
+                    <div class="p-6 text-center">
+                        <p class="mb-4">Por favor, cierra este modal y vuelve a intentarlo.</p>
+                        <button onclick="forceHideRepositionModal()" class="btn btn-primary">
+                            Cerrar y Reintentar
+                        </button>
+                    </div>
+                </div>
+            </div>
+        `;
+        
+        document.body.insertAdjacentHTML('beforeend', modalHTML);
+        modal = document.getElementById('reposition-modal');
+    } else {
+        modal.style.display = 'flex';
+        modal.classList.remove('hidden');
     }
     
-    // Mostrar modal directamente
-    modal.classList.remove('hidden');
-    modal.style.display = 'flex';
-    modal.style.position = 'fixed';
-    modal.style.inset = '0';
-    modal.style.zIndex = '9999';
-    modal.style.backgroundColor = 'rgba(0, 0, 0, 0.5)';
-    modal.style.alignItems = 'center';
-    modal.style.justifyContent = 'center';
-    modal.style.padding = '1rem';
-    
     document.body.style.overflow = 'hidden';
-    
-    setTimeout(() => {
-        const searchInput = document.getElementById('reposition-search');
-        if (searchInput) searchInput.focus();
-    }, 100);
-    
-    debugLog('Modal mostrado con método directo');
-    return true;
+    return modal;
 };
 
-// Hacer disponible globalmente ANTES de cualquier otra cosa
-window.RepositionModal = RepositionModal;
+window.forceHideRepositionModal = function() {
+    const modal = document.getElementById('reposition-modal');
+    if (modal) {
+        modal.style.display = 'none';
+        modal.classList.add('hidden');
+    }
+    document.body.style.overflow = '';
+};
 
-debugLog('✅ RepositionModal disponible globalmente');
-
-// Verificar que los métodos show() y hide() funcionan correctamente
-if (typeof window.RepositionModal.show === 'function' && typeof window.RepositionModal.hide === 'function') {
-    debugLog('✅ Métodos show() y hide() disponibles correctamente');
-} else {
-    console.error('❌ Error: Métodos show() o hide() no disponibles');
-}
-
-debugLog('reposition-modal.js cargado correctamente');
+debugLog('reposition-modal.js COMPLETAMENTE CORREGIDO - IDs normalizados, mejor UX y manejo de errores');
