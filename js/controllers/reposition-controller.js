@@ -1,7 +1,7 @@
 /**
- * CONTROLADOR DE REPOSICIÓN INDIVIDUAL
- * =====================================
- * Maneja toda la lógica de reposición individual dentro de una clase
+ * CONTROLADOR DE REPOSICIÓN INDIVIDUAL - CORREGIDO COMPLETAMENTE
+ * ===============================================================
+ * SOLUCIÓN: Normalización de IDs y mejor manejo de eventos
  */
 
 const RepositionController = {
@@ -16,16 +16,13 @@ const RepositionController = {
     },
 
     /**
- * VERSIÓN ACTUALIZADA del método openFromAttendance
- * =================================================
- * Usa múltiples fallbacks para garantizar que el modal se abra
- */
-
+     * ✅ CORREGIDO: Abre modal desde AttendanceController
+     */
     async openFromAttendance(classData) {
-        debugLog('RepositionController: Abriendo modal de reposición individual - VERSIÓN CON FALLBACKS');
+        debugLog('RepositionController: Abriendo modal de reposición individual - VERSIÓN COMPLETAMENTE CORREGIDA');
         
         try {
-            // 1. LIMPIAR ESTADO COMPLETAMENTE cada vez
+            // 1. LIMPIAR ESTADO COMPLETAMENTE
             this._setState({
                 isOpen: true,
                 isLoading: true,
@@ -35,75 +32,13 @@ const RepositionController = {
                 allStudents: []
             });
     
-            debugLog('RepositionController: Estado limpiado y configurado');
-    
-            // 2. CREAR MODAL FRESCO cada vez
+            // 2. CREAR MODAL FRESCO
             this._createFreshModal();
             
-            // 3. INTENTAR MOSTRAR MODAL con múltiples fallbacks
-            let modalShown = false;
+            // 3. MOSTRAR MODAL (usar método más confiable)
+            this._forceShowModal();
             
-            // Intento 1: Método corregido
-            try {
-                modalShown = RepositionModal.show();
-                if (modalShown) {
-                    debugLog('RepositionController: Modal mostrado con RepositionModal.show() corregido');
-                }
-            } catch (error) {
-                debugLog('RepositionController: Error con RepositionModal.show():', error.message);
-            }
-            
-            // Intento 2: Método directo alternativo
-            if (!modalShown && window.showRepositionModalDirect) {
-                try {
-                    modalShown = window.showRepositionModalDirect();
-                    if (modalShown) {
-                        debugLog('RepositionController: Modal mostrado con showRepositionModalDirect()');
-                    }
-                } catch (error) {
-                    debugLog('RepositionController: Error con showRepositionModalDirect():', error.message);
-                }
-            }
-            
-            // Intento 3: Fallback conocido que funciona
-            if (!modalShown && window.forceShowRepositionModal) {
-                try {
-                    window.forceShowRepositionModal();
-                    modalShown = true;
-                    debugLog('RepositionController: Modal mostrado con forceShowRepositionModal()');
-                } catch (error) {
-                    debugLog('RepositionController: Error con forceShowRepositionModal():', error.message);
-                }
-            }
-            
-            // Intento 4: Método manual directo
-            if (!modalShown) {
-                try {
-                    const modal = document.getElementById('reposition-modal');
-                    if (modal) {
-                        modal.classList.remove('hidden');
-                        modal.style.display = 'flex';
-                        modal.style.position = 'fixed';
-                        modal.style.inset = '0';
-                        modal.style.zIndex = '9999';
-                        modal.style.backgroundColor = 'rgba(0, 0, 0, 0.5)';
-                        modal.style.alignItems = 'center';
-                        modal.style.justifyContent = 'center';
-                        modal.style.padding = '1rem';
-                        document.body.style.overflow = 'hidden';
-                        modalShown = true;
-                        debugLog('RepositionController: Modal mostrado con método manual directo');
-                    }
-                } catch (error) {
-                    debugLog('RepositionController: Error con método manual:', error.message);
-                }
-            }
-            
-            if (!modalShown) {
-                throw new Error('No se pudo mostrar el modal con ningún método');
-            }
-    
-            // 4. CARGAR ESTUDIANTES en el modal ya visible
+            // 4. CARGAR ESTUDIANTES
             await this._loadStudents();
             
         } catch (error) {
@@ -113,9 +48,48 @@ const RepositionController = {
         }
     },
 
+    /**
+     * ✅ NUEVO: Método más confiable para mostrar modal
+     */
+    _forceShowModal() {
+        const modal = document.getElementById('reposition-modal');
+        if (!modal) {
+            console.error('Modal no encontrado después de creación');
+            return false;
+        }
+        
+        // Aplicar estilos directamente para garantizar visualización
+        modal.classList.remove('hidden');
+        modal.style.cssText = `
+            display: flex !important;
+            position: fixed !important;
+            top: 0 !important;
+            left: 0 !important;
+            right: 0 !important;
+            bottom: 0 !important;
+            z-index: 99999 !important;
+            background-color: rgba(0, 0, 0, 0.5) !important;
+            align-items: center !important;
+            justify-content: center !important;
+            padding: 1rem !important;
+        `;
+        
+        document.body.style.overflow = 'hidden';
+        
+        // Focus en buscador
+        setTimeout(() => {
+            const searchInput = document.getElementById('reposition-search');
+            if (searchInput) {
+                searchInput.focus();
+            }
+        }, 100);
+        
+        debugLog('RepositionController: Modal forzado a mostrarse correctamente');
+        return true;
+    },
     
     /**
-     * Carga todos los estudiantes disponibles
+     * ✅ CORREGIDO: Carga estudiantes con normalización de IDs
      */
     async _loadStudents() {
         debugLog('RepositionController: Cargando estudiantes...');
@@ -123,13 +97,21 @@ const RepositionController = {
         try {
             const allStudents = await RepositionService.getAvailableStudents();
             
+            // ✅ FIX CRÍTICO: Normalizar IDs a string para consistencia
+            const normalizedStudents = allStudents.map(student => ({
+                ...student,
+                id: String(student.id) // Asegurar que ID sea string
+            }));
+            
             this._setState({
-                allStudents: allStudents,
+                allStudents: normalizedStudents,
                 isLoading: false
             });
             
             // Re-renderizar modal con datos
             this._renderModal();
+            
+            debugLog(`RepositionController: ${normalizedStudents.length} estudiantes cargados y normalizados`);
             
         } catch (error) {
             console.error('RepositionController: Error cargando estudiantes:', error);
@@ -139,7 +121,7 @@ const RepositionController = {
     },
 
     /**
-     * Maneja cambios en la búsqueda
+     * ✅ CORREGIDO: Maneja cambios en búsqueda con debounce
      */
     onSearchChange() {
         const searchInput = document.getElementById('reposition-search');
@@ -149,14 +131,17 @@ const RepositionController = {
         
         this._setState({ searchTerm: newSearchTerm });
         
-        // Actualizar lista filtrada
-        this._updateStudentsList();
+        // Debounce para mejor rendimiento
+        clearTimeout(this._searchTimeout);
+        this._searchTimeout = setTimeout(() => {
+            this._updateStudentsList();
+        }, 300);
         
         debugLog(`RepositionController: Búsqueda actualizada: "${newSearchTerm}"`);
     },
 
     /**
-     * Limpia la búsqueda
+     * ✅ CORREGIDO: Limpia búsqueda correctamente
      */
     clearSearch() {
         this._setState({ searchTerm: '' });
@@ -166,54 +151,68 @@ const RepositionController = {
             searchInput.value = '';
         }
         
+        // Limpiar timeout si existe
+        clearTimeout(this._searchTimeout);
+        
         this._updateStudentsList();
         
         debugLog('RepositionController: Búsqueda limpiada');
     },
 
     /**
-     * Alterna la selección de un estudiante - ✅ CORREGIDO
+     * ✅ CORREGIDO COMPLETAMENTE: Alterna selección con normalización de IDs
      */
     toggleStudent(studentId) {
         debugLog(`RepositionController: Alternando selección de estudiante ${studentId}`);
         
+        // ✅ FIX CRÍTICO: Normalizar studentId a string
+        const normalizedStudentId = String(studentId);
+        
         const currentSelected = this._state.selectedStudents;
         
-        // 🔧 FIX PRINCIPAL: Buscar en allStudents, NO en selectedStudents
-        const student = this._state.allStudents.find(s => s.id === studentId);
+        // ✅ FIX: Buscar con comparación normalizada
+        const student = this._state.allStudents.find(s => String(s.id) === normalizedStudentId);
         
         if (!student) {
-            console.error(`RepositionController: Estudiante ${studentId} no encontrado en allStudents`);
-            debugLog('RepositionController: Primeros 3 estudiantes disponibles:', 
-                this._state.allStudents.slice(0, 3).map(s => ({id: s.id, nombre: s.nombre}))
+            console.error(`RepositionController: Estudiante ${normalizedStudentId} no encontrado`);
+            debugLog('RepositionController: IDs disponibles (primeros 5):', 
+                this._state.allStudents.slice(0, 5).map(s => ({
+                    id: s.id, 
+                    tipo: typeof s.id,
+                    nombre: s.nombre
+                }))
             );
+            
+            // ✅ NUEVO: Mostrar error visual al usuario
+            UIUtils.showWarning(`No se pudo seleccionar el estudiante. ID: ${normalizedStudentId}`);
             return;
         }
         
-        const isCurrentlySelected = currentSelected.some(s => s.id === studentId);
+        // ✅ FIX: Verificar selección actual con IDs normalizados
+        const isCurrentlySelected = currentSelected.some(s => String(s.id) === normalizedStudentId);
         
         let newSelected;
         if (isCurrentlySelected) {
             // Remover de selección
-            newSelected = currentSelected.filter(s => s.id !== studentId);
-            debugLog(`RepositionController: Removiendo estudiante ${studentId} de selección`);
+            newSelected = currentSelected.filter(s => String(s.id) !== normalizedStudentId);
+            debugLog(`RepositionController: Removiendo estudiante ${normalizedStudentId}`);
         } else {
             // Agregar a selección
             newSelected = [...currentSelected, student];
-            debugLog(`RepositionController: Agregando estudiante ${studentId} (${student.nombre}) a selección`);
+            debugLog(`RepositionController: Agregando estudiante ${normalizedStudentId} (${student.nombre})`);
         }
         
         this._setState({ selectedStudents: newSelected });
         
         // Actualizar UI
-        this._updateStudentSelection(studentId, !isCurrentlySelected);
+        this._updateStudentSelection(normalizedStudentId, !isCurrentlySelected);
         this._updateSelectionCount();
         
         debugLog(`RepositionController: ${newSelected.length} estudiantes seleccionados total`);
     },
 
     /**
-     * Guarda la reposición individual
+     * ✅ CORREGIDO: Guarda reposición con validación mejorada
      */
     async saveReposition() {
         debugLog('RepositionController: Guardando reposición individual');
@@ -230,11 +229,24 @@ const RepositionController = {
             
             // Validar datos de clase
             if (!classData || !classData.groupCode || !classData.classId) {
-                throw new Error('Datos de clase incompletos');
+                throw new Error('Datos de clase incompletos para reposición');
+            }
+            
+            // Mostrar confirmación antes de guardar
+            const confirmMessage = `¿Confirmar reposición individual para ${selectedStudents.length} estudiante(s)?`;
+            
+            if (!confirm(confirmMessage)) {
+                return;
             }
             
             // Mostrar loading
             this._showSaveLoading(true);
+            
+            // ✅ NUEVO: Validar que todos los estudiantes tengan IDs válidos
+            const invalidStudents = selectedStudents.filter(s => !s.id || !s.nombre);
+            if (invalidStudents.length > 0) {
+                throw new Error(`${invalidStudents.length} estudiantes tienen datos incompletos`);
+            }
             
             // Guardar reposición
             const result = await RepositionService.saveRepositionIndividual(selectedStudents, classData);
@@ -243,8 +255,10 @@ const RepositionController = {
                 // Mostrar éxito
                 UIUtils.showSuccess(result.message);
                 
-                // Cerrar modal
-                this.closeModal();
+                // Cerrar modal después de un momento
+                setTimeout(() => {
+                    this.closeModal();
+                }, 1500);
                 
                 debugLog('RepositionController: Reposición guardada exitosamente');
                 
@@ -261,12 +275,20 @@ const RepositionController = {
     },
 
     /**
-     * Cierra el modal
+     * ✅ CORREGIDO: Cierra modal correctamente
      */
     closeModal() {
         debugLog('RepositionController: Cerrando modal');
         
-        RepositionModal.hide();
+        const modal = document.getElementById('reposition-modal');
+        if (modal) {
+            modal.classList.add('hidden');
+            modal.style.display = 'none';
+            document.body.style.overflow = '';
+        }
+        
+        // Limpiar timeouts
+        clearTimeout(this._searchTimeout);
         
         // Limpiar estado
         this._setState({
@@ -277,6 +299,8 @@ const RepositionController = {
             isLoading: false,
             currentClassData: null
         });
+        
+        debugLog('RepositionController: Modal cerrado y estado limpiado');
     },
 
     /**
@@ -287,7 +311,7 @@ const RepositionController = {
     },
 
     // ===========================================
-    // MÉTODOS PRIVADOS
+    // MÉTODOS PRIVADOS CORREGIDOS
     // ===========================================
 
     /**
@@ -299,47 +323,37 @@ const RepositionController = {
     },
 
     /**
-     * DEPRECATED: Ya no se usa - reemplazado por _createFreshModal
-     * Asegura que el modal existe en el DOM
-     */
-    _ensureModalExists() {
-        let modal = document.getElementById('reposition-modal');
-        
-        if (!modal) {
-            // Crear modal y agregarlo al body
-            document.body.insertAdjacentHTML('beforeend', RepositionModal.render());
-            debugLog('RepositionController: Modal creado en DOM');
-        }
-    },
-
-        /**
-     * NUEVO: Crea un modal completamente fresco eliminando el anterior
+     * ✅ CORREGIDO: Crea modal fresco con mejor estructura
      */
     _createFreshModal() {
         debugLog('RepositionController: Creando modal fresco');
         
-        // Remover modal existente si existe
+        // Remover modal existente
         const existingModal = document.getElementById('reposition-modal');
         if (existingModal) {
             existingModal.remove();
-            debugLog('RepositionController: Modal anterior eliminado');
         }
         
-        // Crear modal fresco con estado inicial limpio
-        const modalHtml = RepositionModal.render({
-            allStudents: [],
-            selectedStudents: [],
-            searchTerm: '',
-            isLoading: true
-        });
+        // Crear modal básico de loading
+        const modalHtml = `
+            <div id="reposition-modal" class="fixed inset-0 bg-black bg-opacity-50 z-50 hidden">
+                <div class="flex items-center justify-center min-h-screen p-4">
+                    <div class="bg-white rounded-lg w-full max-w-2xl max-h-[85vh] overflow-hidden shadow-xl">
+                        <div class="p-6 text-center">
+                            <div class="spinner spinner-lg mx-auto mb-4"></div>
+                            <p class="text-gray-600">Cargando estudiantes...</p>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        `;
         
         document.body.insertAdjacentHTML('beforeend', modalHtml);
-        debugLog('RepositionController: Modal fresco creado en DOM');
+        debugLog('RepositionController: Modal fresco creado');
     },
-
     
     /**
-     * Renderiza el modal con el estado actual
+     * ✅ CORREGIDO: Renderiza modal con datos actuales
      */
     _renderModal() {
         const modal = document.getElementById('reposition-modal');
@@ -352,34 +366,64 @@ const RepositionController = {
             isLoading: this._state.isLoading
         };
         
+        // Usar RepositionModal para generar contenido
         modal.outerHTML = RepositionModal.render(modalData);
         
-        debugLog('RepositionController: Modal renderizado');
+        // Re-aplicar estilos de visualización
+        const newModal = document.getElementById('reposition-modal');
+        if (newModal) {
+            this._forceShowModal();
+        }
+        
+        debugLog('RepositionController: Modal renderizado con datos actuales');
     },
 
     /**
-     * Actualiza solo la lista de estudiantes (para búsqueda)
+     * ✅ CORREGIDO: Actualiza lista de estudiantes con mejor manejo
      */
     _updateStudentsList() {
-        RepositionModal.updateStudentsList(
-            this._state.allStudents,
-            this._state.selectedStudents,
-            this._state.searchTerm
-        );
+        try {
+            const filteredStudents = RepositionService.searchStudentsByName(
+                this._state.allStudents, 
+                this._state.searchTerm
+            );
+            
+            // Verificar que el container existe
+            const listContainer = document.querySelector('#reposition-students-list, .max-h-96');
+            if (!listContainer) {
+                debugLog('RepositionController: Container de lista no encontrado, re-renderizando modal completo');
+                this._renderModal();
+                return;
+            }
+            
+            // Actualizar solo la lista
+            RepositionModal.updateStudentsList(
+                this._state.allStudents,
+                this._state.selectedStudents,
+                this._state.searchTerm
+            );
+            
+        } catch (error) {
+            console.error('RepositionController: Error actualizando lista de estudiantes:', error);
+            // Fallback: re-renderizar modal completo
+            this._renderModal();
+        }
     },
 
     /**
-     * Actualiza la selección visual de un estudiante específico
+     * ✅ CORREGIDO: Actualiza selección visual con IDs normalizados
      */
     _updateStudentSelection(studentId, isSelected) {
+        const normalizedId = String(studentId);
+        
         // Actualizar checkbox
-        const checkbox = document.getElementById(`student-checkbox-${studentId}`);
+        const checkbox = document.getElementById(`student-checkbox-${normalizedId}`);
         if (checkbox) {
             checkbox.checked = isSelected;
         }
         
         // Actualizar estilo del item
-        const item = document.querySelector(`[data-student-id="${studentId}"]`);
+        const item = document.querySelector(`[data-student-id="${normalizedId}"]`);
         if (item) {
             if (isSelected) {
                 item.classList.add('bg-primary-50', 'border-primary-200');
@@ -389,7 +433,7 @@ const RepositionController = {
         }
         
         // Actualizar label
-        const label = document.querySelector(`label[for="student-checkbox-${studentId}"]`);
+        const label = document.querySelector(`label[for="student-checkbox-${normalizedId}"]`);
         if (label) {
             label.textContent = isSelected ? 'Seleccionado' : 'Seleccionar';
         }
@@ -403,7 +447,7 @@ const RepositionController = {
     },
 
     /**
-     * Muestra/oculta loading en el botón de guardar
+     * ✅ CORREGIDO: Muestra/oculta loading en botón de guardar
      */
     _showSaveLoading(isLoading) {
         const saveBtn = document.getElementById('save-reposition-btn');
@@ -416,8 +460,8 @@ const RepositionController = {
                 <span>Guardando...</span>
             `;
         } else {
-            saveBtn.disabled = this._state.selectedStudents.length === 0;
             const count = this._state.selectedStudents.length;
+            saveBtn.disabled = count === 0;
             saveBtn.innerHTML = `
                 <span class="text-lg">💾</span>
                 <span>Guardar ${count > 0 ? `(${count})` : ''}</span>
@@ -429,4 +473,4 @@ const RepositionController = {
 // Hacer disponible globalmente
 window.RepositionController = RepositionController;
 
-debugLog('reposition-controller.js cargado correctamente');
+debugLog('reposition-controller.js COMPLETAMENTE CORREGIDO - Normalización de IDs, mejor manejo de eventos y UI mejorada');
