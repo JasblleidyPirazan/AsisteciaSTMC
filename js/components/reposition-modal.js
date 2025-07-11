@@ -277,7 +277,7 @@ const RepositionModal = {
         return selectedStudents.some(student => student.id === studentId);
     },
 
-  **
+  /**
  * ✅ MÉTODO SHOW() CORREGIDO - Reemplaza la versión defectuosa
  */
 show() {
