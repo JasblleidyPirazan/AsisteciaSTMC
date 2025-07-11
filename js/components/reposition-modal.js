@@ -277,32 +277,59 @@ const RepositionModal = {
         return selectedStudents.some(student => student.id === studentId);
     },
 
-    /**
- * ✅ CORREGIDO: Muestra el modal con debugging y estilos forzados
+  **
+ * ✅ MÉTODO SHOW() CORREGIDO - Reemplaza la versión defectuosa
  */
 show() {
+    debugLog('RepositionModal.show() - VERSIÓN CORREGIDA FUNCIONANDO');
+    
     const modal = document.getElementById('reposition-modal');
     if (!modal) {
-        console.error('RepositionModal: Modal no encontrado');
+        console.error('RepositionModal: Modal no encontrado en DOM');
         return false;
     }
     
-    // Usar el mismo patrón que ModalsController
-    modal.classList.remove('hidden');
-    document.body.classList.add('no-scroll');
+    debugLog('RepositionModal: Modal encontrado, mostrando...');
     
+    // Usar el patrón simple que funciona en otros modales
+    modal.classList.remove('hidden');
+    modal.style.display = 'flex';
+    modal.style.position = 'fixed';
+    modal.style.top = '0';
+    modal.style.left = '0';
+    modal.style.right = '0';
+    modal.style.bottom = '0';
+    modal.style.zIndex = '9999';
+    modal.style.backgroundColor = 'rgba(0, 0, 0, 0.5)';
+    modal.style.alignItems = 'center';
+    modal.style.justifyContent = 'center';
+    modal.style.padding = '1rem';
+    
+    // Prevenir scroll del body
+    document.body.classList.add('no-scroll');
+    document.body.style.overflow = 'hidden';
+    
+    // Focus en el buscador
+    setTimeout(() => {
+        const searchInput = document.getElementById('reposition-search');
+        if (searchInput) {
+            searchInput.focus();
+            debugLog('RepositionModal: Focus establecido en buscador');
+        }
+    }, 100);
+    
+    debugLog('RepositionModal: Modal mostrado exitosamente');
     return true;
-}
+},
 
 /**
- * ✅ CORREGIDO: Oculta el modal correctamente
+ * ✅ MÉTODO HIDE() CORREGIDO - Reemplaza la versión defectuosa
  */
 hide() {
-    debugLog('RepositionModal.hide() llamado - VERSIÓN CORREGIDA');
+    debugLog('RepositionModal.hide() - VERSIÓN CORREGIDA');
     
     const modal = document.getElementById('reposition-modal');
     if (modal) {
-        // Agregar clase hidden y forzar display none
         modal.classList.add('hidden');
         modal.style.display = 'none';
         
@@ -311,10 +338,114 @@ hide() {
         document.body.style.overflow = '';
         
         debugLog('RepositionModal: Modal ocultado exitosamente');
-    } else {
-        debugLog('RepositionModal: Modal no encontrado para ocultar');
     }
 }
+
+// 2. SEGUNDO: Forzar la sobrescritura del objeto RepositionModal
+debugLog('Sobrescribiendo métodos defectuosos de RepositionModal...');
+
+// Verificar si RepositionModal existe
+if (window.RepositionModal) {
+    // Sobrescribir solo los métodos problemáticos
+    window.RepositionModal.show = function() {
+        debugLog('RepositionModal.show() - VERSIÓN CORREGIDA FUNCIONANDO');
+        
+        const modal = document.getElementById('reposition-modal');
+        if (!modal) {
+            console.error('RepositionModal: Modal no encontrado en DOM');
+            return false;
+        }
+        
+        debugLog('RepositionModal: Modal encontrado, mostrando...');
+        
+        // Usar el patrón simple que funciona
+        modal.classList.remove('hidden');
+        modal.style.display = 'flex';
+        modal.style.position = 'fixed';
+        modal.style.top = '0';
+        modal.style.left = '0';
+        modal.style.right = '0';
+        modal.style.bottom = '0';
+        modal.style.zIndex = '9999';
+        modal.style.backgroundColor = 'rgba(0, 0, 0, 0.5)';
+        modal.style.alignItems = 'center';
+        modal.style.justifyContent = 'center';
+        modal.style.padding = '1rem';
+        
+        // Prevenir scroll del body
+        document.body.classList.add('no-scroll');
+        document.body.style.overflow = 'hidden';
+        
+        // Focus en el buscador
+        setTimeout(() => {
+            const searchInput = document.getElementById('reposition-search');
+            if (searchInput) {
+                searchInput.focus();
+                debugLog('RepositionModal: Focus establecido en buscador');
+            }
+        }, 100);
+        
+        debugLog('RepositionModal: Modal mostrado exitosamente');
+        return true;
+    };
+
+    window.RepositionModal.hide = function() {
+        debugLog('RepositionModal.hide() - VERSIÓN CORREGIDA');
+        
+        const modal = document.getElementById('reposition-modal');
+        if (modal) {
+            modal.classList.add('hidden');
+            modal.style.display = 'none';
+            
+            // Restaurar scroll del body
+            document.body.classList.remove('no-scroll');
+            document.body.style.overflow = '';
+            
+            debugLog('RepositionModal: Modal ocultado exitosamente');
+        }
+    };
+
+    debugLog('✅ Métodos RepositionModal.show() y hide() sobrescritos exitosamente');
+} else {
+    console.error('❌ RepositionModal no existe para sobrescribir');
+}
+
+// 3. TERCERO: Código alternativo directo para RepositionController
+
+/**
+ * ✅ ALTERNATIVA: Método para usar directamente en RepositionController
+ * En caso de que la sobrescritura no funcione
+ */
+window.showRepositionModalDirect = function() {
+    debugLog('showRepositionModalDirect() - Método directo alternativo');
+    
+    const modal = document.getElementById('reposition-modal');
+    if (!modal) {
+        console.error('Modal de reposición no encontrado');
+        return false;
+    }
+    
+    // Mostrar modal directamente
+    modal.classList.remove('hidden');
+    modal.style.display = 'flex';
+    modal.style.position = 'fixed';
+    modal.style.inset = '0';
+    modal.style.zIndex = '9999';
+    modal.style.backgroundColor = 'rgba(0, 0, 0, 0.5)';
+    modal.style.alignItems = 'center';
+    modal.style.justifyContent = 'center';
+    modal.style.padding = '1rem';
+    
+    document.body.style.overflow = 'hidden';
+    
+    setTimeout(() => {
+        const searchInput = document.getElementById('reposition-search');
+        if (searchInput) searchInput.focus();
+    }, 100);
+    
+    debugLog('Modal mostrado con método directo');
+    return true;
+};
 
 // Hacer disponible globalmente
 window.RepositionModal = RepositionModal;
