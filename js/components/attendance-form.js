@@ -589,9 +589,9 @@ renderAssistantSelector(data = {}) {
             { value: 'Lluvia', icon: '🌧️', title: 'Lluvia', desc: 'Condiciones climáticas' },
             { value: 'Festivo', icon: '🎉', title: 'Festivo', desc: 'Día feriado' },
             { value: 'Mantenimiento', icon: '🔧', title: 'Mantenimiento', desc: 'Cancha en reparación' },
-            { value: 'Enfermedad Profesor', icon: '🤒', title: 'Profesor enfermo', desc: 'Incapacidad médica' },
+            //{ value: 'Enfermedad Profesor', icon: '🤒', title: 'Profesor enfermo', desc: 'Incapacidad médica' },
             { value: 'Emergencia', icon: '🚨', title: 'Emergencia', desc: 'Situación imprevista' },
-            { value: 'Otro', icon: '📝', title: 'Otro motivo', desc: 'Especificar abajo' }
+            //{ value: 'Otro', icon: '📝', title: 'Otro motivo', desc: 'Especificar abajo' }
         ];
 
         return `
