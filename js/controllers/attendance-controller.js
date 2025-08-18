@@ -1,18 +1,18 @@
 /**
- * CONTROLADOR DE ASISTENCIA - FLUJO CORREGIDO COMPLETO
- * ===================================================
+ * CONTROLADOR DE ASISTENCIA - FLUJO CORREGIDO COMPLETO CON SISTEMA DE BORRADORES
+ * ============================================================================
  * FLUJO ACTUALIZADO:
  * 1. Seleccionar grupo ✅ 
  * 2. "¿Se realizó la clase?" ✅ 
  * 3. "Sí, se realizó" ✅ 
- * 4. Seleccionar asistente → 🎉 CLASE CREADA AQUÍ 
- * 5. Formulario de asistencia (classId ya disponible) ✅ 
+ * 4. Seleccionar asistente → 🎉 BORRADOR CREADO AQUÍ (LocalStorage)
+ * 5. Formulario de asistencia (borrador ya disponible) ✅ 
  * 6. Botón "Reposición Individual" → 🎉 FUNCIONA 
- * 7. Guardar asistencia → Solo guarda asistencias ✅
+ * 7. Guardar asistencia → Vista previa + confirmación final ✅
  */
 
 const AttendanceController = {
-    // Estado interno del controlador
+    // Estado interno del controlador - MODIFICADO con borrador
     _state: {
         currentGroup: null,
         currentStudents: [],
@@ -21,7 +21,11 @@ const AttendanceController = {
         attendanceData: {},
         attendanceType: 'regular',
         isProcessing: false,
-        classId: null
+        classId: null,
+        
+        // 🆕 NUEVO: Estado de borrador
+        draftSession: null,
+        lastClickTimes: {} // Para prevenir doble clic
     },
 
     /**
@@ -336,10 +340,10 @@ const AttendanceController = {
     },
 
     /**
-     * ✨ CORREGIDO: Selecciona asistente, CREA CLASE y va a asistencia
+     * ✨ MODIFICADO: Selecciona asistente y CREA BORRADOR LOCAL (no backend)
      */
     async selectAssistantForAttendance(assistantId) {
-        debugLog(`AttendanceController: Asistente seleccionado para asistencia: ${assistantId}`);
+        debugLog(`AttendanceController: Asistente seleccionado para BORRADOR: ${assistantId}`);
         
         try {
             // 1. Buscar asistente
@@ -351,76 +355,41 @@ const AttendanceController = {
             // 2. Guardar asistente en estado
             this._setState({ selectedAssistant: assistant });
             
-            // 3. ✨ CREAR REGISTRO DE CLASE INMEDIATAMENTE
-            await this._createClassRecord(assistantId);
+            // 3. ✨ CREAR BORRADOR LOCAL (NO backend)
+            await this._createDraftSession(assistantId);
             
-            // 4. Ir al formulario de asistencia (ya con classId válido)
+            // 4. Ir al formulario de asistencia (ya con borrador válido)
             await this.showAttendanceFormDirect();
             
         } catch (error) {
-            console.error('AttendanceController: Error al seleccionar asistente para asistencia:', error);
-            UIUtils.showError(`Error al registrar la clase: ${error.message}`);
+            console.error('AttendanceController: Error al seleccionar asistente para borrador:', error);
+            UIUtils.showError(`Error al crear borrador: ${error.message}`);
             // Volver al selector de asistente en caso de error
             await this.showAssistantSelectorForAttendance(this._state.currentGroup.codigo);
         }
     },
 
     /**
-     * ✨ CORREGIDO: Continúa sin asistente, CREA CLASE y va a asistencia
+     * ✨ MODIFICADO: Continúa sin asistente y CREA BORRADOR LOCAL (no backend)
      */
     async continueToAttendanceWithoutAssistant(groupCode) {
-        debugLog('AttendanceController: Continuando sin asistente a asistencia');
+        debugLog('AttendanceController: Continuando sin asistente a BORRADOR');
         
         try {
             // 1. Establecer asistente como null
             this._setState({ selectedAssistant: null });
             
-            // 2. ✨ CREAR REGISTRO DE CLASE SIN ASISTENTE
-            await this._createClassRecord('');
+            // 2. ✨ CREAR BORRADOR LOCAL SIN ASISTENTE
+            await this._createDraftSession('');
             
-            // 3. Ir al formulario de asistencia (ya con classId válido)
+            // 3. Ir al formulario de asistencia (ya con borrador válido)
             await this.showAttendanceFormDirect();
             
         } catch (error) {
             console.error('AttendanceController: Error al continuar sin asistente:', error);
-            UIUtils.showError(`Error al registrar la clase: ${error.message}`);
+            UIUtils.showError(`Error al crear borrador: ${error.message}`);
             // Volver al selector de asistente en caso de error
             await this.showAssistantSelectorForAttendance(groupCode);
-        }
-    },
-
-    /**
-     * ✨ NUEVO: Crea el registro de clase inmediatamente después de seleccionar asistente
-     */
-    async _createClassRecord(assistantId) {
-        debugLog('AttendanceController: Creando registro de clase...');
-        
-        try {
-            const selectedDate = window.AppState.selectedDate || DateUtils.getCurrentDate();
-            const groupCode = this._state.currentGroup.codigo;
-            
-            // Mostrar indicador de carga
-            UIUtils.showLoading('app', 'Creando registro de clase...');
-            
-            // Crear el registro de clase usando ClassControlService
-            const classRecord = await ClassControlService.createClassRecord(
-                selectedDate,
-                groupCode,
-                ClassControlService.CLASS_STATES.REALIZADA,
-                {
-                    asistenteId: assistantId || '',
-                    creadoPor: window.AppState.user?.email || 'usuario'
-                }
-            );
-            
-            // Guardar el ID de clase en el estado
-            this._setState({ classId: classRecord.id });
-            
-            debugLog(`AttendanceController: Clase creada con ID: ${classRecord.id}`);
-            
-        } catch (error) {
-            console.error('AttendanceController: Error creando registro de clase:', error);
-            throw new Error(`No se pudo crear el registro de clase: ${error.message}`);
         }
     },
 
@@ -476,7 +445,7 @@ const AttendanceController = {
             }
             
             // CORREGIDO: Usar el ID de clase existente o crear uno temporal
-            let classId = this._state.classId;
+            let classId = this._state.classId || this._state.draftSession?.id;
             
             // Si no hay ID de clase, intentar crear uno o usar temporal
             if (!classId) {
@@ -546,16 +515,30 @@ const AttendanceController = {
     },
 
     /**
-     * Marca la asistencia de un estudiante individual
+     * ✨ MODIFICADO: Marca asistencia con DEBOUNCE para prevenir doble clic
      */
     markAttendance(studentId, status) {
-        debugLog(`AttendanceController: Marcando ${studentId} como ${status}`);
+        debugLog(`AttendanceController: Marcando ${studentId} como ${status} - CON DEBOUNCE`);
         
         try {
             if (!studentId || !status) {
                 UIUtils.showError('Parámetros inválidos para marcar asistencia');
                 return;
             }
+
+            // ✨ PREVENIR DOBLE CLIC: Verificar tiempo desde último clic
+            const now = Date.now();
+            const lastClickTime = this._state.lastClickTimes[studentId] || 0;
+            const timeSinceLastClick = now - lastClickTime;
+            
+            if (timeSinceLastClick < 2000) { // 2 segundos de debounce
+                debugLog(`AttendanceController: Doble clic detectado para ${studentId} - Ignorando (${timeSinceLastClick}ms)`);
+                UIUtils.showWarning('Espera un momento antes de hacer clic nuevamente');
+                return;
+            }
+            
+            // Actualizar tiempo de último clic
+            this._state.lastClickTimes[studentId] = now;
             
             const student = this._findStudent(studentId);
             if (!student) {
@@ -568,9 +551,15 @@ const AttendanceController = {
                 return;
             }
             
+            // ✨ DESHABILITAR BOTÓN TEMPORALMENTE para prevenir clics múltiples
+            this._temporarilyDisableStudentButtons(studentId, 2000);
+            
             this._recordAttendance(studentId, status);
             this._updateStudentUI(studentId, status);
             this._updateAttendanceSummary();
+            
+            // ✨ GUARDAR BORRADOR EN LOCALSTORAGE
+            this._saveDraftToLocalStorage();
             
             UIUtils.showSuccess(`${student.nombre} marcado como ${status.toLowerCase()}`);
             
@@ -606,6 +595,10 @@ const AttendanceController = {
             });
             
             this._updateAttendanceSummary();
+            
+            // ✨ GUARDAR BORRADOR EN LOCALSTORAGE
+            this._saveDraftToLocalStorage();
+            
             UIUtils.showSuccess(`${markedCount} estudiantes marcados como ${status.toLowerCase()}`);
             
         } catch (error) {
@@ -637,6 +630,10 @@ const AttendanceController = {
                 this._setState({ attendanceData: {} });
                 this._clearAllStudentUI();
                 this._updateAttendanceSummary();
+                
+                // ✨ GUARDAR BORRADOR LIMPIO EN LOCALSTORAGE
+                this._saveDraftToLocalStorage();
+                
                 UIUtils.showSuccess('Asistencia limpiada');
             });
             
@@ -647,10 +644,10 @@ const AttendanceController = {
     },
 
     /**
-     * ✨ CORREGIDO: Guarda solo asistencias (la clase ya fue creada en paso 4)
+     * ✨ MODIFICADO: Ahora muestra vista previa en lugar de guardar directamente
      */
     async saveAttendanceData(groupCode) {
-        debugLog('AttendanceController: Guardando SOLO asistencias (clase ya creada)');
+        debugLog('AttendanceController: Mostrando vista previa en lugar de guardar directamente');
         
         try {
             const attendanceData = this._state.attendanceData;
@@ -661,96 +658,15 @@ const AttendanceController = {
                 return;
             }
             
-            this._setState({ isProcessing: true });
+            // ✨ GUARDAR BORRADOR ACTUALIZADO
+            this._saveDraftToLocalStorage();
             
-            ModalsController.showLoading('Guardando asistencia...', 'Procesando datos...');
-            
-            const selectedDate = window.AppState.selectedDate || DateUtils.getCurrentDate();
-            const selectedAssistant = this._state.selectedAssistant;
-            const classId = this._state.classId; // Ya existe desde paso 4
-            
-            // ✨ SOLO crear registros de asistencia (la clase ya existe)
-            const { records, errors } = AttendanceService.createGroupAttendanceRecords(
-                attendanceData,
-                {
-                    groupCode,
-                    date: selectedDate,
-                    classType: 'Regular',
-                    sentBy: window.AppState.user?.email || 'usuario'
-                }
-            );
-            
-            // Agregar ID de clase existente
-            records.forEach(record => {
-                record.ID_Clase = classId;
-            });
-            
-            // Guardar solo asistencias
-            const result = await AttendanceService.saveAttendance(records);
-            
-            ModalsController.hideLoading();
-            
-            // Mostrar éxito con botón para volver al inicio
-            let message, details;
-            
-            if (result.method === 'online') {
-                message = 'Asistencia guardada correctamente';
-                details = [
-                    `Grupo: ${groupCode}`,
-                    `Fecha: ${DateUtils.formatDate(selectedDate)}`,
-                    `Asistente: ${selectedAssistant?.nombre || 'No especificado'}`,
-                    `Registros guardados: ${attendanceCount}`,
-                    `✅ Guardado en línea exitoso`
-                ];
-                UIUtils.updateConnectionStatus('online');
-            } else {
-                message = 'Asistencia guardada localmente';
-                details = [
-                    `Grupo: ${groupCode}`,
-                    `Fecha: ${DateUtils.formatDate(selectedDate)}`,
-                    `Asistente: ${selectedAssistant?.nombre || 'No especificado'}`,
-                    `Registros guardados: ${attendanceCount}`,
-                    `⏳ Se sincronizará automáticamente`
-                ];
-                UIUtils.updateConnectionStatus('offline');
-            }
-            
-            // Modal de éxito con botón para volver al inicio
-            const successData = {
-                title: '🎉 ¡Asistencia Guardada!',
-                message: message,
-                details: details,
-                actions: [{
-                    label: '🏠 Volver al Inicio',
-                    handler: 'AppController.showDateSelector()',
-                    class: 'btn-primary'
-                }]
-            };
-            
-            const successHtml = ModalsView.getSuccessContent(successData);
-            const modal = document.getElementById('notification-modal');
-            const content = document.getElementById('notification-content');
-            
-            if (modal && content) {
-                content.innerHTML = successHtml;
-                modal.classList.remove('hidden');
-            }
-            
-            // Limpiar estado
-            this._setState({
-                attendanceData: {},
-                currentGroup: null,
-                currentStudents: [],
-                selectedAssistant: null,
-                classId: null
-            });
+            // ✨ MOSTRAR VISTA PREVIA EN LUGAR DE GUARDAR
+            this.showFinalPreview();
             
         } catch (error) {
-            ModalsController.hideLoading();
-            console.error('AttendanceController: Error al guardar asistencia:', error);
-            UIUtils.showError(error.message || 'Error al guardar asistencia');
-        } finally {
-            this._setState({ isProcessing: false });
+            console.error('AttendanceController: Error al preparar vista previa:', error);
+            UIUtils.showError('Error al preparar vista previa');
         }
     },
 
@@ -910,6 +826,9 @@ const AttendanceController = {
             this._updateStudentUI(studentId, 'Justificada');
             this._updateAttendanceSummary();
             
+            // ✨ GUARDAR BORRADOR EN LOCALSTORAGE
+            this._saveDraftToLocalStorage();
+            
             ModalsController.close('justification-modal');
             
             const student = this._findStudent(studentId);
@@ -971,7 +890,398 @@ const AttendanceController = {
     },
 
     // ===========================================
-    // MÉTODOS PRIVADOS
+    // ✨ NUEVAS FUNCIONES DEL SISTEMA DE BORRADORES
+    // ===========================================
+
+    /**
+     * ✨ NUEVO: Crea sesión de borrador local
+     */
+    async _createDraftSession(assistantId) {
+        debugLog('AttendanceController: Creando sesión de borrador local...');
+        
+        try {
+            const selectedDate = window.AppState.selectedDate || DateUtils.getCurrentDate();
+            const groupCode = this._state.currentGroup.codigo;
+            
+            // Crear ID temporal de clase para el borrador
+            const tempClassId = `DRAFT_${selectedDate}_${groupCode}_${Date.now()}`;
+            
+            // Crear sesión de borrador
+            const draftSession = {
+                id: tempClassId,
+                fecha: selectedDate,
+                groupCode: groupCode,
+                groupData: this._state.currentGroup,
+                assistantId: assistantId || '',
+                assistantData: this._state.selectedAssistant,
+                attendanceData: {},
+                createdAt: DateUtils.getCurrentTimestamp(),
+                status: 'draft' // Marcado como borrador
+            };
+            
+            // Guardar en estado y localStorage
+            this._setState({ 
+                draftSession: draftSession,
+                classId: tempClassId // Para compatibilidad con funciones existentes
+            });
+            
+            this._saveDraftToLocalStorage();
+            
+            debugLog(`AttendanceController: Borrador creado con ID: ${tempClassId}`);
+            
+        } catch (error) {
+            console.error('AttendanceController: Error creando sesión de borrador:', error);
+            throw new Error(`No se pudo crear el borrador: ${error.message}`);
+        }
+    },
+
+    /**
+     * ✨ NUEVO: Guarda borrador en localStorage
+     */
+    _saveDraftToLocalStorage() {
+        try {
+            if (!this._state.draftSession) return;
+            
+            const draftData = {
+                ...this._state.draftSession,
+                attendanceData: this._state.attendanceData, // Datos de asistencia actuales
+                lastUpdated: DateUtils.getCurrentTimestamp()
+            };
+            
+            StorageUtils.save('attendance_draft', draftData);
+            debugLog('AttendanceController: Borrador guardado en localStorage');
+            
+        } catch (error) {
+            console.error('AttendanceController: Error guardando borrador:', error);
+        }
+    },
+
+    /**
+     * ✨ NUEVO: Recupera borrador desde localStorage
+     */
+    _loadDraftFromLocalStorage() {
+        try {
+            const draftData = StorageUtils.get('attendance_draft', null);
+            
+            if (draftData && draftData.status === 'draft') {
+                debugLog('AttendanceController: Borrador encontrado en localStorage:', draftData);
+                return draftData;
+            }
+            
+            return null;
+            
+        } catch (error) {
+            console.error('AttendanceController: Error cargando borrador:', error);
+            return null;
+        }
+    },
+
+    /**
+     * ✨ NUEVO: Limpia borrador de localStorage
+     */
+    _clearDraftFromLocalStorage() {
+        try {
+            StorageUtils.remove('attendance_draft');
+            debugLog('AttendanceController: Borrador limpiado de localStorage');
+        } catch (error) {
+            console.error('AttendanceController: Error limpiando borrador:', error);
+        }
+    },
+
+    /**
+     * ✨ NUEVO: Deshabilita botones de estudiante temporalmente
+     */
+    _temporarilyDisableStudentButtons(studentId, duration = 2000) {
+        const studentItem = document.querySelector(`[data-student-id="${studentId}"]`);
+        if (!studentItem) return;
+        
+        const buttons = studentItem.querySelectorAll('.student-actions button');
+        
+        // Deshabilitar botones
+        buttons.forEach(btn => {
+            btn.disabled = true;
+            btn.classList.add('opacity-50', 'cursor-not-allowed');
+        });
+        
+        // Rehabilitar después del tiempo especificado
+        setTimeout(() => {
+            buttons.forEach(btn => {
+                btn.disabled = false;
+                btn.classList.remove('opacity-50', 'cursor-not-allowed');
+            });
+        }, duration);
+    },
+
+    /**
+     * ✨ NUEVO: Muestra vista previa antes de confirmación final
+     */
+    showFinalPreview() {
+        debugLog('AttendanceController: Mostrando vista previa final');
+        
+        try {
+            const attendanceData = this._state.attendanceData;
+            const count = Object.keys(attendanceData).length;
+            
+            if (count === 0) {
+                UIUtils.showWarning('No hay asistencia registrada para guardar');
+                return;
+            }
+            
+            const stats = AttendanceService.calculateAttendanceStats(Object.values(attendanceData));
+            const selectedAssistant = this._state.selectedAssistant;
+            const draftSession = this._state.draftSession;
+            
+            const previewData = {
+                groupCode: draftSession.groupCode,
+                selectedDate: draftSession.fecha,
+                attendance: attendanceData,
+                stats,
+                attendanceType: this._state.attendanceType,
+                selectedAssistant,
+                draftSession: draftSession
+            };
+            
+            // Usar modal personalizado para vista previa final
+            const previewContent = this._generateFinalPreviewContent(previewData);
+            ModalsController.showPreview(previewContent);
+            
+        } catch (error) {
+            console.error('AttendanceController: Error en vista previa final:', error);
+            UIUtils.showError('Error al generar vista previa');
+        }
+    },
+
+    /**
+     * ✨ NUEVO: Genera contenido de vista previa final
+     */
+    _generateFinalPreviewContent(data) {
+        const {
+            groupCode,
+            selectedDate,
+            attendance,
+            stats,
+            selectedAssistant,
+            draftSession
+        } = data;
+
+        const formattedDate = DateUtils.formatDate(selectedDate);
+        const attendanceEntries = Object.values(attendance);
+
+        return `
+            <div>
+                <div class="mb-6">
+                    <h4 class="font-bold text-lg mb-2 text-blue-900">🔍 Vista Previa Final - Confirmar Antes de Guardar</h4>
+                    
+                    <!-- Info del borrador -->
+                    <div class="bg-blue-50 p-4 rounded-lg mb-4">
+                        <h5 class="font-semibold text-blue-800 mb-2">📝 Información del Borrador:</h5>
+                        <div class="grid grid-cols-2 gap-4 text-sm">
+                            <div><strong>Grupo:</strong> ${groupCode}</div>
+                            <div><strong>Fecha:</strong> ${formattedDate}</div>
+                            <div><strong>Total registros:</strong> ${attendanceEntries.length}</div>
+                            <div><strong>Borrador ID:</strong> ${draftSession.id}</div>
+                        </div>
+                    </div>
+                    
+                    ${selectedAssistant ? `
+                        <div class="p-3 bg-green-50 rounded-lg mb-4">
+                            <div class="flex items-center text-green-800">
+                                <span class="text-xl mr-2">👨‍🏫</span>
+                                <div>
+                                    <strong>Asistente:</strong> ${selectedAssistant.nombre}
+                                    <div class="text-sm text-green-600">ID: ${selectedAssistant.id}</div>
+                                </div>
+                            </div>
+                        </div>
+                    ` : `
+                        <div class="p-3 bg-gray-50 rounded-lg mb-4">
+                            <div class="flex items-center text-gray-600">
+                                <span class="text-xl mr-2">👤</span>
+                                <span><strong>Asistente:</strong> No especificado</span>
+                            </div>
+                        </div>
+                    `}
+                </div>
+
+                <!-- Estadísticas -->
+                <div class="grid grid-cols-3 gap-4 mb-6">
+                    <div class="bg-green-100 p-3 rounded text-center">
+                        <div class="font-bold text-green-800 text-xl">${stats.present || 0}</div>
+                        <div class="text-sm text-green-600">Presentes</div>
+                    </div>
+                    <div class="bg-red-100 p-3 rounded text-center">
+                        <div class="font-bold text-red-800 text-xl">${stats.absent || 0}</div>
+                        <div class="text-sm text-red-600">Ausentes</div>
+                    </div>
+                    <div class="bg-yellow-100 p-3 rounded text-center">
+                        <div class="font-bold text-yellow-800 text-xl">${stats.justified || 0}</div>
+                        <div class="text-sm text-yellow-600">Justificadas</div>
+                    </div>
+                </div>
+
+                <!-- Lista detallada -->
+                <div class="space-y-2 mb-6">
+                    <h5 class="font-semibold mb-3">Detalle por Estudiante:</h5>
+                    <div class="max-h-48 overflow-y-auto">
+                        ${attendanceEntries.length > 0 ? attendanceEntries.map(record => `
+                            <div class="flex justify-between items-center p-2 bg-gray-50 rounded">
+                                <span class="font-medium">${this._getStudentName(record.studentId)}</span>
+                                <div class="flex items-center">
+                                    <span class="mr-2">${this._getStatusIcon(record.status)}</span>
+                                    <span class="font-medium">${record.status}</span>
+                                    ${record.justification ? `<span class="text-xs text-gray-500 ml-2">(${record.justification})</span>` : ''}
+                                </div>
+                            </div>
+                        `).join('') : `
+                            <div class="text-center py-4 text-gray-500">
+                                <p>No hay registros de asistencia</p>
+                            </div>
+                        `}
+                    </div>
+                </div>
+
+                <!-- Botones de confirmación -->
+                <div class="bg-gradient-to-r from-blue-50 to-green-50 p-4 rounded-lg">
+                    <div class="flex flex-col gap-3">
+                        <div class="text-center">
+                            <h6 class="font-bold text-gray-800 mb-2">⚠️ CONFIRMACIÓN FINAL</h6>
+                            <p class="text-sm text-gray-600 mb-4">
+                                Una vez confirmado, la clase se guardará permanentemente y no podrá ser editada.
+                            </p>
+                        </div>
+                        
+                        <div class="flex gap-3">
+                            <button onclick="AttendanceController.confirmFinalSave(); ModalsController.close('preview-modal');" 
+                                    class="btn btn-success flex-1 font-bold">
+                                ✅ CONFIRMAR Y GUARDAR DEFINITIVAMENTE
+                            </button>
+                            <button onclick="ModalsController.close('preview-modal')" 
+                                    class="btn btn-outline">
+                                ↩️ Volver a Ajustar
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        `;
+    },
+
+    /**
+     * ✨ NUEVO: Confirmación final - Guarda clase + asistencias como transacción
+     */
+    async confirmFinalSave() {
+        debugLog('AttendanceController: Confirmación final - Guardando transacción completa');
+        
+        try {
+            const attendanceData = this._state.attendanceData;
+            const attendanceCount = Object.keys(attendanceData).length;
+            
+            if (attendanceCount === 0) {
+                UIUtils.showWarning('No hay asistencia registrada para guardar');
+                return;
+            }
+            
+            this._setState({ isProcessing: true });
+            
+            ModalsController.showLoading('Guardando clase y asistencias...', 'Procesando transacción completa...');
+            
+            const selectedDate = this._state.draftSession.fecha;
+            const groupCode = this._state.draftSession.groupCode;
+            const selectedAssistant = this._state.selectedAssistant;
+            
+            // ✨ USAR ClassControlService para manejar la transacción completa
+            const result = await ClassControlService.handleClassRealized(
+                selectedDate,
+                groupCode,
+                attendanceData,
+                selectedAssistant?.id || ''
+            );
+            
+            ModalsController.hideLoading();
+            
+            // ✨ LIMPIAR BORRADOR después de éxito
+            this._clearDraftFromLocalStorage();
+            
+            // Mostrar éxito con botón para volver al inicio
+            let message, details;
+            
+            if (result.attendanceResult.method === 'online') {
+                message = 'Clase y asistencias guardadas correctamente';
+                details = [
+                    `Grupo: ${groupCode}`,
+                    `Fecha: ${DateUtils.formatDate(selectedDate)}`,
+                    `Asistente: ${selectedAssistant?.nombre || 'No especificado'}`,
+                    `Registros guardados: ${attendanceCount}`,
+                    `ID de Clase: ${result.classRecord.id}`,
+                    `✅ Guardado en línea exitoso`
+                ];
+                UIUtils.updateConnectionStatus('online');
+            } else {
+                message = 'Clase guardada localmente (sin conexión)';
+                details = [
+                    `Grupo: ${groupCode}`,
+                    `Fecha: ${DateUtils.formatDate(selectedDate)}`,
+                    `Asistente: ${selectedAssistant?.nombre || 'No especificado'}`,
+                    `Registros guardados: ${attendanceCount}`,
+                    `⏳ Se sincronizará automáticamente`
+                ];
+                UIUtils.updateConnectionStatus('offline');
+            }
+            
+            // Modal de éxito con botón para volver al inicio
+            const successData = {
+                title: '🎉 ¡Clase Guardada Definitivamente!',
+                message: message,
+                details: details,
+                actions: [{
+                    label: '🏠 Volver al Inicio',
+                    handler: 'AttendanceController._resetAndGoHome()',
+                    class: 'btn-primary'
+                }]
+            };
+            
+            const successHtml = ModalsView.getSuccessContent(successData);
+            const modal = document.getElementById('notification-modal');
+            const content = document.getElementById('notification-content');
+            
+            if (modal && content) {
+                content.innerHTML = successHtml;
+                modal.classList.remove('hidden');
+            }
+            
+        } catch (error) {
+            ModalsController.hideLoading();
+            console.error('AttendanceController: Error en confirmación final:', error);
+            UIUtils.showError(error.message || 'Error al guardar la clase y asistencias');
+        } finally {
+            this._setState({ isProcessing: false });
+        }
+    },
+
+    /**
+     * ✨ NUEVO: Resetea estado y vuelve al dashboard
+     */
+    _resetAndGoHome() {
+        // Limpiar estado
+        this._setState({
+            attendanceData: {},
+            currentGroup: null,
+            currentStudents: [],
+            selectedAssistant: null,
+            classId: null,
+            draftSession: null,
+            lastClickTimes: {}
+        });
+        
+        // Cerrar modal
+        UIUtils.closeNotification();
+        
+        // Ir al dashboard
+        AppController.showDateSelector();
+    },
+
+    // ===========================================
+    // MÉTODOS PRIVADOS (EXISTENTES)
     // ===========================================
 
     /**
@@ -1046,6 +1356,26 @@ const AttendanceController = {
         }
         
         return student;
+    },
+
+    /**
+     * ✨ HELPER: Obtiene el nombre del estudiante para la vista previa
+     */
+    _getStudentName(studentId) {
+        const student = this._findStudent(studentId);
+        return student?.nombre || `Estudiante ${studentId}`;
+    },
+
+    /**
+     * ✨ HELPER: Obtiene el icono de estado para la vista previa
+     */
+    _getStatusIcon(status) {
+        switch (status) {
+            case 'Presente': return '✅';
+            case 'Ausente': return '❌';
+            case 'Justificada': return '📝';
+            default: return '❓';
+        }
     },
 
     /**
@@ -1152,4 +1482,4 @@ const AttendanceController = {
 // Hacer disponible globalmente
 window.AttendanceController = AttendanceController;
 
-debugLog('AttendanceController - FLUJO CORREGIDO COMPLETO: Clase se crea en paso 4, reposiciones funcionan correctamente');
+debugLog('AttendanceController - SISTEMA DE BORRADORES INTEGRADO: Borrador local + vista previa + confirmación final');
