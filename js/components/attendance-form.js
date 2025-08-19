@@ -39,7 +39,8 @@ const AttendanceFormView = {
             group = {},
             students = [],
             selectedDate = DateUtils.getCurrentDate(),
-            attendanceType = 'regular'
+            attendanceType = 'regular',
+            selectedAssistant = null
         } = data;
 
         const formattedDate = DateUtils.formatDate(selectedDate);
@@ -52,8 +53,8 @@ const AttendanceFormView = {
                 <!-- Header -->
                 ${this.renderHeader('Registro de Asistencia', formattedDate, backAction)}
 
-                <!-- Información del Grupo -->
-                ${this.renderGroupInfo(group, attendanceType === 'reposition' ? 'Reposición Individual' : null, students.length)}
+                <!-- Información del Grupo con Asistente -->
+                ${this.renderGroupInfoWithAssistant(group, selectedAssistant)}
 
                 <!-- Controles de Asistencia Masiva -->
                 ${this.renderMassControls(attendanceType)}
@@ -240,43 +241,6 @@ renderAssistantSelector(data = {}) {
                         ${assistantInfo ? `<div class="mt-2">${assistantInfo}</div>` : ''}
                     </div>
                 </div>
-            </div>
-        `;
-    },
-    
-        /**
-     * Renderiza el formulario de asistencia (ACTUALIZADO)
-     */
-    renderAttendanceForm(data = {}) {
-        const {
-            group = {},
-            students = [],
-            selectedDate = DateUtils.getCurrentDate(),
-            attendanceType = 'regular',
-            selectedAssistant = null
-        } = data;
-    
-        const formattedDate = DateUtils.formatDate(selectedDate);
-        const backAction = attendanceType === 'reposition' 
-            ? 'RepositionController.showSelector()' 
-            : `AttendanceController.showClassStatusQuestion('${group.codigo}')`;
-    
-        return `
-            <div class="container">
-                <!-- Header -->
-                ${this.renderHeader('Registro de Asistencia', formattedDate, backAction)}
-    
-                <!-- Información del Grupo con Asistente -->
-                ${this.renderGroupInfoWithAssistant(group, selectedAssistant)}
-    
-                <!-- Controles de Asistencia Masiva -->
-                ${this.renderMassControls(attendanceType)}
-    
-                <!-- Lista de Estudiantes -->
-                ${this.renderStudentsList(students, attendanceType)}
-    
-                <!-- Acciones Finales -->
-                ${this.renderFinalActions(group.codigo, attendanceType)}
             </div>
         `;
     },
@@ -549,33 +513,38 @@ renderAssistantSelector(data = {}) {
     },
 
     /**
-     * Renderiza las acciones finales
+     * ✨ MODIFICADO: Renderiza acciones finales con vista previa (no guardar directo)
      */
     renderFinalActions(groupCode, attendanceType) {
-        const saveAction = attendanceType === 'reposition' 
+        const previewAction = attendanceType === 'reposition' 
             ? 'RepositionController.saveAttendance()' 
-            : `AttendanceController.saveAttendanceData('${groupCode}')`;
+            : `AttendanceController.saveAttendanceData('${groupCode}')`; // Ahora lleva a vista previa
 
         return `
             <div class="bg-white rounded-lg p-6 shadow-sm">
                 <div class="flex flex-col md:flex-row gap-4">
+                    <!-- Botón principal: Vista Previa (antes era Guardar) -->
                     <button 
-                        onclick="${saveAction}" 
+                        onclick="${previewAction}" 
                         class="btn btn-primary flex-1 btn-lg"
                         id="save-attendance-btn"
                     >
-                        💾 Guardar Asistencia
+                        👁️ Vista Previa y Confirmar
                     </button>
-                    <button onclick="AttendanceController.previewAttendance('${groupCode}')" class="btn btn-secondary">
-                        👁️ Vista Previa
+                    
+                    <!-- Botones secundarios -->
+                    <button onclick="AttendanceController.showAttendanceStats()" class="btn btn-secondary">
+                        📊 Ver Estadísticas
                     </button>
                     <button onclick="AttendanceController.exportAttendance('${groupCode}')" class="btn btn-outline">
                         📄 Exportar
                     </button>
                 </div>
                 
+                <!-- Información actualizada -->
                 <div class="mt-4 text-sm text-gray-500 text-center">
-                    <p>💡 Los datos se guardan automáticamente en modo offline si no hay conexión</p>
+                    <p>💾 Los datos se guardan automáticamente como borrador</p>
+                    <p>🔍 Usa "Vista Previa" para confirmar y guardar definitivamente</p>
                 </div>
             </div>
         `;
