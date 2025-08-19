@@ -644,10 +644,10 @@ const AttendanceController = {
     },
 
     /**
-     * ✨ MODIFICADO: Ahora muestra vista previa en lugar de guardar directamente
+     * ✅ CORREGIDO: Muestra vista previa antes de confirmación final
      */
     async saveAttendanceData(groupCode) {
-        debugLog('AttendanceController: Mostrando vista previa en lugar de guardar directamente');
+        debugLog('AttendanceController: Preparando vista previa');
         
         try {
             const attendanceData = this._state.attendanceData;
@@ -658,16 +658,440 @@ const AttendanceController = {
                 return;
             }
             
-            // ✨ GUARDAR BORRADOR ACTUALIZADO
+            // Guardar borrador actualizado en localStorage
             this._saveDraftToLocalStorage();
             
-            // ✨ MOSTRAR VISTA PREVIA EN LUGAR DE GUARDAR
+            // Mostrar vista previa
             this.showFinalPreview();
             
         } catch (error) {
             console.error('AttendanceController: Error al preparar vista previa:', error);
             UIUtils.showError('Error al preparar vista previa');
         }
+    },
+
+    /**
+     * ✅ CORREGIDO: Vista previa final con contenido y botones correctos
+     */
+    showFinalPreview() {
+        debugLog('AttendanceController: Mostrando vista previa final');
+        
+        try {
+            const attendanceData = this._state.attendanceData;
+            const count = Object.keys(attendanceData).length;
+            
+            if (count === 0) {
+                UIUtils.showWarning('No hay asistencia registrada para mostrar');
+                return;
+            }
+            
+            const stats = AttendanceService.calculateAttendanceStats(Object.values(attendanceData));
+            const selectedAssistant = this._state.selectedAssistant;
+            const draftSession = this._state.draftSession;
+            
+            // Datos para la vista previa
+            const previewData = {
+                groupCode: draftSession?.groupCode || this._state.currentGroup?.codigo || 'Desconocido',
+                selectedDate: draftSession?.fecha || window.AppState.selectedDate || DateUtils.getCurrentDate(),
+                attendance: attendanceData,
+                stats,
+                attendanceType: this._state.attendanceType,
+                selectedAssistant,
+                draftSession: draftSession
+            };
+            
+            // Generar contenido HTML de la vista previa
+            const previewContent = this._generateFinalPreviewContent(previewData);
+            
+            // Mostrar en modal
+            this._showPreviewModal(previewContent);
+            
+        } catch (error) {
+            console.error('AttendanceController: Error en vista previa final:', error);
+            UIUtils.showError('Error al generar vista previa');
+        }
+    },
+
+    /**
+     * ✅ NUEVO: Método dedicado para mostrar el modal de vista previa
+     */
+    _showPreviewModal(content) {
+        // Crear modal si no existe
+        let modal = document.getElementById('preview-modal');
+        if (!modal) {
+            const modalHTML = `
+                <div id="preview-modal" class="fixed inset-0 bg-black bg-opacity-50 hidden z-50">
+                    <div class="flex items-center justify-center min-h-screen p-4">
+                        <div class="bg-white rounded-lg max-w-4xl w-full max-h-90vh overflow-hidden shadow-xl">
+                            <div class="flex justify-between items-center p-6 border-b border-gray-200 bg-blue-50">
+                                <div>
+                                    <h3 class="text-lg font-semibold text-blue-900">🔍 Vista Previa Final</h3>
+                                    <p class="text-sm text-blue-700 mt-1">Revisa los datos antes de confirmar</p>
+                                </div>
+                                <button onclick="AttendanceController._closePreviewModal()" 
+                                        class="text-gray-400 hover:text-gray-600 transition-colors">
+                                    <span class="text-2xl">✕</span>
+                                </button>
+                            </div>
+                            
+                            <div class="p-6 overflow-y-auto max-h-96" id="preview-content">
+                                <!-- Contenido dinámico -->
+                            </div>
+                            
+                            <div class="p-4 border-t border-gray-200 bg-gray-50 text-center">
+                                <p class="text-xs text-gray-600">
+                                    💡 Una vez confirmado, los datos se guardarán permanentemente
+                                </p>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            `;
+            
+            document.body.insertAdjacentHTML('beforeend', modalHTML);
+            modal = document.getElementById('preview-modal');
+        }
+        
+        // Actualizar contenido
+        const contentDiv = document.getElementById('preview-content');
+        if (contentDiv) {
+            contentDiv.innerHTML = content;
+        }
+        
+        // Mostrar modal
+        modal.classList.remove('hidden');
+        document.body.style.overflow = 'hidden';
+        
+        debugLog('AttendanceController: Modal de vista previa mostrado');
+    },
+
+    /**
+     * ✅ NUEVO: Cierra el modal de vista previa
+     */
+    _closePreviewModal() {
+        const modal = document.getElementById('preview-modal');
+        if (modal) {
+            modal.classList.add('hidden');
+            document.body.style.overflow = '';
+        }
+    },
+
+    /**
+     * ✅ CORREGIDO: Contenido mejorado de vista previa con botones funcionales
+     */
+    _generateFinalPreviewContent(data) {
+        const {
+            groupCode,
+            selectedDate,
+            attendance,
+            stats,
+            selectedAssistant,
+            draftSession
+        } = data;
+
+        const formattedDate = DateUtils.formatDate(selectedDate);
+        const attendanceEntries = Object.values(attendance);
+
+        return `
+            <div>
+                <!-- Información del borrador -->
+                <div class="mb-6">
+                    <h4 class="font-bold text-lg mb-2 text-blue-900">🔍 Confirmar Guardado Final</h4>
+                    
+                    <div class="bg-blue-50 p-4 rounded-lg mb-4">
+                        <h5 class="font-semibold text-blue-800 mb-2">📝 Resumen de la Clase:</h5>
+                        <div class="grid grid-cols-2 gap-4 text-sm">
+                            <div><strong>Grupo:</strong> ${groupCode}</div>
+                            <div><strong>Fecha:</strong> ${formattedDate}</div>
+                            <div><strong>Total registros:</strong> ${attendanceEntries.length}</div>
+                            <div><strong>Borrador ID:</strong> ${draftSession?.id || 'N/A'}</div>
+                        </div>
+                    </div>
+                    
+                    ${selectedAssistant ? `
+                        <div class="p-3 bg-green-50 rounded-lg mb-4">
+                            <div class="flex items-center text-green-800">
+                                <span class="text-xl mr-2">👨‍🏫</span>
+                                <div>
+                                    <strong>Asistente responsable:</strong> ${selectedAssistant.nombre}
+                                    <div class="text-sm text-green-600">ID: ${selectedAssistant.id}</div>
+                                </div>
+                            </div>
+                        </div>
+                    ` : `
+                        <div class="p-3 bg-gray-50 rounded-lg mb-4">
+                            <div class="flex items-center text-gray-600">
+                                <span class="text-xl mr-2">👤</span>
+                                <span><strong>Asistente:</strong> No especificado</span>
+                            </div>
+                        </div>
+                    `}
+                </div>
+
+                <!-- Estadísticas visuales -->
+                <div class="grid grid-cols-3 gap-4 mb-6">
+                    <div class="bg-green-100 p-4 rounded text-center">
+                        <div class="font-bold text-green-800 text-2xl">${stats.present || 0}</div>
+                        <div class="text-sm text-green-600">Presentes</div>
+                    </div>
+                    <div class="bg-red-100 p-4 rounded text-center">
+                        <div class="font-bold text-red-800 text-2xl">${stats.absent || 0}</div>
+                        <div class="text-sm text-red-600">Ausentes</div>
+                    </div>
+                    <div class="bg-yellow-100 p-4 rounded text-center">
+                        <div class="font-bold text-yellow-800 text-2xl">${stats.justified || 0}</div>
+                        <div class="text-sm text-yellow-600">Justificadas</div>
+                    </div>
+                </div>
+
+                <!-- Lista detallada (scrolleable) -->
+                <div class="space-y-2 mb-6">
+                    <h5 class="font-semibold mb-3">Detalle por Estudiante:</h5>
+                    <div class="max-h-48 overflow-y-auto border border-gray-200 rounded">
+                        ${attendanceEntries.length > 0 ? attendanceEntries.map(record => `
+                            <div class="flex justify-between items-center p-3 border-b border-gray-100 hover:bg-gray-50">
+                                <span class="font-medium">${this._getStudentName(record.studentId)}</span>
+                                <div class="flex items-center">
+                                    <span class="mr-2">${this._getStatusIcon(record.status)}</span>
+                                    <span class="font-medium text-sm px-2 py-1 rounded ${this._getStatusBadgeClass(record.status)}">${record.status}</span>
+                                    ${record.justification ? `<span class="text-xs text-gray-500 ml-2">(${record.justification})</span>` : ''}
+                                </div>
+                            </div>
+                        `).join('') : `
+                            <div class="text-center py-4 text-gray-500">
+                                <p>No hay registros de asistencia</p>
+                            </div>
+                        `}
+                    </div>
+                </div>
+
+                <!-- Información adicional -->
+                <div class="mb-6 pt-4 border-t border-gray-200">
+                    <div class="grid grid-cols-1 md:grid-cols-2 gap-4 text-sm text-gray-600">
+                        <div>
+                            <strong>Porcentaje de asistencia:</strong> 
+                            ${attendanceEntries.length > 0 ? Math.round(((stats.present || 0) / attendanceEntries.length) * 100) : 0}%
+                        </div>
+                        <div>
+                            <strong>Registros procesados:</strong> 
+                            ${attendanceEntries.length}
+                        </div>
+                    </div>
+                </div>
+
+                <!-- BOTONES DE CONFIRMACIÓN -->
+                <div class="bg-gradient-to-r from-blue-50 to-green-50 p-6 rounded-lg">
+                    <div class="text-center mb-4">
+                        <h6 class="font-bold text-gray-800 mb-2">⚠️ CONFIRMACIÓN FINAL</h6>
+                        <p class="text-sm text-gray-600">
+                            Una vez confirmado, la clase se guardará permanentemente en el sistema.
+                        </p>
+                    </div>
+                    
+                    <div class="flex flex-col sm:flex-row gap-4">
+                        <button onclick="AttendanceController.confirmFinalSave()" 
+                                class="btn btn-primary flex-1 font-bold text-lg py-3">
+                            ✅ CONFIRMAR Y GUARDAR DEFINITIVAMENTE
+                        </button>
+                        <button onclick="AttendanceController._closePreviewModal()" 
+                                class="btn btn-outline py-3">
+                            ↩️ Volver a Ajustar
+                        </button>
+                    </div>
+                </div>
+            </div>
+        `;
+    },
+
+    /**
+     * ✅ NUEVO: Obtiene clase CSS para badges de estado
+     */
+    _getStatusBadgeClass(status) {
+        switch (status) {
+            case 'Presente': return 'bg-green-100 text-green-800';
+            case 'Ausente': return 'bg-red-100 text-red-800';
+            case 'Justificada': return 'bg-yellow-100 text-yellow-800';
+            default: return 'bg-gray-100 text-gray-800';
+        }
+    },
+
+    /**
+     * ✅ CORREGIDO: Confirmación final que realmente guarda
+     */
+    async confirmFinalSave() {
+        debugLog('AttendanceController: CONFIRMACIÓN FINAL - Guardando clase completa');
+        
+        try {
+            // Cerrar modal de vista previa primero
+            this._closePreviewModal();
+            
+            const attendanceData = this._state.attendanceData;
+            const attendanceCount = Object.keys(attendanceData).length;
+            
+            if (attendanceCount === 0) {
+                UIUtils.showWarning('No hay asistencia registrada para guardar');
+                return;
+            }
+            
+            this._setState({ isProcessing: true });
+            
+            // Mostrar modal de carga
+            this._showLoadingModal('Guardando clase y asistencias...', 'Procesando transacción completa...');
+            
+            const selectedDate = this._state.draftSession?.fecha || window.AppState.selectedDate || DateUtils.getCurrentDate();
+            const groupCode = this._state.draftSession?.groupCode || this._state.currentGroup?.codigo;
+            const selectedAssistant = this._state.selectedAssistant;
+            
+            if (!groupCode) {
+                throw new Error('Código de grupo no disponible');
+            }
+            
+            // Usar ClassControlService para manejar la transacción completa
+            const result = await ClassControlService.handleClassRealized(
+                selectedDate,
+                groupCode,
+                attendanceData,
+                selectedAssistant?.id || ''
+            );
+            
+            this._hideLoadingModal();
+            
+            // Limpiar borrador después de éxito
+            this._clearDraftFromLocalStorage();
+            
+            // Mostrar éxito con opción de volver al inicio
+            this._showSuccessModal(result, groupCode, selectedDate, attendanceCount, selectedAssistant);
+            
+        } catch (error) {
+            this._hideLoadingModal();
+            console.error('AttendanceController: Error en confirmación final:', error);
+            UIUtils.showError(error.message || 'Error al guardar la clase y asistencias');
+        } finally {
+            this._setState({ isProcessing: false });
+        }
+    },
+
+    /**
+     * ✅ NUEVO: Modal de loading para guardado
+     */
+    _showLoadingModal(title, message) {
+        const modalHTML = `
+            <div id="saving-modal" class="fixed inset-0 bg-black bg-opacity-50 z-50">
+                <div class="flex items-center justify-center min-h-screen p-4">
+                    <div class="bg-white rounded-lg p-8 text-center shadow-xl">
+                        <div class="spinner spinner-xl mx-auto mb-4"></div>
+                        <h3 class="text-lg font-semibold mb-2">${title}</h3>
+                        <p class="text-gray-600">${message}</p>
+                    </div>
+                </div>
+            </div>
+        `;
+        
+        document.body.insertAdjacentHTML('beforeend', modalHTML);
+    },
+
+    /**
+     * ✅ NUEVO: Oculta modal de loading
+     */
+    _hideLoadingModal() {
+        const modal = document.getElementById('saving-modal');
+        if (modal) {
+            modal.remove();
+        }
+    },
+
+    /**
+     * ✅ NUEVO: Modal de éxito completo
+     */
+    _showSuccessModal(result, groupCode, selectedDate, attendanceCount, selectedAssistant) {
+        let message, details;
+        
+        if (result.attendanceResult.method === 'online') {
+            message = '🎉 ¡Clase guardada exitosamente!';
+            details = [
+                `✅ Guardado en línea exitoso`,
+                `📅 Grupo: ${groupCode}`,
+                `📆 Fecha: ${DateUtils.formatDate(selectedDate)}`,
+                `👨‍🏫 Asistente: ${selectedAssistant?.nombre || 'No especificado'}`,
+                `📝 Registros: ${attendanceCount}`,
+                `🆔 ID de Clase: ${result.classRecord.id}`
+            ];
+            UIUtils.updateConnectionStatus('online');
+        } else {
+            message = '💾 Clase guardada localmente';
+            details = [
+                `⏳ Se sincronizará automáticamente`,
+                `📅 Grupo: ${groupCode}`,
+                `📆 Fecha: ${DateUtils.formatDate(selectedDate)}`,
+                `👨‍🏫 Asistente: ${selectedAssistant?.nombre || 'No especificado'}`,
+                `📝 Registros: ${attendanceCount}`
+            ];
+            UIUtils.updateConnectionStatus('offline');
+        }
+
+        const successHTML = `
+            <div id="success-modal" class="fixed inset-0 bg-black bg-opacity-50 z-50">
+                <div class="flex items-center justify-center min-h-screen p-4">
+                    <div class="bg-white rounded-lg p-8 max-w-md w-full text-center shadow-xl">
+                        <div class="text-6xl mb-4">🎉</div>
+                        <h3 class="text-xl font-bold text-green-900 mb-4">${message}</h3>
+                        
+                        <div class="bg-green-50 p-4 rounded mb-6 text-left">
+                            <h5 class="font-medium text-green-800 mb-2">Detalles:</h5>
+                            <ul class="text-sm text-green-700 space-y-1">
+                                ${details.map(detail => `<li>• ${detail}</li>`).join('')}
+                            </ul>
+                        </div>
+                        
+                        <div class="space-y-3">
+                            <button onclick="AttendanceController._resetAndGoHome()" 
+                                    class="btn btn-primary w-full">
+                                🏠 Volver al Inicio
+                            </button>
+                            <button onclick="AttendanceController._closeSuccessModal()" 
+                                    class="btn btn-outline w-full">
+                                ❌ Cerrar
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        `;
+        
+        document.body.insertAdjacentHTML('beforeend', successHTML);
+    },
+
+    /**
+     * ✅ NUEVO: Cierra modal de éxito
+     */
+    _closeSuccessModal() {
+        const modal = document.getElementById('success-modal');
+        if (modal) {
+            modal.remove();
+        }
+    },
+
+    /**
+     * ✅ CORREGIDO: Resetea y vuelve al inicio
+     */
+    _resetAndGoHome() {
+        // Cerrar modales
+        this._closeSuccessModal();
+        this._closePreviewModal();
+        
+        // Limpiar estado
+        this._setState({
+            attendanceData: {},
+            currentGroup: null,
+            currentStudents: [],
+            selectedAssistant: null,
+            classId: null,
+            draftSession: null,
+            lastClickTimes: {}
+        });
+        
+        // Ir al selector de fecha (inicio)
+        AppController.showDateSelector();
     },
 
     /**
@@ -1010,274 +1434,6 @@ const AttendanceController = {
                 btn.classList.remove('opacity-50', 'cursor-not-allowed');
             });
         }, duration);
-    },
-
-    /**
-     * ✨ NUEVO: Muestra vista previa antes de confirmación final
-     */
-    showFinalPreview() {
-        debugLog('AttendanceController: Mostrando vista previa final');
-        
-        try {
-            const attendanceData = this._state.attendanceData;
-            const count = Object.keys(attendanceData).length;
-            
-            if (count === 0) {
-                UIUtils.showWarning('No hay asistencia registrada para guardar');
-                return;
-            }
-            
-            const stats = AttendanceService.calculateAttendanceStats(Object.values(attendanceData));
-            const selectedAssistant = this._state.selectedAssistant;
-            const draftSession = this._state.draftSession;
-            
-            const previewData = {
-                groupCode: draftSession.groupCode,
-                selectedDate: draftSession.fecha,
-                attendance: attendanceData,
-                stats,
-                attendanceType: this._state.attendanceType,
-                selectedAssistant,
-                draftSession: draftSession
-            };
-            
-            // Usar modal personalizado para vista previa final
-            const previewContent = this._generateFinalPreviewContent(previewData);
-            ModalsController.showPreview(previewContent);
-            
-        } catch (error) {
-            console.error('AttendanceController: Error en vista previa final:', error);
-            UIUtils.showError('Error al generar vista previa');
-        }
-    },
-
-    /**
-     * ✨ NUEVO: Genera contenido de vista previa final
-     */
-    _generateFinalPreviewContent(data) {
-        const {
-            groupCode,
-            selectedDate,
-            attendance,
-            stats,
-            selectedAssistant,
-            draftSession
-        } = data;
-
-        const formattedDate = DateUtils.formatDate(selectedDate);
-        const attendanceEntries = Object.values(attendance);
-
-        return `
-            <div>
-                <div class="mb-6">
-                    <h4 class="font-bold text-lg mb-2 text-blue-900">🔍 Vista Previa Final - Confirmar Antes de Guardar</h4>
-                    
-                    <!-- Info del borrador -->
-                    <div class="bg-blue-50 p-4 rounded-lg mb-4">
-                        <h5 class="font-semibold text-blue-800 mb-2">📝 Información del Borrador:</h5>
-                        <div class="grid grid-cols-2 gap-4 text-sm">
-                            <div><strong>Grupo:</strong> ${groupCode}</div>
-                            <div><strong>Fecha:</strong> ${formattedDate}</div>
-                            <div><strong>Total registros:</strong> ${attendanceEntries.length}</div>
-                            <div><strong>Borrador ID:</strong> ${draftSession.id}</div>
-                        </div>
-                    </div>
-                    
-                    ${selectedAssistant ? `
-                        <div class="p-3 bg-green-50 rounded-lg mb-4">
-                            <div class="flex items-center text-green-800">
-                                <span class="text-xl mr-2">👨‍🏫</span>
-                                <div>
-                                    <strong>Asistente:</strong> ${selectedAssistant.nombre}
-                                    <div class="text-sm text-green-600">ID: ${selectedAssistant.id}</div>
-                                </div>
-                            </div>
-                        </div>
-                    ` : `
-                        <div class="p-3 bg-gray-50 rounded-lg mb-4">
-                            <div class="flex items-center text-gray-600">
-                                <span class="text-xl mr-2">👤</span>
-                                <span><strong>Asistente:</strong> No especificado</span>
-                            </div>
-                        </div>
-                    `}
-                </div>
-
-                <!-- Estadísticas -->
-                <div class="grid grid-cols-3 gap-4 mb-6">
-                    <div class="bg-green-100 p-3 rounded text-center">
-                        <div class="font-bold text-green-800 text-xl">${stats.present || 0}</div>
-                        <div class="text-sm text-green-600">Presentes</div>
-                    </div>
-                    <div class="bg-red-100 p-3 rounded text-center">
-                        <div class="font-bold text-red-800 text-xl">${stats.absent || 0}</div>
-                        <div class="text-sm text-red-600">Ausentes</div>
-                    </div>
-                    <div class="bg-yellow-100 p-3 rounded text-center">
-                        <div class="font-bold text-yellow-800 text-xl">${stats.justified || 0}</div>
-                        <div class="text-sm text-yellow-600">Justificadas</div>
-                    </div>
-                </div>
-
-                <!-- Lista detallada -->
-                <div class="space-y-2 mb-6">
-                    <h5 class="font-semibold mb-3">Detalle por Estudiante:</h5>
-                    <div class="max-h-48 overflow-y-auto">
-                        ${attendanceEntries.length > 0 ? attendanceEntries.map(record => `
-                            <div class="flex justify-between items-center p-2 bg-gray-50 rounded">
-                                <span class="font-medium">${this._getStudentName(record.studentId)}</span>
-                                <div class="flex items-center">
-                                    <span class="mr-2">${this._getStatusIcon(record.status)}</span>
-                                    <span class="font-medium">${record.status}</span>
-                                    ${record.justification ? `<span class="text-xs text-gray-500 ml-2">(${record.justification})</span>` : ''}
-                                </div>
-                            </div>
-                        `).join('') : `
-                            <div class="text-center py-4 text-gray-500">
-                                <p>No hay registros de asistencia</p>
-                            </div>
-                        `}
-                    </div>
-                </div>
-
-                <!-- Botones de confirmación -->
-                <div class="bg-gradient-to-r from-blue-50 to-green-50 p-4 rounded-lg">
-                    <div class="flex flex-col gap-3">
-                        <div class="text-center">
-                            <h6 class="font-bold text-gray-800 mb-2">⚠️ CONFIRMACIÓN FINAL</h6>
-                            <p class="text-sm text-gray-600 mb-4">
-                                Una vez confirmado, la clase se guardará permanentemente y no podrá ser editada.
-                            </p>
-                        </div>
-                        
-                        <div class="flex gap-3">
-                            <button onclick="AttendanceController.confirmFinalSave(); ModalsController.close('preview-modal');" 
-                                    class="btn btn-success flex-1 font-bold">
-                                ✅ CONFIRMAR Y GUARDAR DEFINITIVAMENTE
-                            </button>
-                            <button onclick="ModalsController.close('preview-modal')" 
-                                    class="btn btn-outline">
-                                ↩️ Volver a Ajustar
-                            </button>
-                        </div>
-                    </div>
-                </div>
-            </div>
-        `;
-    },
-
-    /**
-     * ✨ NUEVO: Confirmación final - Guarda clase + asistencias como transacción
-     */
-    async confirmFinalSave() {
-        debugLog('AttendanceController: Confirmación final - Guardando transacción completa');
-        
-        try {
-            const attendanceData = this._state.attendanceData;
-            const attendanceCount = Object.keys(attendanceData).length;
-            
-            if (attendanceCount === 0) {
-                UIUtils.showWarning('No hay asistencia registrada para guardar');
-                return;
-            }
-            
-            this._setState({ isProcessing: true });
-            
-            ModalsController.showLoading('Guardando clase y asistencias...', 'Procesando transacción completa...');
-            
-            const selectedDate = this._state.draftSession.fecha;
-            const groupCode = this._state.draftSession.groupCode;
-            const selectedAssistant = this._state.selectedAssistant;
-            
-            // ✨ USAR ClassControlService para manejar la transacción completa
-            const result = await ClassControlService.handleClassRealized(
-                selectedDate,
-                groupCode,
-                attendanceData,
-                selectedAssistant?.id || ''
-            );
-            
-            ModalsController.hideLoading();
-            
-            // ✨ LIMPIAR BORRADOR después de éxito
-            this._clearDraftFromLocalStorage();
-            
-            // Mostrar éxito con botón para volver al inicio
-            let message, details;
-            
-            if (result.attendanceResult.method === 'online') {
-                message = 'Clase y asistencias guardadas correctamente';
-                details = [
-                    `Grupo: ${groupCode}`,
-                    `Fecha: ${DateUtils.formatDate(selectedDate)}`,
-                    `Asistente: ${selectedAssistant?.nombre || 'No especificado'}`,
-                    `Registros guardados: ${attendanceCount}`,
-                    `ID de Clase: ${result.classRecord.id}`,
-                    `✅ Guardado en línea exitoso`
-                ];
-                UIUtils.updateConnectionStatus('online');
-            } else {
-                message = 'Clase guardada localmente (sin conexión)';
-                details = [
-                    `Grupo: ${groupCode}`,
-                    `Fecha: ${DateUtils.formatDate(selectedDate)}`,
-                    `Asistente: ${selectedAssistant?.nombre || 'No especificado'}`,
-                    `Registros guardados: ${attendanceCount}`,
-                    `⏳ Se sincronizará automáticamente`
-                ];
-                UIUtils.updateConnectionStatus('offline');
-            }
-            
-            // Modal de éxito con botón para volver al inicio
-            const successData = {
-                title: '🎉 ¡Clase Guardada Definitivamente!',
-                message: message,
-                details: details,
-                actions: [{
-                    label: '🏠 Volver al Inicio',
-                    handler: 'AttendanceController._resetAndGoHome()',
-                    class: 'btn-primary'
-                }]
-            };
-            
-            const successHtml = ModalsView.getSuccessContent(successData);
-            const modal = document.getElementById('notification-modal');
-            const content = document.getElementById('notification-content');
-            
-            if (modal && content) {
-                content.innerHTML = successHtml;
-                modal.classList.remove('hidden');
-            }
-            
-        } catch (error) {
-            ModalsController.hideLoading();
-            console.error('AttendanceController: Error en confirmación final:', error);
-            UIUtils.showError(error.message || 'Error al guardar la clase y asistencias');
-        } finally {
-            this._setState({ isProcessing: false });
-        }
-    },
-
-    /**
-     * ✨ NUEVO: Resetea estado y vuelve al dashboard
-     */
-    _resetAndGoHome() {
-        // Limpiar estado
-        this._setState({
-            attendanceData: {},
-            currentGroup: null,
-            currentStudents: [],
-            selectedAssistant: null,
-            classId: null,
-            draftSession: null,
-            lastClickTimes: {}
-        });
-        
-        // Cerrar modal
-        UIUtils.closeNotification();
-        
-        // Ir al dashboard
-        AppController.showDateSelector();
     },
 
     // ===========================================
