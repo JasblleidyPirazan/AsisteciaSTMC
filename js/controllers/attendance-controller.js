@@ -1,18 +1,18 @@
 /**
- * CONTROLADOR DE ASISTENCIA - FLUJO CORREGIDO COMPLETO CON SISTEMA DE BORRADORES
- * ============================================================================
- * FLUJO ACTUALIZADO:
+ * CONTROLADOR DE ASISTENCIA - VERSIÓN CORREGIDA COMPLETA
+ * ====================================================
+ * FLUJO CORREGIDO:
  * 1. Seleccionar grupo ✅ 
  * 2. "¿Se realizó la clase?" ✅ 
- * 3. "Sí, se realizó" ✅ 
- * 4. Seleccionar asistente → 🎉 BORRADOR CREADO AQUÍ (LocalStorage)
+ * 3. "Sí, se realizó" → VALIDACIONES PRIMERO ✅
+ * 4. Seleccionar asistente → BORRADOR CREADO AQUÍ ✅
  * 5. Formulario de asistencia (borrador ya disponible) ✅ 
- * 6. Botón "Reposición Individual" → 🎉 FUNCIONA 
+ * 6. Botón "Reposición Individual" → FUNCIONA ✅
  * 7. Guardar asistencia → Vista previa + confirmación final ✅
  */
 
 const AttendanceController = {
-    // Estado interno del controlador - MODIFICADO con borrador
+    // Estado interno del controlador
     _state: {
         currentGroup: null,
         currentStudents: [],
@@ -23,7 +23,7 @@ const AttendanceController = {
         isProcessing: false,
         classId: null,
         
-        // 🆕 NUEVO: Estado de borrador
+        // Sistema de borrador
         draftSession: null,
         lastClickTimes: {} // Para prevenir doble clic
     },
@@ -49,7 +49,7 @@ const AttendanceController = {
     },
 
     /**
-     * ✨ CORREGIDO: Selecciona un grupo y va DIRECTO a pregunta de estado
+     * ✅ CORREGIDO: Selecciona un grupo y va DIRECTO a pregunta de estado
      */
     async selectGroup(groupCode) {
         debugLog(`AttendanceController: Seleccionando grupo ${groupCode}`);
@@ -66,7 +66,7 @@ const AttendanceController = {
                 await this.initialize();
             }
             
-            // ✨ FIX: Ir DIRECTO a pregunta de estado (eliminar primer selector de asistente)
+            // Ir DIRECTO a pregunta de estado (eliminar primer selector de asistente)
             await this.showClassStatusQuestion(groupCode);
             
         } catch (error) {
@@ -147,7 +147,7 @@ const AttendanceController = {
     },
 
     /**
-     * ✨ CORREGIDO: Muestra la pregunta inicial sobre el estado de la clase (SIN asistente)
+     * ✅ CORREGIDO: Muestra la pregunta inicial sobre el estado de la clase (SIN asistente)
      */
     async showClassStatusQuestion(groupCode) {
         debugLog(`AttendanceController: Mostrando pregunta de estado para ${groupCode}`);
@@ -156,7 +156,7 @@ const AttendanceController = {
             const group = this._state.currentGroup || await GroupService.getGroupByCode(groupCode);
             const selectedDate = window.AppState.selectedDate || DateUtils.getCurrentDate();
             
-            // ✨ FIX: NO pasar selectedAssistant porque aún no se ha seleccionado
+            // NO pasar selectedAssistant porque aún no se ha seleccionado
             const html = AttendanceFormView.renderClassStatusQuestion({
                 group,
                 selectedDate,
@@ -172,63 +172,97 @@ const AttendanceController = {
     },
 
     /**
-     * ✨ CORREGIDO: La clase se realizó - AHORA pregunta por asistente por primera vez
+     * ✅ CORREGIDO: La clase se realizó - FLUJO CORREGIDO CON VALIDACIONES PRIMERO
      */
     async classWasHeld(groupCode) {
-        debugLog(`AttendanceController: Clase realizada para grupo ${groupCode} - NUEVO FLUJO CORREGIDO`);
+        debugLog(`AttendanceController: Clase realizada para grupo ${groupCode} - VERSIÓN CORREGIDA`);
         
         try {
             this._setState({ isProcessing: true, attendanceType: 'regular' });
             
-            UIUtils.showLoading('app', 'Cargando estudiantes...');
+            UIUtils.showLoading('app', 'Validando clase...');
             
             const selectedDate = window.AppState.selectedDate || DateUtils.getCurrentDate();
             
-            // 1. Validar que se pueda reportar la clase
-            const validation = await ClassControlService.validateClassReport(selectedDate, groupCode);
-            
-            if (!validation.valid) {
-                // Si ya existe, mostrar información
-                if (validation.existingClass) {
-                    const existingClass = validation.existingClass;
-                    const message = `Esta clase ya fue reportada como "${existingClass.estado}" el ${DateUtils.formatDate(existingClass.fecha)}`;
-                    
-                    ModalsController.showConfirmation({
-                        title: 'Clase Ya Reportada',
-                        message: message,
-                        icon: 'ℹ️',
-                        type: 'info'
-                    }, () => {
-                        AppController.showDashboard();
-                    });
-                    return;
+            // 1. PRIMERO: Validar grupo existe (sin cargar estudiantes aún)
+            let group;
+            try {
+                group = await GroupService.getGroupByCode(groupCode);
+                if (!group) {
+                    throw new Error(`Grupo ${groupCode} no encontrado`);
                 }
-                
-                throw new Error(validation.error);
-            }
-            
-            // 2. Obtener grupo y estudiantes PRIMERO
-            const group = await GroupService.getGroupByCode(groupCode);
-            const students = await StudentService.getStudentsByGroup(groupCode);
-            
-            if (students.length === 0) {
-                UIUtils.showWarning('No hay estudiantes registrados en este grupo');
+            } catch (groupError) {
+                console.error('Error validando grupo:', groupError);
+                UIUtils.showError(`No se pudo encontrar el grupo ${groupCode}: ${groupError.message}`);
                 await this.showClassStatusQuestion(groupCode);
                 return;
             }
             
-            // 3. Actualizar estado
+            // 2. SEGUNDO: Validar que se pueda reportar la clase
+            try {
+                const validation = await ClassControlService.validateClassReport(selectedDate, groupCode);
+                
+                if (!validation.valid) {
+                    // Si ya existe, mostrar información específica
+                    if (validation.existingClass) {
+                        const existingClass = validation.existingClass;
+                        const message = `Esta clase ya fue reportada como "${existingClass.estado}" el ${DateUtils.formatDate(existingClass.fecha)}`;
+                        
+                        ModalsController.showConfirmation({
+                            title: 'Clase Ya Reportada',
+                            message: message,
+                            icon: 'ℹ️',
+                            type: 'info'
+                        }, () => {
+                            AppController.showDashboard();
+                        });
+                        return;
+                    }
+                    
+                    throw new Error(validation.error);
+                }
+            } catch (validationError) {
+                console.error('Error en validación de clase:', validationError);
+                UIUtils.showError(`Error de validación: ${validationError.message}`);
+                await this.showClassStatusQuestion(groupCode);
+                return;
+            }
+            
+            // 3. TERCERO: Solo ahora cargar estudiantes (después de todas las validaciones)
+            UIUtils.showLoading('app', 'Cargando estudiantes...');
+            
+            let students = [];
+            try {
+                students = await StudentService.getStudentsByGroup(groupCode);
+                
+                // Validar que hay estudiantes
+                if (!students || students.length === 0) {
+                    UIUtils.showWarning('No hay estudiantes registrados en este grupo');
+                    await this.showClassStatusQuestion(groupCode);
+                    return;
+                }
+                
+                debugLog(`AttendanceController: ${students.length} estudiantes cargados para ${groupCode}`);
+                
+            } catch (studentsError) {
+                console.error('Error cargando estudiantes:', studentsError);
+                UIUtils.showError(`Error al cargar estudiantes: ${studentsError.message}`);
+                await this.showClassStatusQuestion(groupCode);
+                return;
+            }
+            
+            // 4. CUARTO: Actualizar estado con datos validados
             this._setState({
                 currentGroup: group,
                 currentStudents: students,
                 attendanceData: {}
             });
             
-            // ✨ FIX: AHORA SÍ preguntar por asistente (primera y única vez)
+            // 5. QUINTO: Continuar con selector de asistente
             await this.showAssistantSelectorForAttendance(groupCode);
             
         } catch (error) {
-            console.error('AttendanceController: Error al procesar clase realizada:', error);
+            console.error('AttendanceController: Error general en clase realizada:', error);
             UIUtils.showError(error.message || 'Error al procesar la clase');
             await this.showClassStatusQuestion(groupCode);
         } finally {
@@ -237,7 +271,7 @@ const AttendanceController = {
     },
 
     /**
-     * ✨ NUEVO: Selector de asistente PARA ASISTENCIA (única vez en el flujo)
+     * ✅ NUEVO: Selector de asistente PARA ASISTENCIA (única vez en el flujo)
      */
     async showAssistantSelectorForAttendance(groupCode) {
         debugLog(`AttendanceController: Mostrando selector de asistente para asistencia ${groupCode}`);
@@ -285,7 +319,7 @@ const AttendanceController = {
     },
 
     /**
-     * ✨ NUEVO: Opciones de asistente para asistencia
+     * ✅ NUEVO: Opciones de asistente para asistencia
      */
     renderAssistantOptionsForAttendance(assistants, groupCode) {
         if (assistants.length === 0) {
@@ -340,7 +374,7 @@ const AttendanceController = {
     },
 
     /**
-     * ✨ MODIFICADO: Selecciona asistente y CREA BORRADOR LOCAL (no backend)
+     * ✅ MODIFICADO: Selecciona asistente y CREA BORRADOR LOCAL (no backend)
      */
     async selectAssistantForAttendance(assistantId) {
         debugLog(`AttendanceController: Asistente seleccionado para BORRADOR: ${assistantId}`);
@@ -355,7 +389,7 @@ const AttendanceController = {
             // 2. Guardar asistente en estado
             this._setState({ selectedAssistant: assistant });
             
-            // 3. ✨ CREAR BORRADOR LOCAL (NO backend)
+            // 3. CREAR BORRADOR LOCAL (NO backend)
             await this._createDraftSession(assistantId);
             
             // 4. Ir al formulario de asistencia (ya con borrador válido)
@@ -364,13 +398,12 @@ const AttendanceController = {
         } catch (error) {
             console.error('AttendanceController: Error al seleccionar asistente para borrador:', error);
             UIUtils.showError(`Error al crear borrador: ${error.message}`);
-            // Volver al selector de asistente en caso de error
             await this.showAssistantSelectorForAttendance(this._state.currentGroup.codigo);
         }
     },
 
     /**
-     * ✨ MODIFICADO: Continúa sin asistente y CREA BORRADOR LOCAL (no backend)
+     * ✅ MODIFICADO: Continúa sin asistente y CREA BORRADOR LOCAL (no backend)
      */
     async continueToAttendanceWithoutAssistant(groupCode) {
         debugLog('AttendanceController: Continuando sin asistente a BORRADOR');
@@ -379,7 +412,7 @@ const AttendanceController = {
             // 1. Establecer asistente como null
             this._setState({ selectedAssistant: null });
             
-            // 2. ✨ CREAR BORRADOR LOCAL SIN ASISTENTE
+            // 2. CREAR BORRADOR LOCAL SIN ASISTENTE
             await this._createDraftSession('');
             
             // 3. Ir al formulario de asistencia (ya con borrador válido)
@@ -388,13 +421,12 @@ const AttendanceController = {
         } catch (error) {
             console.error('AttendanceController: Error al continuar sin asistente:', error);
             UIUtils.showError(`Error al crear borrador: ${error.message}`);
-            // Volver al selector de asistente en caso de error
             await this.showAssistantSelectorForAttendance(groupCode);
         }
     },
 
     /**
-     * ✨ NUEVO: Muestra formulario de asistencia directamente
+     * ✅ NUEVO: Muestra formulario de asistencia directamente
      */
     async showAttendanceFormDirect() {
         debugLog('AttendanceController: Mostrando formulario de asistencia directamente');
@@ -428,7 +460,7 @@ const AttendanceController = {
     },
 
     /**
-     * Abre el modal de reposición individual - CORREGIDO
+     * ✅ CORREGIDO: Abre el modal de reposición individual
      */
     async openRepositionModal() {
         debugLog('AttendanceController: Abriendo modal de reposición individual - MÉTODO CORREGIDO');
@@ -444,7 +476,7 @@ const AttendanceController = {
                 return;
             }
             
-            // CORREGIDO: Usar el ID de clase existente o crear uno temporal
+            // Usar el ID de clase existente o crear uno temporal
             let classId = this._state.classId || this._state.draftSession?.id;
             
             // Si no hay ID de clase, intentar crear uno o usar temporal
@@ -478,7 +510,7 @@ const AttendanceController = {
             
             debugLog('AttendanceController: Datos de clase para reposición:', classData);
             
-            // CORREGIDO: Llamar al método correcto del RepositionController
+            // Llamar al método correcto del RepositionController
             await RepositionController.openFromAttendance(classData);
             
         } catch (error) {
@@ -515,7 +547,7 @@ const AttendanceController = {
     },
 
     /**
-     * ✨ MODIFICADO: Marca asistencia con DEBOUNCE para prevenir doble clic
+     * ✅ MODIFICADO: Marca asistencia con DEBOUNCE para prevenir doble clic
      */
     markAttendance(studentId, status) {
         debugLog(`AttendanceController: Marcando ${studentId} como ${status} - CON DEBOUNCE`);
@@ -526,7 +558,7 @@ const AttendanceController = {
                 return;
             }
 
-            // ✨ PREVENIR DOBLE CLIC: Verificar tiempo desde último clic
+            // PREVENIR DOBLE CLIC: Verificar tiempo desde último clic
             const now = Date.now();
             const lastClickTime = this._state.lastClickTimes[studentId] || 0;
             const timeSinceLastClick = now - lastClickTime;
@@ -551,14 +583,14 @@ const AttendanceController = {
                 return;
             }
             
-            // ✨ DESHABILITAR BOTÓN TEMPORALMENTE para prevenir clics múltiples
+            // DESHABILITAR BOTÓN TEMPORALMENTE para prevenir clics múltiples
             this._temporarilyDisableStudentButtons(studentId, 2000);
             
             this._recordAttendance(studentId, status);
             this._updateStudentUI(studentId, status);
             this._updateAttendanceSummary();
             
-            // ✨ GUARDAR BORRADOR EN LOCALSTORAGE
+            // GUARDAR BORRADOR EN LOCALSTORAGE
             this._saveDraftToLocalStorage();
             
             UIUtils.showSuccess(`${student.nombre} marcado como ${status.toLowerCase()}`);
@@ -596,7 +628,7 @@ const AttendanceController = {
             
             this._updateAttendanceSummary();
             
-            // ✨ GUARDAR BORRADOR EN LOCALSTORAGE
+            // GUARDAR BORRADOR EN LOCALSTORAGE
             this._saveDraftToLocalStorage();
             
             UIUtils.showSuccess(`${markedCount} estudiantes marcados como ${status.toLowerCase()}`);
@@ -631,7 +663,7 @@ const AttendanceController = {
                 this._clearAllStudentUI();
                 this._updateAttendanceSummary();
                 
-                // ✨ GUARDAR BORRADOR LIMPIO EN LOCALSTORAGE
+                // GUARDAR BORRADOR LIMPIO EN LOCALSTORAGE
                 this._saveDraftToLocalStorage();
                 
                 UIUtils.showSuccess('Asistencia limpiada');
@@ -1164,7 +1196,7 @@ const AttendanceController = {
     },
 
     /**
-     * Muestra vista previa
+     * Muestra vista previa (función existente mantenida)
      */
     previewAttendance(groupCode) {
         debugLog('AttendanceController: Mostrando vista previa');
@@ -1250,7 +1282,7 @@ const AttendanceController = {
             this._updateStudentUI(studentId, 'Justificada');
             this._updateAttendanceSummary();
             
-            // ✨ GUARDAR BORRADOR EN LOCALSTORAGE
+            // GUARDAR BORRADOR EN LOCALSTORAGE
             this._saveDraftToLocalStorage();
             
             ModalsController.close('justification-modal');
@@ -1314,11 +1346,11 @@ const AttendanceController = {
     },
 
     // ===========================================
-    // ✨ NUEVAS FUNCIONES DEL SISTEMA DE BORRADORES
+    // ✅ NUEVAS FUNCIONES DEL SISTEMA DE BORRADORES
     // ===========================================
 
     /**
-     * ✨ NUEVO: Crea sesión de borrador local
+     * ✅ NUEVO: Crea sesión de borrador local
      */
     async _createDraftSession(assistantId) {
         debugLog('AttendanceController: Creando sesión de borrador local...');
@@ -1360,7 +1392,7 @@ const AttendanceController = {
     },
 
     /**
-     * ✨ NUEVO: Guarda borrador en localStorage
+     * ✅ NUEVO: Guarda borrador en localStorage
      */
     _saveDraftToLocalStorage() {
         try {
@@ -1381,7 +1413,7 @@ const AttendanceController = {
     },
 
     /**
-     * ✨ NUEVO: Recupera borrador desde localStorage
+     * ✅ NUEVO: Recupera borrador desde localStorage
      */
     _loadDraftFromLocalStorage() {
         try {
@@ -1401,7 +1433,7 @@ const AttendanceController = {
     },
 
     /**
-     * ✨ NUEVO: Limpia borrador de localStorage
+     * ✅ NUEVO: Limpia borrador de localStorage
      */
     _clearDraftFromLocalStorage() {
         try {
@@ -1413,7 +1445,7 @@ const AttendanceController = {
     },
 
     /**
-     * ✨ NUEVO: Deshabilita botones de estudiante temporalmente
+     * ✅ NUEVO: Deshabilita botones de estudiante temporalmente
      */
     _temporarilyDisableStudentButtons(studentId, duration = 2000) {
         const studentItem = document.querySelector(`[data-student-id="${studentId}"]`);
@@ -1437,7 +1469,7 @@ const AttendanceController = {
     },
 
     // ===========================================
-    // MÉTODOS PRIVADOS (EXISTENTES)
+    // MÉTODOS PRIVADOS (EXISTENTES MANTENIDOS)
     // ===========================================
 
     /**
@@ -1515,7 +1547,7 @@ const AttendanceController = {
     },
 
     /**
-     * ✨ HELPER: Obtiene el nombre del estudiante para la vista previa
+     * ✅ HELPER: Obtiene el nombre del estudiante para la vista previa
      */
     _getStudentName(studentId) {
         const student = this._findStudent(studentId);
@@ -1523,7 +1555,7 @@ const AttendanceController = {
     },
 
     /**
-     * ✨ HELPER: Obtiene el icono de estado para la vista previa
+     * ✅ HELPER: Obtiene el icono de estado para la vista previa
      */
     _getStatusIcon(status) {
         switch (status) {
@@ -1638,4 +1670,50 @@ const AttendanceController = {
 // Hacer disponible globalmente
 window.AttendanceController = AttendanceController;
 
-debugLog('AttendanceController - SISTEMA DE BORRADORES INTEGRADO: Borrador local + vista previa + confirmación final');
+// Función de debugging global para el flujo completo
+window.debugAttendanceFlow = async function(groupCode) {
+    console.log('🔍 DEBUGGING FLUJO DE ASISTENCIA');
+    console.log('================================');
+    
+    try {
+        // 1. Verificar grupo
+        console.log('1. Verificando grupo...');
+        const group = await GroupService.getGroupByCode(groupCode);
+        console.log('✅ Grupo encontrado:', group);
+        
+        // 2. Verificar estudiantes
+        console.log('2. Verificando estudiantes...');
+        const students = await StudentService.getStudentsByGroup(groupCode);
+        console.log(`✅ ${students.length} estudiantes encontrados:`, students);
+        
+        // 3. Verificar asistentes
+        console.log('3. Verificando asistentes...');
+        const assistants = await AssistantService.getActiveAssistants();
+        console.log(`✅ ${assistants.length} asistentes disponibles:`, assistants);
+        
+        // 4. Verificar validación de clase
+        console.log('4. Verificando validación de clase...');
+        const selectedDate = window.AppState.selectedDate || DateUtils.getCurrentDate();
+        const validation = await ClassControlService.validateClassReport(selectedDate, groupCode);
+        console.log('✅ Validación:', validation);
+        
+        console.log('🎉 FLUJO COMPLETO EXITOSO');
+        return {
+            success: true,
+            group,
+            students,
+            assistants,
+            validation
+        };
+        
+    } catch (error) {
+        console.error('❌ ERROR EN FLUJO:', error);
+        return {
+            success: false,
+            error: error.message,
+            stack: error.stack
+        };
+    }
+};
+
+debugLog('AttendanceController - VERSIÓN CORREGIDA COMPLETA: ✅ Validaciones primero ✅ Borrador local ✅ Vista previa ✅ Confirmación final');
