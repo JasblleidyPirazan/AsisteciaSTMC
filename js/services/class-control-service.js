@@ -3,6 +3,7 @@
  * =========================================================
  * Fix para comunicación correcta con backend
  * FIX CRÍTICO: Cambio de id_clase por ID_Clase (PascalCase)
+ * ✅ Fix 2: Modificar llamada para pasar idClase en options
  */
 
 const ClassControlService = {
@@ -281,10 +282,10 @@ const ClassControlService = {
     },
 
     /**
-     * 🔧 FIX CRÍTICO: Maneja el flujo completo de reporte de clase realizada
+     * ✅ FIX 2 APLICADO: Maneja el flujo completo de reporte de clase realizada
      */
     async handleClassRealized(fecha, groupCode, attendanceData, asistenteId) {
-        debugLog(`ClassControlService: Manejando clase realizada - ${groupCode}, ${fecha}`);
+        debugLog(`ClassControlService: Manejando clase realizada CON ID_CLASE FIX - ${groupCode}, ${fecha}`);
         
         try {
             // 1. Validar que se pueda reportar
@@ -297,7 +298,7 @@ const ClassControlService = {
                 console.warn('ClassControlService: Advertencia en validación:', validation.warning);
             }
             
-            // 2. Crear registro de clase
+            // 2. Crear registro de clase PRIMERO para obtener ID
             const classRecord = await this.createClassRecord(fecha, groupCode, this.CLASS_STATES.REALIZADA, {
                 asistenteId: asistenteId
             });
@@ -306,30 +307,49 @@ const ClassControlService = {
                 throw new Error('No se pudo crear el registro de clase o falta el ID');
             }
             
-            // 3. Crear registros de asistencia formateados
+            debugLog('ClassControlService: ✅ Registro de clase creado con ID:', classRecord.id);
+            
+            // 3. ✅ NUEVO: Pasar ID de clase en options (Fix aplicado)
             const { records, errors } = AttendanceService.createGroupAttendanceRecords(
                 attendanceData,
                 {
                     groupCode: groupCode,
                     date: fecha,
                     classType: 'Regular',
+                    idClase: classRecord.id, // ✅ NUEVO: Pasar ID aquí
                     sentBy: window.AppState?.user?.email || 'usuario'
                 }
             );
             
-            // 4. ✅ CORREGIDO: Agregar ID_Clase a cada registro (PascalCase)
-            records.forEach(record => {
-                record.ID_Clase = classRecord.id;
-            });
+            // 4. ✅ REMOVIDO: Ya no necesario asignar manualmente
+            // Esta línea se elimina porque ahora se pasa en options:
+            // records.forEach(record => {
+            //     record.ID_Clase = classRecord.id;
+            // });
             
-            // 5. Guardar asistencias
+            debugLog(`ClassControlService: ✅ ${records.length} registros de asistencia creados con ID_Clase`);
+            
+            // 5. Verificar que todos los registros tienen ID_Clase
+            const recordsWithoutClass = records.filter(r => !r.ID_Clase);
+            if (recordsWithoutClass.length > 0) {
+                console.error('❌ ClassControlService: Registros sin ID_Clase después del fix:', recordsWithoutClass);
+                throw new Error(`${recordsWithoutClass.length} registros sin ID_Clase`);
+            }
+            
+            // 6. Guardar asistencias
             const saveResult = await AttendanceService.saveAttendance(records);
             
             return {
                 success: true,
                 classRecord: classRecord,
                 attendanceResult: saveResult,
-                errors: errors
+                errors: errors,
+                summary: {
+                    classId: classRecord.id,
+                    attendanceRecords: records.length,
+                    errors: errors.length,
+                    method: saveResult.method
+                }
             };
             
         } catch (error) {
@@ -436,4 +456,4 @@ const ClassControlService = {
 // Hacer disponible globalmente
 window.ClassControlService = ClassControlService;
 
-debugLog('class-control-service.js (CORREGIDO CON FIX CRÍTICO PascalCase) cargado correctamente');
+debugLog('class-control-service.js (CORREGIDO CON FIX CRÍTICO PascalCase + ID_CLASE FIX) cargado correctamente');
