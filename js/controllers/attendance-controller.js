@@ -1,14 +1,10 @@
 /**
- * CONTROLADOR DE ASISTENCIA - VERSIÓN CORREGIDA COMPLETA
- * ====================================================
- * FLUJO CORREGIDO:
- * 1. Seleccionar grupo ✅ 
- * 2. "¿Se realizó la clase?" ✅ 
- * 3. "Sí, se realizó" → VALIDACIONES PRIMERO ✅
- * 4. Seleccionar asistente → BORRADOR CREADO AQUÍ ✅
- * 5. Formulario de asistencia (borrador ya disponible) ✅ 
- * 6. Botón "Reposición Individual" → FUNCIONA ✅
- * 7. Guardar asistencia → Vista previa + confirmación final ✅
+ * CONTROLADOR DE ASISTENCIA - VERSIÓN CORREGIDA CON ID_CLASE FIX
+ * ===============================================================
+ * FIXES APLICADOS:
+ * ✅ Fix 1: Pasar idClase en options a createGroupAttendanceRecords
+ * ✅ Fix 2: Modificar llamada en ClassControlService
+ * ✅ Fix 3: Verificar createAttendanceRecord usa options.idClase
  */
 
 const AttendanceController = {
@@ -948,10 +944,10 @@ const AttendanceController = {
     },
 
     /**
-     * ✅ CORREGIDO: Confirmación final que realmente guarda
+     * ✅ CORREGIDO CON ID_CLASE FIX: Confirmación final que realmente guarda
      */
     async confirmFinalSave() {
-        debugLog('AttendanceController: CONFIRMACIÓN FINAL - Guardando clase completa');
+        debugLog('AttendanceController: CONFIRMACIÓN FINAL - Guardando clase completa CON ID_CLASE FIX');
         
         try {
             // Cerrar modal de vista previa primero
@@ -978,7 +974,8 @@ const AttendanceController = {
                 throw new Error('Código de grupo no disponible');
             }
             
-            // Usar ClassControlService para manejar la transacción completa
+            // ✅ FIX APLICADO: Usar ClassControlService mejorado para manejar la transacción completa
+            // El ClassControlService ahora pasará correctamente el idClase en options
             const result = await ClassControlService.handleClassRealized(
                 selectedDate,
                 groupCode,
@@ -1716,4 +1713,4 @@ window.debugAttendanceFlow = async function(groupCode) {
     }
 };
 
-debugLog('AttendanceController - VERSIÓN CORREGIDA COMPLETA: ✅ Validaciones primero ✅ Borrador local ✅ Vista previa ✅ Confirmación final');
+debugLog('AttendanceController - VERSIÓN CORREGIDA COMPLETA CON ID_CLASE FIX: ✅ Validaciones primero ✅ Borrador local ✅ Vista previa ✅ Confirmación final ✅ ID_Clase corregido');
