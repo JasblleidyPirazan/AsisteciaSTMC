@@ -1530,6 +1530,128 @@ body {
     opacity: 1;
 }
 
+/* Agregar estos estilos a css/styles.css */
+
+/* Modal de vista previa específico */
+#preview-modal {
+    z-index: 9999 !important;
+}
+
+#preview-modal .max-h-90vh {
+    max-height: 90vh;
+}
+
+/* Botones de confirmación en vista previa */
+#preview-modal .btn-primary {
+    background: linear-gradient(45deg, #10b981, #059669);
+    box-shadow: 0 4px 15px rgba(16, 185, 129, 0.3);
+    transform: scale(1);
+    transition: all 0.2s ease;
+}
+
+#preview-modal .btn-primary:hover {
+    transform: scale(1.02);
+    box-shadow: 0 6px 20px rgba(16, 185, 129, 0.4);
+}
+
+#preview-modal .btn-primary:active {
+    transform: scale(0.98);
+}
+
+/* Animación del modal de vista previa */
+#preview-modal:not(.hidden) {
+    animation: modalFadeIn 0.3s ease-out;
+}
+
+@keyframes modalFadeIn {
+    from {
+        opacity: 0;
+        transform: scale(0.95);
+    }
+    to {
+        opacity: 1;
+        transform: scale(1);
+    }
+}
+
+/* Modal de guardado (loading) */
+#saving-modal {
+    z-index: 99999 !important;
+}
+
+#saving-modal .spinner-xl {
+    width: 60px;
+    height: 60px;
+    border-width: 4px;
+    border-color: #10b981;
+    border-top-color: transparent;
+}
+
+/* Modal de éxito */
+#success-modal {
+    z-index: 99999 !important;
+}
+
+#success-modal .btn-primary {
+    background: linear-gradient(45deg, #10b981, #059669);
+    padding: 12px 24px;
+    font-size: 1.1rem;
+}
+
+/* Prevenir scroll del body cuando hay modales */
+body.no-scroll {
+    overflow: hidden !important;
+}
+
+/* Mejoras para badges de estado en vista previa */
+.bg-green-100 {
+    background-color: #dcfce7;
+}
+
+.text-green-800 {
+    color: #166534;
+}
+
+.bg-red-100 {
+    background-color: #fee2e2;
+}
+
+.text-red-800 {
+    color: #991b1b;
+}
+
+.bg-yellow-100 {
+    background-color: #fef3c7;
+}
+
+.text-yellow-800 {
+    color: #92400e;
+}
+
+/* Scroll mejorado en lista de estudiantes de vista previa */
+#preview-modal .max-h-48 {
+    max-height: 12rem;
+    overflow-y: auto;
+}
+
+#preview-modal .max-h-48::-webkit-scrollbar {
+    width: 6px;
+}
+
+#preview-modal .max-h-48::-webkit-scrollbar-track {
+    background: #f1f5f9;
+    border-radius: 3px;
+}
+
+#preview-modal .max-h-48::-webkit-scrollbar-thumb {
+    background: #cbd5e1;
+    border-radius: 3px;
+}
+
+#preview-modal .max-h-48::-webkit-scrollbar-thumb:hover {
+    background: #94a3b8;
+}
+
 /* =========================================== */
 
 /* FIN DE ESTILOS CSS COMPLETOS */
