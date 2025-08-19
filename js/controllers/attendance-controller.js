@@ -1,6 +1,6 @@
 /**
- * CONTROLADOR DE ASISTENCIA - VERSIÓN CON DEBUG EXTENSO
- * ====================================================
+ * CONTROLADOR DE ASISTENCIA - VERSIÓN COMPLETA CON DEBUG EXTENSO
+ * ============================================================
  * 🔍 DEBUGGING: Rastrear el flujo completo del ID_Clase
  */
 
@@ -143,6 +143,40 @@ const AttendanceController = {
     },
 
     /**
+     * Muestra la pregunta inicial sobre el estado de la clase
+     */
+    async showClassStatusQuestion(groupCode) {
+        debugLog(`AttendanceController: Mostrando pregunta de estado para grupo ${groupCode}`);
+        this._debugLogState('SHOW_CLASS_STATUS_QUESTION_START', { groupCode });
+        
+        try {
+            // Obtener información del grupo si no la tenemos
+            const group = this._state.currentGroup || await GroupService.getGroupByCode(groupCode);
+            this._setState({ currentGroup: group });
+            
+            // Obtener asistente seleccionado si existe
+            const selectedAssistant = this._state.selectedAssistant;
+            
+            // Renderizar pregunta de estado
+            const html = AttendanceFormView.renderClassStatusQuestion({
+                group,
+                selectedDate: window.AppState.selectedDate || DateUtils.getCurrentDate(),
+                selectedAssistant
+            });
+            
+            document.getElementById('app').innerHTML = html;
+            
+            this._debugLogState('SHOW_CLASS_STATUS_QUESTION_SUCCESS');
+            
+        } catch (error) {
+            console.error('AttendanceController: Error mostrando pregunta de estado:', error);
+            this._debugLogState('SHOW_CLASS_STATUS_QUESTION_ERROR', { error: error.message });
+            UIUtils.showError('Error al cargar la información del grupo');
+            AppController.showDashboard();
+        }
+    },
+
+    /**
      * La clase se realizó - AHORA pregunta por asistente por primera vez
      */
     async classWasHeld(groupCode) {
@@ -228,6 +262,35 @@ const AttendanceController = {
     },
 
     /**
+     * Muestra el selector de asistentes para asistencia
+     */
+    async showAssistantSelectorForAttendance(groupCode) {
+        debugLog(`AttendanceController: Mostrando selector de asistente para ${groupCode}`);
+        this._debugLogState('SHOW_ASSISTANT_SELECTOR_START', { groupCode });
+        
+        try {
+            const group = this._state.currentGroup || await GroupService.getGroupByCode(groupCode);
+            const assistants = this._state.availableAssistants;
+            
+            const html = AttendanceFormView.renderAssistantSelector({
+                group,
+                assistants,
+                selectedDate: window.AppState.selectedDate || DateUtils.getCurrentDate()
+            });
+            
+            document.getElementById('app').innerHTML = html;
+            
+            this._debugLogState('SHOW_ASSISTANT_SELECTOR_SUCCESS');
+            
+        } catch (error) {
+            console.error('AttendanceController: Error mostrando selector de asistente:', error);
+            this._debugLogState('SHOW_ASSISTANT_SELECTOR_ERROR', { error: error.message });
+            UIUtils.showError('Error al cargar selector de asistente');
+            await this.showClassStatusQuestion(groupCode);
+        }
+    },
+
+    /**
      * Selecciona asistente, CREA CLASE y va a asistencia
      */
     async selectAssistantForAttendance(assistantId) {
@@ -281,6 +344,14 @@ const AttendanceController = {
     },
 
     /**
+     * Wrapper para seleccionar asistente (llamado desde UI)
+     */
+    async selectAssistant(assistantId) {
+        debugLog(`AttendanceController: Seleccionando asistente ${assistantId}`);
+        await this.selectAssistantForAttendance(assistantId);
+    },
+
+    /**
      * Continúa sin asistente, CREA CLASE y va a asistencia
      */
     async continueToAttendanceWithoutAssistant(groupCode) {
@@ -314,6 +385,136 @@ const AttendanceController = {
             this._debugLogState('CONTINUE_WITHOUT_ASSISTANT_ERROR', { error: error.message });
             UIUtils.showError(`Error al registrar la clase: ${error.message}`);
             await this.showAssistantSelectorForAttendance(groupCode);
+        }
+    },
+
+    /**
+     * Wrapper para continuar sin asistente (llamado desde UI)
+     */
+    async continueWithoutAssistant(groupCode) {
+        debugLog('AttendanceController: Continuando sin asistente');
+        await this.continueToAttendanceWithoutAssistant(groupCode);
+    },
+
+    /**
+     * Muestra el formulario de asistencia directamente
+     */
+    async showAttendanceFormDirect() {
+        debugLog('AttendanceController: Mostrando formulario de asistencia directo');
+        this._debugLogState('SHOW_ATTENDANCE_FORM_START');
+        
+        try {
+            const group = this._state.currentGroup;
+            const students = this._state.currentStudents;
+            const selectedAssistant = this._state.selectedAssistant;
+            
+            if (!group || !students || students.length === 0) {
+                throw new Error('Datos de grupo o estudiantes no disponibles');
+            }
+            
+            const html = AttendanceFormView.renderAttendanceForm({
+                group,
+                students,
+                selectedDate: window.AppState.selectedDate || DateUtils.getCurrentDate(),
+                attendanceType: this._state.attendanceType,
+                selectedAssistant
+            });
+            
+            document.getElementById('app').innerHTML = html;
+            
+            // Inicializar estado de asistencia
+            this._setState({ attendanceData: {} });
+            
+            this._debugLogState('SHOW_ATTENDANCE_FORM_SUCCESS');
+            
+        } catch (error) {
+            console.error('AttendanceController: Error mostrando formulario de asistencia:', error);
+            this._debugLogState('SHOW_ATTENDANCE_FORM_ERROR', { error: error.message });
+            UIUtils.showError('Error al cargar formulario de asistencia');
+            AppController.showDashboard();
+        }
+    },
+
+    /**
+     * La clase fue cancelada
+     */
+    async classWasCancelled(groupCode) {
+        debugLog(`AttendanceController: Clase cancelada para grupo ${groupCode}`);
+        this._debugLogState('CLASS_WAS_CANCELLED_START', { groupCode });
+        
+        try {
+            const group = this._state.currentGroup || await GroupService.getGroupByCode(groupCode);
+            const selectedAssistant = this._state.selectedAssistant;
+            
+            const html = AttendanceFormView.renderCancellationForm({
+                group,
+                selectedDate: window.AppState.selectedDate || DateUtils.getCurrentDate(),
+                selectedAssistant
+            });
+            
+            document.getElementById('app').innerHTML = html;
+            
+            this._debugLogState('CLASS_WAS_CANCELLED_SUCCESS');
+            
+        } catch (error) {
+            console.error('AttendanceController: Error procesando clase cancelada:', error);
+            this._debugLogState('CLASS_WAS_CANCELLED_ERROR', { error: error.message });
+            UIUtils.showError('Error al procesar cancelación');
+            await this.showClassStatusQuestion(groupCode);
+        }
+    },
+
+    /**
+     * Guarda la cancelación
+     */
+    async saveCancellation(groupCode) {
+        debugLog(`AttendanceController: Guardando cancelación para grupo ${groupCode}`);
+        this._debugLogState('SAVE_CANCELLATION_START', { groupCode });
+        
+        try {
+            // Obtener datos del formulario
+            const reasonRadios = document.querySelectorAll('input[name="cancellation-reason"]');
+            let selectedReason = '';
+            
+            reasonRadios.forEach(radio => {
+                if (radio.checked) {
+                    selectedReason = radio.value;
+                }
+            });
+            
+            if (!selectedReason) {
+                UIUtils.showWarning('Por favor selecciona un motivo de cancelación');
+                return;
+            }
+            
+            const description = document.getElementById('cancellation-description')?.value || '';
+            const selectedDate = window.AppState.selectedDate || DateUtils.getCurrentDate();
+            const selectedAssistant = this._state.selectedAssistant;
+            
+            // Mostrar loading
+            this._showLoadingModal('Guardando cancelación...', 'Procesando...');
+            
+            // Usar ClassControlService para manejar cancelación
+            const result = await ClassControlService.handleClassCancelled(
+                selectedDate,
+                groupCode,
+                selectedReason,
+                description,
+                selectedAssistant?.id || ''
+            );
+            
+            this._hideLoadingModal();
+            
+            // Mostrar éxito
+            this._showSuccessModal(result, groupCode, selectedDate, 0, selectedAssistant, 'cancelacion');
+            
+            this._debugLogState('SAVE_CANCELLATION_SUCCESS');
+            
+        } catch (error) {
+            this._hideLoadingModal();
+            console.error('AttendanceController: Error guardando cancelación:', error);
+            this._debugLogState('SAVE_CANCELLATION_ERROR', { error: error.message });
+            UIUtils.showError(`Error al guardar cancelación: ${error.message}`);
         }
     },
 
@@ -438,6 +639,67 @@ const AttendanceController = {
             this._debugLogState('MARK_ATTENDANCE_ERROR', { error: error.message });
             UIUtils.showError('Error al registrar asistencia');
         }
+    },
+
+    /**
+     * Marca toda la asistencia como un estado específico
+     */
+    markAllAttendance(status) {
+        debugLog(`AttendanceController: Marcando todos como ${status}`);
+        
+        const students = this._state.currentStudents;
+        students.forEach(student => {
+            this._recordAttendance(student.id, status);
+            this._updateStudentUI(student.id, status);
+        });
+        
+        this._updateAttendanceSummary();
+        UIUtils.showSuccess(`Todos los estudiantes marcados como ${status.toLowerCase()}`);
+    },
+
+    /**
+     * Limpia toda la asistencia
+     */
+    clearAllAttendance() {
+        debugLog('AttendanceController: Limpiando toda la asistencia');
+        
+        this._setState({ attendanceData: {} });
+        
+        // Limpiar UI
+        const studentItems = document.querySelectorAll('.student-item');
+        studentItems.forEach(item => {
+            item.className = 'student-item';
+            
+            // Resetear botones
+            const buttons = item.querySelectorAll('button');
+            buttons.forEach(btn => {
+                btn.className = btn.className.replace(/btn-primary|btn-danger|btn-secondary/, 'btn-outline');
+            });
+        });
+        
+        this._updateAttendanceSummary();
+        UIUtils.showSuccess('Asistencia limpiada');
+    },
+
+    /**
+     * Muestra estadísticas de asistencia
+     */
+    showAttendanceStats() {
+        debugLog('AttendanceController: Mostrando estadísticas de asistencia');
+        
+        const attendanceData = this._state.attendanceData;
+        const groupInfo = this._state.currentGroup;
+        const selectedAssistant = this._state.selectedAssistant;
+        const totalStudents = this._state.currentStudents.length;
+        
+        const statsData = {
+            totalStudents,
+            attendanceRecords: attendanceData,
+            groupInfo,
+            selectedAssistant
+        };
+        
+        ModalsController.showAttendanceStats(statsData);
     },
 
     /**
@@ -595,6 +857,319 @@ const AttendanceController = {
     },
 
     /**
+     * Abre modal de justificación
+     */
+    _openJustificationModal(studentId, studentName) {
+        debugLog(`AttendanceController: Abriendo modal de justificación para ${studentId}`);
+        
+        // Actualizar nombre del estudiante en el modal
+        const studentNameElement = document.getElementById('justification-student-name');
+        if (studentNameElement) {
+            studentNameElement.textContent = studentName;
+        }
+        
+        // Limpiar formulario anterior
+        const typeSelect = document.getElementById('justification-type');
+        const descriptionTextarea = document.getElementById('justification-description');
+        
+        if (typeSelect) typeSelect.value = '';
+        if (descriptionTextarea) descriptionTextarea.value = '';
+        
+        // Guardar studentId para uso posterior
+        this._justificationStudentId = studentId;
+        
+        // Abrir modal
+        ModalsController.open('justification-modal', '#justification-type');
+    },
+
+    /**
+     * Guarda justificación
+     */
+    saveJustification() {
+        debugLog('AttendanceController: Guardando justificación');
+        
+        const studentId = this._justificationStudentId;
+        const type = document.getElementById('justification-type')?.value;
+        const description = document.getElementById('justification-description')?.value || '';
+        
+        if (!studentId) {
+            UIUtils.showError('Error: ID de estudiante no encontrado');
+            return;
+        }
+        
+        if (!type) {
+            UIUtils.showWarning('Por favor selecciona un tipo de justificación');
+            return;
+        }
+        
+        const justification = type + (description ? `: ${description}` : '');
+        
+        this._recordAttendance(studentId, 'Justificada', justification);
+        this._updateStudentUI(studentId, 'Justificada');
+        this._updateAttendanceSummary();
+        
+        ModalsController.close('justification-modal');
+        
+        const student = this._findStudent(studentId);
+        UIUtils.showSuccess(`${student?.nombre || studentId} marcado como justificada`);
+    },
+
+    /**
+     * Abre modal de reposición individual
+     */
+    async openRepositionModal() {
+        debugLog('AttendanceController: Abriendo modal de reposición individual');
+        
+        try {
+            const classData = {
+                groupCode: this._state.currentGroup.codigo,
+                classId: this._state.classId,
+                selectedDate: window.AppState.selectedDate || DateUtils.getCurrentDate(),
+                sentBy: window.AppState.user?.email || 'usuario'
+            };
+            
+            await RepositionController.openFromAttendance(classData);
+            
+        } catch (error) {
+            console.error('AttendanceController: Error abriendo modal de reposición:', error);
+            UIUtils.showError('Error al abrir reposición individual');
+        }
+    },
+
+    /**
+     * Exporta asistencia (placeholder)
+     */
+    exportAttendance(groupCode) {
+        debugLog(`AttendanceController: Exportando asistencia para ${groupCode}`);
+        UIUtils.showInfo('Función de exportación en desarrollo');
+    },
+
+    /**
+     * Actualiza la UI de un estudiante específico
+     */
+    _updateStudentUI(studentId, status) {
+        const studentItem = document.querySelector(`[data-student-id="${studentId}"]`);
+        if (!studentItem) return;
+        
+        // Limpiar clases de estado anteriores
+        studentItem.className = studentItem.className.replace(/status-\w+/g, '');
+        
+        // Agregar nueva clase de estado
+        studentItem.classList.add(`status-${status.toLowerCase()}`);
+        
+        // Actualizar botones
+        const buttons = studentItem.querySelectorAll('button');
+        buttons.forEach(btn => {
+            btn.className = btn.className.replace(/btn-primary|btn-danger|btn-secondary/, 'btn-outline');
+            
+            if (btn.textContent.includes(status)) {
+                if (status === 'Presente') btn.className = btn.className.replace('btn-outline', 'btn-primary');
+                else if (status === 'Ausente') btn.className = btn.className.replace('btn-outline', 'btn-danger');
+                else if (status === 'Justificada') btn.className = btn.className.replace('btn-outline', 'btn-secondary');
+            }
+        });
+    },
+
+    /**
+     * Actualiza el resumen de asistencia
+     */
+    _updateAttendanceSummary() {
+        const attendanceData = this._state.attendanceData;
+        const stats = AttendanceService.calculateAttendanceStats(Object.values(attendanceData));
+        
+        const summaryElement = document.getElementById('attendance-summary');
+        if (summaryElement) {
+            if (stats.total === 0) {
+                summaryElement.textContent = 'Sin registros';
+            } else {
+                summaryElement.innerHTML = `
+                    <span class="text-green-600">${stats.present} presentes</span> • 
+                    <span class="text-red-600">${stats.absent} ausentes</span> • 
+                    <span class="text-yellow-600">${stats.justified} justificadas</span>
+                    <span class="text-gray-500">(${stats.total} total)</span>
+                `;
+            }
+        }
+    },
+
+    /**
+     * Muestra modal de vista previa final
+     */
+    showFinalPreview() {
+        debugLog('AttendanceController: Mostrando vista previa final');
+        
+        const groupCode = this._state.currentGroup.codigo;
+        const selectedDate = window.AppState.selectedDate || DateUtils.getCurrentDate();
+        const attendanceData = this._state.attendanceData;
+        const selectedAssistant = this._state.selectedAssistant;
+        const stats = AttendanceService.calculateAttendanceStats(Object.values(attendanceData));
+        
+        const previewData = {
+            groupCode,
+            selectedDate,
+            attendance: attendanceData,
+            stats,
+            selectedAssistant,
+            attendanceType: this._state.attendanceType
+        };
+        
+        const content = ModalsView.getAttendancePreviewContent(previewData);
+        
+        // Crear modal personalizado para vista previa
+        this._showPreviewModal(content);
+    },
+
+    /**
+     * Muestra modal de vista previa personalizado
+     */
+    _showPreviewModal(content) {
+        // Crear modal si no existe
+        let modal = document.getElementById('custom-preview-modal');
+        if (!modal) {
+            const modalHTML = `
+                <div id="custom-preview-modal" class="fixed inset-0 bg-black bg-opacity-50 z-50" style="display: none;">
+                    <div class="flex items-center justify-center min-h-screen p-4">
+                        <div class="bg-white rounded-lg max-w-4xl w-full max-h-90vh overflow-hidden shadow-xl">
+                            <div class="flex justify-between items-center p-6 border-b border-gray-200 bg-blue-50">
+                                <div>
+                                    <h3 class="text-lg font-semibold text-blue-900">🔍 Vista Previa Final</h3>
+                                    <p class="text-sm text-blue-700 mt-1">Revisa los datos antes de confirmar</p>
+                                </div>
+                                <button onclick="AttendanceController._closePreviewModal()" 
+                                        class="text-gray-400 hover:text-gray-600 transition-colors">
+                                    <span class="text-2xl">✕</span>
+                                </button>
+                            </div>
+                            
+                            <div class="p-6 overflow-y-auto max-h-96" id="custom-preview-content">
+                                <!-- Contenido -->
+                            </div>
+                            
+                            <div class="p-6 border-t border-gray-200 bg-gray-50 flex justify-between items-center">
+                                <button onclick="AttendanceController._closePreviewModal()" 
+                                        class="btn btn-outline">
+                                    ❌ Cancelar
+                                </button>
+                                <button onclick="AttendanceController.confirmFinalSave()" 
+                                        class="btn btn-primary btn-lg">
+                                    ✅ Confirmar y Guardar
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            `;
+            
+            document.body.insertAdjacentHTML('beforeend', modalHTML);
+            modal = document.getElementById('custom-preview-modal');
+        }
+        
+        // Actualizar contenido
+        const contentDiv = document.getElementById('custom-preview-content');
+        if (contentDiv) {
+            contentDiv.innerHTML = content;
+        }
+        
+        // Mostrar modal
+        modal.style.display = 'flex';
+        document.body.style.overflow = 'hidden';
+    },
+
+    /**
+     * Cierra modal de vista previa personalizado
+     */
+    _closePreviewModal() {
+        const modal = document.getElementById('custom-preview-modal');
+        if (modal) {
+            modal.style.display = 'none';
+            document.body.style.overflow = '';
+        }
+    },
+
+    /**
+     * Muestra modal de loading
+     */
+    _showLoadingModal(title, message) {
+        ModalsController.showLoading(title, message);
+    },
+
+    /**
+     * Oculta modal de loading
+     */
+    _hideLoadingModal() {
+        ModalsController.hideLoading();
+    },
+
+    /**
+     * Muestra modal de éxito después de guardar
+     */
+    _showSuccessModal(result, groupCode, selectedDate, attendanceCount, selectedAssistant, type = 'asistencia') {
+        const formattedDate = DateUtils.formatDate(selectedDate);
+        
+        let title, message, details = [];
+        
+        if (type === 'cancelacion') {
+            title = '✅ Cancelación Registrada';
+            message = `La clase ${groupCode} del ${formattedDate} fue cancelada correctamente`;
+            details = [
+                `Grupo: ${groupCode}`,
+                `Fecha: ${formattedDate}`,
+                `Estado: Cancelada`,
+                selectedAssistant ? `Asistente: ${selectedAssistant.nombre}` : 'Sin asistente'
+            ];
+        } else {
+            title = '✅ Asistencia Guardada';
+            message = `Se guardaron ${attendanceCount} registros de asistencia correctamente`;
+            details = [
+                `Grupo: ${groupCode}`,
+                `Fecha: ${formattedDate}`,
+                `Registros: ${attendanceCount}`,
+                `Método: ${result.method || 'desconocido'}`,
+                selectedAssistant ? `Asistente: ${selectedAssistant.nombre}` : 'Sin asistente'
+            ];
+        }
+        
+        const actions = [
+            {
+                label: '🏠 Ir al Dashboard',
+                handler: 'AppController.showDashboard(); AttendanceController._closeAllModals();',
+                class: 'btn-primary'
+            },
+            {
+                label: '📋 Nueva Asistencia',
+                handler: 'AppController.showDashboard(); AttendanceController._closeAllModals();',
+                class: 'btn-secondary'
+            }
+        ];
+        
+        const content = ModalsView.getSuccessContent({
+            title,
+            message,
+            details,
+            actions
+        });
+        
+        // Usar modal de notificación existente
+        const modal = document.getElementById('notification-modal');
+        const modalContent = document.getElementById('notification-content');
+        
+        if (modal && modalContent) {
+            modalContent.innerHTML = content;
+            modal.classList.remove('hidden');
+            document.body.classList.add('no-scroll');
+        }
+    },
+
+    /**
+     * Cierra todos los modales
+     */
+    _closeAllModals() {
+        this._closePreviewModal();
+        ModalsController.hideLoading();
+        UIUtils.closeNotification();
+    },
+
+    /**
      * 🔍 DEBUG: Registra un dato de asistencia con logging
      */
     _recordAttendance(studentId, status, justification = '', description = '') {
@@ -632,50 +1207,6 @@ const AttendanceController = {
     },
 
     /**
-     * 🔍 DEBUG: Método para obtener información completa de debugging
-     */
-    getDebugInfo() {
-        return {
-            currentState: this._state,
-            verificationResults: {
-                hasClassId: !!this._state.classId,
-                classId: this._state.classId,
-                hasGroup: !!this._state.currentGroup,
-                hasStudents: this._state.currentStudents.length > 0,
-                hasAttendance: Object.keys(this._state.attendanceData).length > 0,
-                hasAssistant: !!this._state.selectedAssistant
-            },
-            debugFlow: this._state.debugInfo.attendanceCreationFlow,
-            timestamp: new Date().toISOString()
-        };
-    },
-
-    // ===========================================
-    // MÉTODOS EXISTENTES (sin cambios pero con debug añadido)
-    // ===========================================
-
-    /**
-     * Actualiza el estado interno (con debug)
-     */
-    _setState(newState) {
-        const oldClassId = this._state.classId;
-        this._state = { ...this._state, ...newState };
-        
-        // 🔍 DEBUG: Log cambios de classId
-        if (oldClassId !== this._state.classId) {
-            console.log('🔍 DEBUG: classId cambió en setState:', {
-                old: oldClassId,
-                new: this._state.classId,
-                stackTrace: new Error().stack
-            });
-        }
-        
-        debugLog('AttendanceController: Estado actualizado');
-    },
-
-    // [RESTO DE MÉTODOS SIN CAMBIOS - solo adding debug donde sea crítico]
-    
-    /**
      * Busca un estudiante por ID
      */
     _findStudent(studentId) {
@@ -697,8 +1228,44 @@ const AttendanceController = {
         return student;
     },
 
-    // [Resto de métodos privados sin cambios...]
-    
+    /**
+     * Actualiza el estado interno (con debug)
+     */
+    _setState(newState) {
+        const oldClassId = this._state.classId;
+        this._state = { ...this._state, ...newState };
+        
+        // 🔍 DEBUG: Log cambios de classId
+        if (oldClassId !== this._state.classId) {
+            console.log('🔍 DEBUG: classId cambió en setState:', {
+                old: oldClassId,
+                new: this._state.classId,
+                stackTrace: new Error().stack
+            });
+        }
+        
+        debugLog('AttendanceController: Estado actualizado');
+    },
+
+    /**
+     * 🔍 DEBUG: Método para obtener información completa de debugging
+     */
+    getDebugInfo() {
+        return {
+            currentState: this._state,
+            verificationResults: {
+                hasClassId: !!this._state.classId,
+                classId: this._state.classId,
+                hasGroup: !!this._state.currentGroup,
+                hasStudents: this._state.currentStudents.length > 0,
+                hasAttendance: Object.keys(this._state.attendanceData).length > 0,
+                hasAssistant: !!this._state.selectedAssistant
+            },
+            debugFlow: this._state.debugInfo.attendanceCreationFlow,
+            timestamp: new Date().toISOString()
+        };
+    },
+
     /**
      * ✅ NUEVO: Guarda borrador en localStorage
      */
@@ -741,4 +1308,4 @@ window.debugAttendanceController = function() {
     return AttendanceController.getDebugInfo();
 };
 
-debugLog('AttendanceController - VERSIÓN CON DEBUG EXTENSO CARGADO');
+debugLog('AttendanceController - VERSIÓN COMPLETA CON DEBUG EXTENSO CARGADO');
