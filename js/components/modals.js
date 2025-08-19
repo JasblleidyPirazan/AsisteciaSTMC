@@ -88,9 +88,6 @@ const ModalsView = {
     },
 
     /**
-     * Renderiza el modal de vista previa
-     */
-    /**
      * ✨ MODIFICADO: Modal de vista previa mejorado para confirmación final
      */
     renderPreviewModal() {
@@ -539,7 +536,7 @@ const ModalsView = {
  */
 const ModalsController = {
     /**
-     * Abre un modal
+     * Abre un modal (mejorado para no interferir con modales custom)
      */
     open(modalId, focusElement = null) {
         const modal = document.getElementById(modalId);
@@ -560,7 +557,7 @@ const ModalsController = {
     },
 
     /**
-     * Cierra un modal
+     * Cierra un modal (mejorado para no interferir con modales custom)
      */
     close(modalId) {
         const modal = document.getElementById(modalId);
@@ -576,7 +573,15 @@ const ModalsController = {
     },
 
     /**
-     * Muestra modal de confirmación
+     * ✅ NUEVO: Método específico para cerrar modales de vista previa (no interferir)
+     */
+    closePreview() {
+        // NO hacer nada aquí - dejar que AttendanceController maneje sus propios modales
+        debugLog('ModalsController.closePreview() - delegando a AttendanceController');
+    },
+
+    /**
+     * Muestra modal de confirmación (sin cambios)
      */
     showConfirmation(data = {}, onConfirm = null) {
         const content = ModalsView.getConfirmationContent(data);
@@ -598,14 +603,54 @@ const ModalsController = {
     },
 
     /**
-     * Muestra modal de vista previa
+     * ✅ CORREGIDO: NO mostrar modal de vista previa desde aquí
      */
     showPreview(content) {
-        const contentDiv = document.getElementById('preview-content');
+        // Delegar a AttendanceController si está disponible
+        if (window.AttendanceController && typeof window.AttendanceController._showPreviewModal === 'function') {
+            debugLog('ModalsController: Delegando vista previa a AttendanceController');
+            window.AttendanceController._showPreviewModal(content);
+        } else {
+            // Fallback: modal básico
+            this._showBasicPreview(content);
+        }
+    },
+
+    /**
+     * ✅ NUEVO: Modal básico de vista previa como fallback
+     */
+    _showBasicPreview(content) {
+        let modal = document.getElementById('basic-preview-modal');
+        if (!modal) {
+            const modalHTML = `
+                <div id="basic-preview-modal" class="fixed inset-0 bg-black bg-opacity-50 hidden z-50">
+                    <div class="flex items-center justify-center min-h-screen p-4">
+                        <div class="bg-white rounded-lg max-w-4xl w-full max-h-90vh overflow-hidden shadow-xl">
+                            <div class="flex justify-between items-center p-6 border-b border-gray-200">
+                                <h3 class="text-lg font-semibold">Vista Previa</h3>
+                                <button onclick="ModalsController.close('basic-preview-modal')" 
+                                        class="text-gray-400 hover:text-gray-600">
+                                    ✕
+                                </button>
+                            </div>
+                            <div class="p-6 overflow-y-auto" id="basic-preview-content">
+                                <!-- Contenido -->
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            `;
+            
+            document.body.insertAdjacentHTML('beforeend', modalHTML);
+            modal = document.getElementById('basic-preview-modal');
+        }
+        
+        const contentDiv = document.getElementById('basic-preview-content');
         if (contentDiv) {
             contentDiv.innerHTML = content;
         }
-        this.open('preview-modal');
+        
+        this.open('basic-preview-modal');
     },
 
     /**
