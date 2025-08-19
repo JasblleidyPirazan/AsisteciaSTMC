@@ -1,6 +1,7 @@
 /**
- * CONTROLADOR DE ASISTENCIA - VERSIÓN COMPLETA CON DEBUG EXTENSO
- * ============================================================
+ * CONTROLADOR DE ASISTENCIA - VERSIÓN COMPLETA CON FIXES APLICADOS
+ * ================================================================
+ * 🔧 FIXES: Solución al problema "Clase se guarda pero no las asistencias"
  * 🔍 DEBUGGING: Rastrear el flujo completo del ID_Clase
  */
 
@@ -703,57 +704,83 @@ const AttendanceController = {
     },
 
     /**
-     * ✅ NUEVO FLUJO: Muestra vista previa antes de confirmación final
+     * 🔧 FIX 1: Método saveAttendanceData CORREGIDO
+     * Verificación inmediata y validación exhaustiva
      */
     async saveAttendanceData(groupCode) {
-        debugLog('AttendanceController: Preparando vista previa');
-        this._debugLogState('SAVE_ATTENDANCE_START', { groupCode });
+        debugLog('AttendanceController: Guardando asistencias - VERSIÓN CORREGIDA');
+        this._debugLogState('SAVE_ATTENDANCE_START_FIXED', { groupCode });
         
-        // 🔍 DEBUG: Verificar classId antes de guardar
-        this._verifyClassIdIntegrity('BEFORE_SAVE_ATTENDANCE');
+        // 🔍 VERIFICACIÓN CRÍTICA: Verificar classId antes de todo
+        this._verifyClassIdIntegrity('SAVE_ATTENDANCE_DATA');
         
-        try {
-            const attendanceData = this._state.attendanceData;
-            const attendanceCount = Object.keys(attendanceData).length;
-            
-            console.log('🔍 DEBUG: Datos de asistencia para guardar:', {
-                attendanceCount,
-                classId: this._state.classId,
-                hasClassId: !!this._state.classId,
-                attendanceKeys: Object.keys(attendanceData),
-                firstRecord: Object.values(attendanceData)[0]
-            });
-            
-            if (attendanceCount === 0) {
-                UIUtils.showWarning('No hay asistencia registrada para guardar');
-                return;
-            }
-            
-            // Guardar borrador actualizado en localStorage
-            this._saveDraftToLocalStorage();
-            
-            // Mostrar vista previa
-            this.showFinalPreview();
-            
-        } catch (error) {
-            console.error('AttendanceController: Error al preparar vista previa:', error);
-            this._debugLogState('SAVE_ATTENDANCE_ERROR', { error: error.message });
-            UIUtils.showError('Error al preparar vista previa');
+        if (!this._state.classId) {
+            console.error('❌ CRITICAL: classId faltante en saveAttendanceData!');
+            UIUtils.showError('Error crítico: ID de clase faltante. Por favor, reinicia el proceso.');
+            await this.showClassStatusQuestion(groupCode);
+            return;
         }
+        
+        const attendanceData = this._state.attendanceData;
+        const attendanceCount = Object.keys(attendanceData).length;
+        
+        // 🔍 DEBUG EXTENSO del estado de asistencia
+        console.log('🔥 SAVE ATTENDANCE DATA - Estado completo:', {
+            attendanceCount,
+            attendanceKeys: Object.keys(attendanceData),
+            classId: this._state.classId,
+            groupCode: this._state.currentGroup?.codigo,
+            fullAttendanceData: attendanceData,
+            sampleRecord: Object.values(attendanceData)[0],
+            hasValidRecords: Object.values(attendanceData).every(record => 
+                record && record.studentId && record.status
+            )
+        });
+        
+        // 🔧 FIX: Verificación mejorada de datos de asistencia
+        if (attendanceCount === 0) {
+            console.warn('⚠️ No hay registros de asistencia para guardar');
+            UIUtils.showError('No hay asistencia registrada. Por favor marca la asistencia de los estudiantes.');
+            return;
+        }
+        
+        // 🔧 FIX: Verificar que los registros sean válidos
+        const invalidRecords = Object.values(attendanceData).filter(record => 
+            !record || !record.studentId || !record.status
+        );
+        
+        if (invalidRecords.length > 0) {
+            console.error('❌ Registros inválidos detectados:', invalidRecords);
+            UIUtils.showError(`Se encontraron ${invalidRecords.length} registros inválidos. Por favor, revisa la asistencia.`);
+            return;
+        }
+        
+        console.log('✅ Validación pasada - procediendo con guardado');
+        
+        // Guardar borrador actualizado en localStorage
+        this._saveDraftToLocalStorage();
+        
+        // 🔧 FIX: Ir DIRECTO a confirmación final en lugar de vista previa
+        // Comentar para probar sin vista previa:
+        // this.showFinalPreview();
+        
+        // 🔧 FIX: Ir directo a guardado para evitar problemas con modal
+        await this.confirmFinalSave();
     },
 
     /**
-     * ✅ NUEVO: Confirmación final que realmente guarda
+     * 🔧 FIX 2: Método confirmFinalSave MEJORADO
+     * Verificaciones adicionales y mejor manejo de errores
      */
     async confirmFinalSave() {
-        debugLog('AttendanceController: CONFIRMACIÓN FINAL - Guardando asistencias');
-        this._debugLogState('CONFIRM_FINAL_SAVE_START');
+        console.log('🔥 DEBUG: CONFIRMACIÓN FINAL - Iniciando guardado de asistencias');
+        this._debugLogState('CONFIRM_FINAL_SAVE_START_FIXED');
         
-        // 🔍 DEBUG: Verificación crítica antes del guardado final
+        // 🔍 VERIFICACIÓN CRÍTICA: Verificar classId antes del guardado final
         this._verifyClassIdIntegrity('BEFORE_FINAL_SAVE');
         
         try {
-            // Cerrar modal de vista previa primero
+            // Cerrar modal de vista previa si existe
             this._closePreviewModal();
             
             const attendanceData = this._state.attendanceData;
@@ -766,17 +793,33 @@ const AttendanceController = {
                 selectedDate: window.AppState.selectedDate,
                 groupCode: this._state.currentGroup?.codigo,
                 selectedAssistant: this._state.selectedAssistant?.id,
-                attendanceDataSample: Object.values(attendanceData).slice(0, 2)
+                attendanceDataSample: Object.values(attendanceData).slice(0, 2),
+                allAttendanceKeys: Object.keys(attendanceData)
             });
             
+            // 🔧 FIX: Verificaciones adicionales
             if (attendanceCount === 0) {
+                console.error('❌ No hay asistencia registrada para guardar');
                 UIUtils.showWarning('No hay asistencia registrada para guardar');
                 return;
             }
             
             if (!this._state.classId) {
-                console.error('❌ DEBUG: classId faltante en confirmación final!');
+                console.error('❌ CRITICAL: classId faltante en confirmación final!');
                 throw new Error('ID de clase faltante - no se puede guardar');
+            }
+            
+            // 🔧 FIX: Verificar integridad de cada registro de asistencia
+            const recordsWithIssues = [];
+            Object.entries(attendanceData).forEach(([studentId, record]) => {
+                if (!record || !record.studentId || !record.status) {
+                    recordsWithIssues.push({ studentId, record });
+                }
+            });
+            
+            if (recordsWithIssues.length > 0) {
+                console.error('❌ Registros con problemas detectados:', recordsWithIssues);
+                throw new Error(`${recordsWithIssues.length} registros tienen problemas de integridad`);
             }
             
             this._setState({ isProcessing: true });
@@ -791,6 +834,7 @@ const AttendanceController = {
             
             console.log('🔥 DEBUG: Parámetros para AttendanceService.createGroupAttendanceRecords:', {
                 attendanceDataKeys: Object.keys(attendanceData),
+                attendanceDataCount: Object.keys(attendanceData).length,
                 groupCode,
                 date: selectedDate,
                 classType: 'Regular',
@@ -798,7 +842,8 @@ const AttendanceController = {
                 sentBy: window.AppState.user?.email || 'usuario'
             });
             
-            // 🔍 DEBUG: Crear registros de asistencia usando AttendanceService
+            // 🔧 FIX: Crear registros de asistencia usando AttendanceService con logging extenso
+            console.log('🔥 DEBUG: Llamando AttendanceService.createGroupAttendanceRecords...');
             const { records, errors } = AttendanceService.createGroupAttendanceRecords(
                 attendanceData,
                 {
@@ -815,23 +860,41 @@ const AttendanceController = {
                 errorsCount: errors.length,
                 firstRecordSample: records[0],
                 recordsWithClassId: records.filter(r => r.ID_Clase).length,
-                recordsWithoutClassId: records.filter(r => !r.ID_Clase).length
+                recordsWithoutClassId: records.filter(r => !r.ID_Clase).length,
+                allRecordsHaveClassId: records.every(r => r.ID_Clase),
+                classIdFromFirstRecord: records[0]?.ID_Clase
             });
             
-            // 🔍 DEBUG: Verificar que todos los registros tengan ID_Clase
+            // 🔧 FIX: Verificación CRÍTICA - todos los registros deben tener ID_Clase
             const recordsWithoutClassId = records.filter(r => !r.ID_Clase);
             if (recordsWithoutClassId.length > 0) {
-                console.error('❌ DEBUG: Registros sin ID_Clase detectados:', recordsWithoutClassId);
-                throw new Error(`${recordsWithoutClassId.length} registros sin ID_Clase`);
+                console.error('❌ CRITICAL: Registros sin ID_Clase detectados:', recordsWithoutClassId);
+                throw new Error(`CRÍTICO: ${recordsWithoutClassId.length} registros sin ID_Clase. Verifica AttendanceService.createGroupAttendanceRecords.`);
             }
             
-            console.log('✅ DEBUG: Todos los registros tienen ID_Clase');
+            // 🔧 FIX: Verificar que NO haya errores en la creación
+            if (errors.length > 0) {
+                console.error('❌ Errores en creación de registros:', errors);
+                throw new Error(`Errores en ${errors.length} registros: ${errors.join(', ')}`);
+            }
             
-            // 🔍 DEBUG: Guardar usando AttendanceService
+            console.log('✅ DEBUG: Todos los registros tienen ID_Clase y son válidos');
+            
+            // 🔧 FIX: Guardar usando AttendanceService con manejo de errores mejorado
             console.log('🔥 DEBUG: Llamando AttendanceService.saveAttendance...');
             const result = await AttendanceService.saveAttendance(records);
             
-            console.log('🔍 DEBUG: Resultado de saveAttendance:', result);
+            console.log('🔍 DEBUG: Resultado de saveAttendance:', {
+                success: !!result,
+                method: result?.method,
+                message: result?.message,
+                fullResult: result
+            });
+            
+            // 🔧 FIX: Verificar que el resultado sea válido
+            if (!result) {
+                throw new Error('AttendanceService.saveAttendance devolvió resultado nulo');
+            }
             
             this._hideLoadingModal();
             
@@ -846,11 +909,21 @@ const AttendanceController = {
                 method: result.method 
             });
             
+            console.log('✅ DEBUG: GUARDADO EXITOSO - Proceso completado');
+            
         } catch (error) {
             this._hideLoadingModal();
-            console.error('AttendanceController: Error en confirmación final:', error);
-            this._debugLogState('CONFIRM_FINAL_SAVE_ERROR', { error: error.message });
-            UIUtils.showError(error.message || 'Error al guardar las asistencias');
+            console.error('❌ AttendanceController: Error CRÍTICO en confirmación final:', error);
+            console.error('❌ Stack trace:', error.stack);
+            this._debugLogState('CONFIRM_FINAL_SAVE_ERROR', { 
+                error: error.message,
+                stack: error.stack 
+            });
+            
+            // 🔧 FIX: Mensaje de error más específico
+            const errorMessage = error.message || 'Error desconocido al guardar las asistencias';
+            UIUtils.showError(`Error al guardar: ${errorMessage}`);
+            
         } finally {
             this._setState({ isProcessing: false });
         }
@@ -1267,6 +1340,16 @@ const AttendanceController = {
     },
 
     /**
+     * 🔧 FIX 3: Método getState para debugging externo
+     */
+    getState() {
+        return {
+            ...this._state,
+            debugInfo: this.getDebugInfo()
+        };
+    },
+
+    /**
      * ✅ NUEVO: Guarda borrador en localStorage
      */
     _saveDraftToLocalStorage() {
@@ -1308,4 +1391,31 @@ window.debugAttendanceController = function() {
     return AttendanceController.getDebugInfo();
 };
 
-debugLog('AttendanceController - VERSIÓN COMPLETA CON DEBUG EXTENSO CARGADO');
+// 🔧 FIX 4: Función global para debugging de asistencia específicamente
+window.debugAttendanceData = function() {
+    const state = AttendanceController.getState();
+    const attendanceData = state.attendanceData;
+    
+    console.log('🔍 DEBUG ASISTENCIA - Estado completo:', {
+        classId: state.classId,
+        hasClassId: !!state.classId,
+        attendanceCount: Object.keys(attendanceData).length,
+        attendanceKeys: Object.keys(attendanceData),
+        sampleRecord: Object.values(attendanceData)[0],
+        allRecords: attendanceData,
+        groupCode: state.currentGroup?.codigo,
+        selectedDate: window.AppState.selectedDate
+    });
+    
+    return {
+        classId: state.classId,
+        attendanceData: attendanceData,
+        summary: {
+            total: Object.keys(attendanceData).length,
+            hasClassId: !!state.classId,
+            validRecords: Object.values(attendanceData).filter(r => r && r.studentId && r.status).length
+        }
+    };
+};
+
+debugLog('AttendanceController - VERSIÓN COMPLETA CON FIXES APLICADOS CARGADO');
