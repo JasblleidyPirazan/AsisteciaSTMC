@@ -1,7 +1,8 @@
 /**
- * SERVICIO DE CONTROL DE CLASES - CORREGIDO
- * ==========================================
+ * SERVICIO DE CONTROL DE CLASES - CORREGIDO CON FIX CRÍTICO
+ * =========================================================
  * Fix para comunicación correcta con backend
+ * FIX CRÍTICO: Cambio de id_clase por ID_Clase (PascalCase)
  */
 
 const ClassControlService = {
@@ -259,7 +260,7 @@ const ClassControlService = {
     },
 
     /**
-     * Prepara los datos de asistencia con ID de clase
+     * 🔧 FIX CRÍTICO: Prepara los datos de asistencia con ID de clase en PascalCase
      */
     prepareAttendanceWithClassId(attendanceData, classId) {
         debugLog(`ClassControlService: Preparando asistencia con ID de clase: ${classId}`);
@@ -272,14 +273,15 @@ const ClassControlService = {
             throw new Error('ID de clase es requerido');
         }
         
+        // ✅ CORREGIDO: Usar ID_Clase en lugar de id_clase
         return Object.values(attendanceData).map(record => ({
             ...record,
-            id_clase: classId
+            ID_Clase: classId  // PascalCase - Compatible con backend
         }));
     },
 
     /**
-     * Maneja el flujo completo de reporte de clase realizada
+     * 🔧 FIX CRÍTICO: Maneja el flujo completo de reporte de clase realizada
      */
     async handleClassRealized(fecha, groupCode, attendanceData, asistenteId) {
         debugLog(`ClassControlService: Manejando clase realizada - ${groupCode}, ${fecha}`);
@@ -315,9 +317,9 @@ const ClassControlService = {
                 }
             );
             
-            // 4. Agregar ID de clase a cada registro
+            // 4. ✅ CORREGIDO: Agregar ID_Clase a cada registro (PascalCase)
             records.forEach(record => {
-                record.id_clase = classRecord.id;
+                record.ID_Clase = classRecord.id;
             });
             
             // 5. Guardar asistencias
@@ -337,7 +339,7 @@ const ClassControlService = {
     },
 
     /**
-     * Maneja el flujo completo de reporte de clase cancelada
+     * 🔧 FIX CRÍTICO: Maneja el flujo completo de reporte de clase cancelada
      */
     async handleClassCancelled(fecha, groupCode, motivoCancelacion, descripcion, asistenteId) {
         debugLog(`ClassControlService: Manejando clase cancelada - ${groupCode}, ${fecha}`);
@@ -366,7 +368,7 @@ const ClassControlService = {
             // 3. Obtener estudiantes del grupo
             const students = await StudentService.getStudentsByGroup(groupCode);
             
-            // 4. Crear registros de asistencia cancelada para cada estudiante
+            // 4. ✅ CORREGIDO: Crear registros con ID_Clase directamente
             const cancellationRecords = students.map(student => 
                 AttendanceService.createAttendanceRecord(
                     student.id,
@@ -377,14 +379,14 @@ const ClassControlService = {
                         classType: AttendanceService.ATTENDANCE_TYPES.REGULAR,
                         justification: motivoCancelacion,
                         description: descripcion,
-                        idClase: classRecord.id // Agregar ID de clase
+                        ID_Clase: classRecord.id  // ✅ CORREGIDO: Usar ID_Clase directamente
                     }
                 )
             );
             
-            // 5. Agregar ID de clase a cada registro
+            // 5. ✅ CORREGIDO: Agregar ID_Clase a cada registro (PascalCase)
             cancellationRecords.forEach(record => {
-                record.id_clase = classRecord.id;
+                record.ID_Clase = classRecord.id;
             });
             
             // 6. Guardar registros de cancelación
@@ -434,4 +436,4 @@ const ClassControlService = {
 // Hacer disponible globalmente
 window.ClassControlService = ClassControlService;
 
-debugLog('class-control-service.js (CORREGIDO) cargado correctamente');
+debugLog('class-control-service.js (CORREGIDO CON FIX CRÍTICO PascalCase) cargado correctamente');
