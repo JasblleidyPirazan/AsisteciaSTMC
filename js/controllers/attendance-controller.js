@@ -1,12 +1,14 @@
 /**
- * CONTROLADOR DE ASISTENCIA - VERSIÓN FINAL CON TODAS LAS SOLUCIONES
- * =================================================================
+ * CONTROLADOR DE ASISTENCIA - VERSIÓN CORREGIDA CON FIX APLICADOS
+ * ================================================================
  * 🔧 FIXES APLICADOS:
  * ✅ Campo Grupo_Codigo agregado a registros
  * ✅ Manejo de clases duplicadas
  * ✅ Validación exhaustiva de datos
  * ✅ Limpieza de registros pendientes
  * ✅ Sistema de debugging completo
+ * 🆕 FIX CRÍTICO: Clase se crea solo al confirmar guardado (no antes)
+ * 🆕 FIX: Mejor manejo de borradores con IDs temporales
  */
 
 const AttendanceController = {
@@ -19,7 +21,7 @@ const AttendanceController = {
         attendanceData: {},
         attendanceType: 'regular',
         isProcessing: false,
-        classId: null, // 🔍 DEBUG: Este es crítico
+        classId: null, // 🔍 DEBUG: Este es crítico - ahora será temporal hasta confirmar
         draftSession: null,
         lastClickTimes: {},
         // 🔍 NUEVO: Estado de debugging
@@ -64,6 +66,7 @@ const AttendanceController = {
             hasClassId: !!classId,
             classIdType: typeof classId,
             classIdLength: classId ? classId.length : 0,
+            isTemporary: classId ? classId.startsWith('TEMP_') : false,
             currentGroup: this._state.currentGroup?.codigo,
             selectedAssistant: this._state.selectedAssistant?.id
         };
@@ -75,7 +78,7 @@ const AttendanceController = {
             return false;
         }
         
-        console.log(`✅ CLASS ID OK in ${context}:`, classId);
+        console.log(`✅ CLASS ID OK in ${context}:`, classId, debugInfo.isTemporary ? '(TEMPORAL)' : '(REAL)');
         return true;
     },
 
@@ -296,7 +299,7 @@ const AttendanceController = {
     },
 
     /**
-     * Selecciona asistente, CREA CLASE y va a asistencia
+     * 🔧 FIX: Selecciona asistente - SOLO guarda en memoria (no crea clase todavía)
      */
     async selectAssistantForAttendance(assistantId) {
         debugLog(`AttendanceController: Asistente seleccionado para asistencia: ${assistantId}`);
@@ -314,36 +317,23 @@ const AttendanceController = {
                 assistantName: assistant.nombre 
             });
             
-            // 2. Guardar asistente en estado
+            // 2. 🔧 FIX: Solo guardar asistente en estado, NO crear clase
             this._setState({ selectedAssistant: assistant });
             
-            // 🔍 DEBUG: Verificar que NO tengamos classId antes de crear
-            this._verifyClassIdIntegrity('BEFORE_CLASS_CREATION');
-            if (this._state.classId) {
-                console.error('❌ DEBUG: classId ya existe antes de crear clase - PROBLEMA!');
-            }
+            // 3. 🔧 FIX: Generar classId temporal para usar en memoria
+            const selectedDate = window.AppState.selectedDate || DateUtils.getCurrentDate();
+            const groupCode = this._state.currentGroup.codigo;
+            const tempClassId = this._generateTemporaryClassId(selectedDate, groupCode);
+            this._setState({ classId: tempClassId });
             
-            // 3. 🔍 DEBUG: CREAR REGISTRO DE CLASE AQUÍ (PASO CRÍTICO)
-            console.log('🔥 DEBUG: INICIANDO CREACIÓN DE CLASE...');
-            await this._createClassRecord(assistantId);
+            console.log('✅ FIX: Asistente guardado en memoria, classId temporal:', tempClassId);
             
-            // 🔍 DEBUG: Verificar que TENGAMOS classId después de crear
-            this._verifyClassIdIntegrity('AFTER_CLASS_CREATION');
-            if (!this._state.classId) {
-                console.error('❌ DEBUG: classId NO existe después de crear clase - PROBLEMA CRÍTICO!');
-                throw new Error('No se pudo obtener ID de clase después de la creación');
-            }
-            
-            console.log('✅ DEBUG: CLASE CREADA EXITOSAMENTE con ID:', this._state.classId);
-            
-            // 4. Ir al formulario de asistencia (ya con classId válido)
+            // 4. Ir al formulario de asistencia
             await this.showAttendanceFormDirect();
             
         } catch (error) {
-            console.error('AttendanceController: Error al seleccionar asistente para asistencia:', error);
-            this._debugLogState('SELECT_ASSISTANT_ERROR', { error: error.message });
-            UIUtils.showError(`Error al registrar la clase: ${error.message}`);
-            // Volver al selector de asistente en caso de error
+            console.error('AttendanceController: Error al seleccionar asistente:', error);
+            UIUtils.showError(`Error: ${error.message}`);
             await this.showAssistantSelectorForAttendance(this._state.currentGroup.codigo);
         }
     },
@@ -357,38 +347,29 @@ const AttendanceController = {
     },
 
     /**
-     * Continúa sin asistente, CREA CLASE y va a asistencia
+     * 🔧 FIX: Continúa sin asistente - SOLO guarda en memoria (no crea clase todavía)
      */
     async continueToAttendanceWithoutAssistant(groupCode) {
-        debugLog('AttendanceController: Continuando sin asistente a asistencia');
+        debugLog('AttendanceController: Continuando sin asistente');
         this._debugLogState('CONTINUE_WITHOUT_ASSISTANT_START');
         
         try {
-            // 1. Establecer asistente como null
+            // 1. 🔧 FIX: Solo limpiar asistente, NO crear clase
             this._setState({ selectedAssistant: null });
             
-            // 🔍 DEBUG: Verificar estado antes de crear clase
-            this._verifyClassIdIntegrity('BEFORE_CLASS_CREATION_NO_ASSISTANT');
+            // 2. 🔧 FIX: Generar classId temporal
+            const selectedDate = window.AppState.selectedDate || DateUtils.getCurrentDate();
+            const tempClassId = this._generateTemporaryClassId(selectedDate, groupCode);
+            this._setState({ classId: tempClassId });
             
-            // 2. CREAR REGISTRO DE CLASE SIN ASISTENTE
-            console.log('🔥 DEBUG: CREANDO CLASE SIN ASISTENTE...');
-            await this._createClassRecord('');
-            
-            // 🔍 DEBUG: Verificar que tengamos classId
-            this._verifyClassIdIntegrity('AFTER_CLASS_CREATION_NO_ASSISTANT');
-            if (!this._state.classId) {
-                throw new Error('No se pudo obtener ID de clase después de la creación sin asistente');
-            }
-            
-            console.log('✅ DEBUG: CLASE SIN ASISTENTE CREADA con ID:', this._state.classId);
+            console.log('✅ FIX: Continuando sin asistente, classId temporal:', tempClassId);
             
             // 3. Ir al formulario de asistencia
             await this.showAttendanceFormDirect();
             
         } catch (error) {
             console.error('AttendanceController: Error al continuar sin asistente:', error);
-            this._debugLogState('CONTINUE_WITHOUT_ASSISTANT_ERROR', { error: error.message });
-            UIUtils.showError(`Error al registrar la clase: ${error.message}`);
+            UIUtils.showError(`Error: ${error.message}`);
             await this.showAssistantSelectorForAttendance(groupCode);
         }
     },
@@ -399,6 +380,15 @@ const AttendanceController = {
     async continueWithoutAssistant(groupCode) {
         debugLog('AttendanceController: Continuando sin asistente');
         await this.continueToAttendanceWithoutAssistant(groupCode);
+    },
+
+    /**
+     * 🔧 FIX: NUEVA función para generar ID temporal
+     */
+    _generateTemporaryClassId(fecha, groupCode) {
+        const timestamp = Date.now();
+        const randomSuffix = Math.random().toString(36).substring(2, 8).toUpperCase();
+        return `TEMP_${fecha}_${groupCode}_${timestamp}_${randomSuffix}`;
     },
 
     /**
@@ -524,128 +514,56 @@ const AttendanceController = {
     },
 
     /**
-     * 🔧 SOLUCIÓN: Crea el registro de clase con manejo de duplicados
+     * 🔧 FIX: NUEVA función para crear clase solo cuando se confirma
      */
-    async _createClassRecord(assistantId) {
-        debugLog('AttendanceController: Creando registro de clase...');
-        this._debugLogState('CREATE_CLASS_RECORD_START', { assistantId });
+    async _createClassRecordNow(assistantId) {
+        debugLog('AttendanceController: Creando clase EN CONFIRMACIÓN...');
         
         try {
             const selectedDate = window.AppState.selectedDate || DateUtils.getCurrentDate();
             const groupCode = this._state.currentGroup.codigo;
             
-            console.log('🔍 DEBUG: Datos para crear clase:', {
+            console.log('🔧 FIX: Creando clase real en backend...', {
                 selectedDate,
                 groupCode,
-                assistantId,
-                groupHour: this._state.currentGroup.hora
+                assistantId
             });
             
-            // Mostrar indicador de carga
-            UIUtils.showLoading('app', 'Creando registro de clase...');
-            
-            try {
-                // 🔍 DEBUG: Llamada al ClassControlService
-                console.log('🔥 DEBUG: Llamando ClassControlService.createClassRecord...');
-                const classRecord = await ClassControlService.createClassRecord(
-                    selectedDate,
-                    groupCode,
-                    ClassControlService.CLASS_STATES.REALIZADA,
-                    {
-                        asistenteId: assistantId || '',
-                        creadoPor: window.AppState.user?.email || 'usuario'
-                    }
-                );
-                
-                console.log('🔍 DEBUG: Respuesta de ClassControlService:', classRecord);
-                
-                // 🔍 DEBUG: Verificar estructura de respuesta
-                if (!classRecord || !classRecord.id) {
-                    console.error('❌ DEBUG: Respuesta inválida de ClassControlService:', classRecord);
-                    throw new Error('Respuesta inválida del servicio de clases');
+            const classRecord = await ClassControlService.createClassRecord(
+                selectedDate,
+                groupCode,
+                ClassControlService.CLASS_STATES.REALIZADA,
+                {
+                    asistenteId: assistantId || '',
+                    creadoPor: window.AppState.user?.email || 'usuario'
                 }
+            );
+            
+            debugLog(`AttendanceController: Clase creada con ID: ${classRecord.id}`);
+            return classRecord;
+            
+        } catch (error) {
+            console.error('AttendanceController: Error creando clase en confirmación:', error);
+            
+            // 🔧 FIX: Manejo mejorado de clases duplicadas
+            if (error.message.includes('ya fue reportada')) {
+                console.log('🔧 FIX: Clase ya existe - buscando clase existente...');
                 
-                // 🔍 DEBUG: Guardar ID en estado
-                const oldClassId = this._state.classId;
-                this._setState({ classId: classRecord.id });
-                
-                console.log('🔍 DEBUG: Estado de classId actualizado:', {
-                    oldClassId: oldClassId,
-                    newClassId: classRecord.id,
-                    stateAfterUpdate: this._state.classId
-                });
-                
-                this._debugLogState('CREATE_CLASS_RECORD_SUCCESS', { 
-                    classId: classRecord.id,
-                    recordData: classRecord 
-                });
-                
-                debugLog(`AttendanceController: Clase creada con ID: ${classRecord.id}`);
-                
-                return classRecord;
-                
-            } catch (creationError) {
-                console.log('🔍 Error capturado en _createClassRecord:', creationError.message);
-                
-                // 🔧 SOLUCIÓN: Si el error es por clase duplicada
-                if (creationError.message.includes('ya fue reportada')) {
-                    console.log('🔧 FIX: Clase ya existe - buscando clase existente...');
+                try {
+                    // Buscar la clase existente
+                    const selectedDate = window.AppState.selectedDate || DateUtils.getCurrentDate();
+                    const groupCode = this._state.currentGroup.codigo;
+                    const existingClass = await ClassControlService.getClassByDateAndGroup(selectedDate, groupCode);
                     
-                    try {
-                        // Buscar la clase existente
-                        const existingClass = await ClassControlService.getClassByDateAndGroup(selectedDate, groupCode);
-                        
-                        if (existingClass && existingClass.ID) {
-                            console.log('✅ FIX: Clase existente encontrada:', existingClass);
-                            
-                            // Usar el ID de la clase existente
-                            this._setState({ classId: existingClass.ID });
-                            
-                            console.log('🔧 FIX: Usando clase existente con ID:', existingClass.ID);
-                            
-                            // Mostrar mensaje informativo al usuario
-                            UIUtils.showInfo('Usando clase existente del día. Puedes continuar registrando asistencias.');
-                            
-                            this._debugLogState('CREATE_CLASS_RECORD_EXISTING_USED', { 
-                                classId: existingClass.ID,
-                                existingClass: existingClass 
-                            });
-                            
-                            return existingClass;
-                            
-                        } else {
-                            throw new Error('No se pudo obtener la clase existente');
-                        }
-                        
-                    } catch (searchError) {
-                        console.error('❌ Error buscando clase existente:', searchError);
-                        
-                        // 🔧 SOLUCIÓN: Como último recurso, generar un ID basado en los datos conocidos
-                        const timestamp = Date.now();
-                        const randomSuffix = Math.random().toString(36).substring(2, 8).toUpperCase();
-                        const fallbackId = `CLS_${selectedDate}_${timestamp}_${groupCode}_${randomSuffix}`;
-                        
-                        this._setState({ classId: fallbackId });
-                        
-                        console.log('🔧 FIX: Usando ID de fallback:', fallbackId);
-                        UIUtils.showWarning('Usando ID temporal para continuar. La asistencia se guardará correctamente.');
-                        
-                        this._debugLogState('CREATE_CLASS_RECORD_FALLBACK_ID', { 
-                            classId: fallbackId,
-                            originalError: creationError.message
-                        });
-                        
-                        return { id: fallbackId, ID: fallbackId };
+                    if (existingClass && existingClass.ID) {
+                        console.log('✅ FIX: Usando clase existente:', existingClass.ID);
+                        return { id: existingClass.ID, ID: existingClass.ID };
                     }
-                } else {
-                    // Si es otro tipo de error, relanzarlo
-                    throw creationError;
+                } catch (searchError) {
+                    console.error('❌ Error buscando clase existente:', searchError);
                 }
             }
             
-        } catch (error) {
-            console.error('AttendanceController: Error creando registro de clase:', error);
-            this._debugLogState('CREATE_CLASS_RECORD_ERROR', { error: error.message });
             throw new Error(`No se pudo crear el registro de clase: ${error.message}`);
         }
     },
@@ -688,6 +606,7 @@ const AttendanceController = {
                 status,
                 hasClassId: !!this._state.classId,
                 classId: this._state.classId,
+                isTemporary: this._state.classId?.startsWith('TEMP_'),
                 record: record
             });
             
@@ -786,6 +705,7 @@ const AttendanceController = {
             attendanceCount,
             attendanceKeys: Object.keys(attendanceData),
             classId: this._state.classId,
+            isTemporary: this._state.classId?.startsWith('TEMP_'),
             groupCode: this._state.currentGroup?.codigo,
             fullAttendanceData: attendanceData,
             sampleRecord: Object.values(attendanceData)[0],
@@ -822,26 +742,22 @@ const AttendanceController = {
     },
 
     /**
-     * 🔧 SOLUCIÓN: Método confirmFinalSave con todas las correcciones
+     * 🔧 FIX: MODIFICAR confirmFinalSave para crear clase + asistencias juntas
      */
     async confirmFinalSave() {
-        console.log('🔥 DEBUG: CONFIRMACIÓN FINAL - Iniciando guardado de asistencias');
+        console.log('🔧 FIX: CONFIRMACIÓN FINAL - Guardando clase y asistencias juntas');
         this._debugLogState('CONFIRM_FINAL_SAVE_START_FINAL');
         
-        // 🔍 VERIFICACIÓN CRÍTICA: Verificar classId antes del guardado final
-        this._verifyClassIdIntegrity('BEFORE_FINAL_SAVE');
-        
         try {
-            // Cerrar modal de vista previa si existe
             this._closePreviewModal();
             
             const attendanceData = this._state.attendanceData;
             const attendanceCount = Object.keys(attendanceData).length;
             
-            console.log('🔥 DEBUG: CONFIRMACIÓN FINAL - Estado completo:', {
+            console.log('🔧 FIX: Estado antes del guardado final:', {
                 attendanceCount,
                 classId: this._state.classId,
-                hasClassId: !!this._state.classId,
+                isTemporary: this._state.classId?.startsWith('TEMP_'),
                 selectedDate: window.AppState.selectedDate,
                 groupCode: this._state.currentGroup?.codigo,
                 selectedAssistant: this._state.selectedAssistant?.id,
@@ -849,19 +765,13 @@ const AttendanceController = {
                 allAttendanceKeys: Object.keys(attendanceData)
             });
             
-            // 🔧 SOLUCIÓN: Verificaciones adicionales
+            // Validaciones
             if (attendanceCount === 0) {
-                console.error('❌ No hay asistencia registrada para guardar');
                 UIUtils.showWarning('No hay asistencia registrada para guardar');
                 return;
             }
             
-            if (!this._state.classId) {
-                console.error('❌ CRITICAL: classId faltante en confirmación final!');
-                throw new Error('ID de clase faltante - no se puede guardar');
-            }
-            
-            // 🔧 SOLUCIÓN: Verificar integridad de cada registro de asistencia
+            // 🔧 FIX: Verificar integridad de cada registro de asistencia
             const recordsWithIssues = [];
             Object.entries(attendanceData).forEach(([studentId, record]) => {
                 if (!record || !record.studentId || !record.status) {
@@ -875,96 +785,66 @@ const AttendanceController = {
             }
             
             this._setState({ isProcessing: true });
-            
-            // Mostrar modal de carga
-            this._showLoadingModal('Guardando asistencias...', 'Procesando registros...');
+            this._showLoadingModal('Guardando clase y asistencias...', 'Creando registros...');
             
             const selectedDate = window.AppState.selectedDate || DateUtils.getCurrentDate();
             const groupCode = this._state.currentGroup.codigo;
             const selectedAssistant = this._state.selectedAssistant;
-            const classId = this._state.classId;
             
-            console.log('🔥 DEBUG: Parámetros para AttendanceService.createGroupAttendanceRecords:', {
-                attendanceDataKeys: Object.keys(attendanceData),
-                attendanceDataCount: Object.keys(attendanceData).length,
-                groupCode, // 🔧 SOLUCIÓN: Asegurar que groupCode esté disponible
-                date: selectedDate,
-                classType: 'Regular',
-                idClase: classId, // 🔍 CRÍTICO: Verificar que se pase
-                sentBy: window.AppState.user?.email || 'usuario'
-            });
+            console.log('🔧 FIX: Paso 1 - Creando clase en backend...');
             
-            // 🔧 SOLUCIÓN: Crear registros de asistencia usando AttendanceService con groupCode explícito
-            console.log('🔥 DEBUG: Llamando AttendanceService.createGroupAttendanceRecords...');
+            // 🔧 FIX: CREAR CLASE AQUÍ (no antes)
+            const classRecord = await this._createClassRecordNow(selectedAssistant?.id || '');
+            
+            if (!classRecord || !classRecord.id) {
+                throw new Error('No se pudo crear el registro de clase');
+            }
+            
+            console.log('🔧 FIX: Clase creada con ID real:', classRecord.id);
+            
+            // 🔧 FIX: Actualizar estado con ID real
+            this._setState({ classId: classRecord.id });
+            
+            console.log('🔧 FIX: Paso 2 - Creando registros de asistencia...');
+            
+            // Crear registros de asistencia con ID real
             const { records, errors } = AttendanceService.createGroupAttendanceRecords(
                 attendanceData,
                 {
-                    groupCode: groupCode, // 🔧 SOLUCIÓN: Explícito
+                    groupCode: groupCode,
                     date: selectedDate,
                     classType: 'Regular',
-                    idClase: classId, // 🔍 CRÍTICO: Pasar ID de clase
+                    idClase: classRecord.id, // ✅ ID real de la clase
                     sentBy: window.AppState.user?.email || 'usuario'
                 }
             );
             
-            console.log('🔍 DEBUG: Registros creados por AttendanceService:', {
+            console.log('🔧 FIX: Registros de asistencia creados:', {
                 recordsCount: records.length,
                 errorsCount: errors.length,
                 firstRecordSample: records[0],
-                recordsWithClassId: records.filter(r => r.ID_Clase).length,
-                recordsWithoutClassId: records.filter(r => !r.ID_Clase).length,
-                recordsWithGroupCode: records.filter(r => r.Grupo_Codigo).length, // 🔧 SOLUCIÓN: Verificar Grupo_Codigo
-                recordsWithoutGroupCode: records.filter(r => !r.Grupo_Codigo).length,
                 allRecordsHaveClassId: records.every(r => r.ID_Clase),
-                allRecordsHaveGroupCode: records.every(r => r.Grupo_Codigo), // 🔧 SOLUCIÓN: Verificar Grupo_Codigo
-                classIdFromFirstRecord: records[0]?.ID_Clase,
-                groupCodeFromFirstRecord: records[0]?.Grupo_Codigo // 🔧 SOLUCIÓN: Verificar Grupo_Codigo
+                allRecordsHaveGroupCode: records.every(r => r.Grupo_Codigo),
+                realClassId: classRecord.id
             });
             
-            // 🔧 SOLUCIÓN: Verificación CRÍTICA - todos los registros deben tener ID_Clase Y Grupo_Codigo
-            const recordsWithoutClassId = records.filter(r => !r.ID_Clase);
-            const recordsWithoutGroupCode = records.filter(r => !r.Grupo_Codigo);
-            
-            if (recordsWithoutClassId.length > 0) {
-                console.error('❌ CRITICAL: Registros sin ID_Clase detectados:', recordsWithoutClassId);
-                throw new Error(`CRÍTICO: ${recordsWithoutClassId.length} registros sin ID_Clase. Verifica AttendanceService.createGroupAttendanceRecords.`);
-            }
-            
-            if (recordsWithoutGroupCode.length > 0) {
-                console.error('❌ CRITICAL: Registros sin Grupo_Codigo detectados:', recordsWithoutGroupCode);
-                throw new Error(`CRÍTICO: ${recordsWithoutGroupCode.length} registros sin Grupo_Codigo. Verifica AttendanceService.createGroupAttendanceRecords.`);
-            }
-            
-            // 🔧 SOLUCIÓN: Verificar que NO haya errores en la creación
             if (errors.length > 0) {
-                console.error('❌ Errores en creación de registros:', errors);
                 throw new Error(`Errores en ${errors.length} registros: ${errors.join(', ')}`);
             }
             
-            console.log('✅ DEBUG: Todos los registros tienen ID_Clase y Grupo_Codigo');
+            console.log('🔧 FIX: Paso 3 - Guardando asistencias...');
             
-            // 🔧 SOLUCIÓN: Guardar usando AttendanceService con manejo de errores mejorado
-            console.log('🔥 DEBUG: Llamando AttendanceService.saveAttendance...');
+            // Guardar asistencias
             const result = await AttendanceService.saveAttendance(records);
             
-            console.log('🔍 DEBUG: Resultado de saveAttendance:', {
-                success: !!result,
-                method: result?.method,
-                message: result?.message,
-                fullResult: result
-            });
-            
-            // 🔧 SOLUCIÓN: Verificar que el resultado sea válido
-            if (!result) {
-                throw new Error('AttendanceService.saveAttendance devolvió resultado nulo');
-            }
+            console.log('🔧 FIX: Resultado del guardado:', result);
             
             this._hideLoadingModal();
             
             // Limpiar borrador después de éxito
             this._clearDraftFromLocalStorage();
             
-            // Mostrar éxito con opción de volver al inicio
+            // Mostrar éxito
             this._showSuccessModal(result, groupCode, selectedDate, attendanceCount, selectedAssistant);
             
             this._debugLogState('CONFIRM_FINAL_SAVE_SUCCESS', { 
@@ -972,20 +852,20 @@ const AttendanceController = {
                 method: result.method 
             });
             
-            console.log('✅ DEBUG: GUARDADO EXITOSO - Proceso completado');
+            console.log('✅ FIX: Guardado completo exitoso');
             
         } catch (error) {
             this._hideLoadingModal();
-            console.error('❌ AttendanceController: Error CRÍTICO en confirmación final:', error);
+            console.error('❌ Error en confirmación final:', error);
             console.error('❌ Stack trace:', error.stack);
             this._debugLogState('CONFIRM_FINAL_SAVE_ERROR', { 
                 error: error.message,
                 stack: error.stack 
             });
             
-            // 🔧 SOLUCIÓN: Mensaje de error más específico
-            const errorMessage = error.message || 'Error desconocido al guardar las asistencias';
-            UIUtils.showError(`Error al guardar: ${errorMessage}`);
+            // 🔧 FIX: En caso de error, ofrecer guardado como borrador
+            this._saveDraftToLocalStorage();
+            UIUtils.showError(`Error al guardar: ${error.message}. Los datos se guardaron como borrador.`);
             
         } finally {
             this._setState({ isProcessing: false });
@@ -1329,6 +1209,7 @@ const AttendanceController = {
             status,
             classId: this._state.classId,
             hasClassId: !!this._state.classId,
+            isTemporary: this._state.classId?.startsWith('TEMP_'),
             record
         });
         
@@ -1376,6 +1257,8 @@ const AttendanceController = {
             console.log('🔍 DEBUG: classId cambió en setState:', {
                 old: oldClassId,
                 new: this._state.classId,
+                oldWasTemporary: oldClassId?.startsWith('TEMP_'),
+                newIsTemporary: this._state.classId?.startsWith('TEMP_'),
                 stackTrace: new Error().stack
             });
         }
@@ -1392,6 +1275,7 @@ const AttendanceController = {
             verificationResults: {
                 hasClassId: !!this._state.classId,
                 classId: this._state.classId,
+                isTemporary: this._state.classId?.startsWith('TEMP_'),
                 hasGroup: !!this._state.currentGroup,
                 hasStudents: this._state.currentStudents.length > 0,
                 hasAttendance: Object.keys(this._state.attendanceData).length > 0,
@@ -1413,7 +1297,7 @@ const AttendanceController = {
     },
 
     /**
-     * ✅ NUEVO: Guarda borrador en localStorage
+     * 🔧 FIX: Mejorar guardado de borrador
      */
     _saveDraftToLocalStorage() {
         const draftData = {
@@ -1421,13 +1305,13 @@ const AttendanceController = {
             fecha: window.AppState.selectedDate,
             attendanceData: this._state.attendanceData,
             selectedAssistant: this._state.selectedAssistant,
-            classId: this._state.classId, // 🔍 DEBUG: Incluir classId en borrador
-            timestamp: DateUtils.getCurrentTimestamp()
+            tempClassId: this._state.classId, // Guardar ID temporal
+            timestamp: DateUtils.getCurrentTimestamp(),
+            version: 'v2' // Para identificar nuevos borradores
         };
         
-        console.log('🔍 DEBUG: Guardando borrador con classId:', draftData.classId);
-        
         StorageUtils.save('attendance_draft', draftData);
+        console.log('📝 Borrador guardado:', draftData.tempClassId);
         debugLog('AttendanceController: Borrador guardado en localStorage');
     },
 
@@ -1437,6 +1321,50 @@ const AttendanceController = {
     _clearDraftFromLocalStorage() {
         StorageUtils.remove('attendance_draft');
         debugLog('AttendanceController: Borrador eliminado de localStorage');
+    },
+
+    /**
+     * 🔧 FIX: Función para recuperar borrador
+     */
+    async recoverDraft() {
+        const draft = StorageUtils.get('attendance_draft');
+        
+        if (!draft || draft.version !== 'v2') {
+            console.log('No hay borrador válido para recuperar');
+            return false;
+        }
+        
+        // Verificar que el borrador no sea muy antiguo (24 horas)
+        const draftTime = new Date(draft.timestamp);
+        const now = new Date();
+        const hoursDiff = (now - draftTime) / (1000 * 60 * 60);
+        
+        if (hoursDiff > 24) {
+            this._clearDraftFromLocalStorage();
+            console.log('Borrador muy antiguo, eliminado');
+            return false;
+        }
+        
+        try {
+            // Recuperar estado
+            this._setState({
+                currentGroup: await GroupService.getGroupByCode(draft.groupCode),
+                attendanceData: draft.attendanceData,
+                selectedAssistant: draft.selectedAssistant,
+                classId: draft.tempClassId
+            });
+            
+            window.AppState.selectedDate = draft.fecha;
+            
+            UIUtils.showInfo('Borrador recuperado. Puedes continuar editando y guardar.');
+            console.log('📝 Borrador recuperado exitosamente');
+            return true;
+            
+        } catch (error) {
+            console.error('Error recuperando borrador:', error);
+            this._clearDraftFromLocalStorage();
+            return false;
+        }
     }
 };
 
@@ -1462,6 +1390,7 @@ window.debugAttendanceData = function() {
     console.log('🔍 DEBUG ASISTENCIA - Estado completo:', {
         classId: state.classId,
         hasClassId: !!state.classId,
+        isTemporary: state.classId?.startsWith('TEMP_'),
         attendanceCount: Object.keys(attendanceData).length,
         attendanceKeys: Object.keys(attendanceData),
         sampleRecord: Object.values(attendanceData)[0],
@@ -1472,6 +1401,7 @@ window.debugAttendanceData = function() {
     
     return {
         classId: state.classId,
+        isTemporary: state.classId?.startsWith('TEMP_'),
         attendanceData: attendanceData,
         summary: {
             total: Object.keys(attendanceData).length,
@@ -1481,4 +1411,4 @@ window.debugAttendanceData = function() {
     };
 };
 
-debugLog('AttendanceController - VERSIÓN FINAL CON TODAS LAS SOLUCIONES APLICADAS');
+debugLog('AttendanceController - VERSIÓN CORREGIDA CON FIX APLICADOS');
