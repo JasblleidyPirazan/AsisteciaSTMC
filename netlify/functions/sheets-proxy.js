@@ -1,8 +1,9 @@
 // netlify/functions/sheets-proxy.js
-// Función proxy mejorada con mejor manejo de errores y debugging
+// VERSIÓN OPTIMIZADA PARA TIMEOUTS LARGOS
 
 const GOOGLE_SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbzV9HNAL9wXwSNpPOfe9djjPY0XjnEjwsn3CNOw0aiUB3Pi9NVXDn5xPFQs1CweXNO4/exec';
-const TIMEOUT_MS = 25000; // 25 segundos
+const TIMEOUT_MS = 45000; // 45 segundos (aumentado de 25s)
+const MAX_RETRIES = 2;
 
 exports.handler = async (event, context) => {
     // Headers CORS
@@ -15,33 +16,24 @@ exports.handler = async (event, context) => {
 
     // Manejar preflight OPTIONS
     if (event.httpMethod === 'OPTIONS') {
-        return {
-            statusCode: 200,
-            headers,
-            body: ''
-        };
+        return { statusCode: 200, headers, body: '' };
     }
 
     try {
-        console.log(`[PROXY] === NUEVA PETICIÓN ===`);
+        console.log(`[PROXY] === NUEVA PETICIÓN ${new Date().toISOString()} ===`);
         console.log(`[PROXY] Método: ${event.httpMethod}`);
-        console.log(`[PROXY] Query params:`, event.queryStringParameters);
-        console.log(`[PROXY] Body length: ${event.body ? event.body.length : 0}`);
         
         let requestData;
         
         if (event.httpMethod === 'GET') {
-            // Para GET, usar query parameters
             const action = event.queryStringParameters?.action;
-            
             if (!action) {
-                console.error('[PROXY] No action in GET request');
                 return {
                     statusCode: 400,
                     headers,
                     body: JSON.stringify({
                         success: false,
-                        error: 'Action parameter is required in GET request'
+                        error: 'Action parameter required'
                     })
                 };
             }
@@ -51,15 +43,10 @@ exports.handler = async (event, context) => {
                 ...event.queryStringParameters
             };
             
-            console.log(`[PROXY] GET request data:`, requestData);
-            
         } else if (event.httpMethod === 'POST') {
-            // Para POST, usar el body
             try {
                 requestData = JSON.parse(event.body || '{}');
-                console.log(`[PROXY] POST request data:`, requestData);
             } catch (e) {
-                console.error('[PROXY] Error parsing POST body:', e);
                 return {
                     statusCode: 400,
                     headers,
@@ -72,155 +59,138 @@ exports.handler = async (event, context) => {
         }
 
         if (!requestData?.action) {
-            console.error('[PROXY] No action in request data:', requestData);
             return {
                 statusCode: 400,
                 headers,
                 body: JSON.stringify({
                     success: false,
-                    error: 'Action parameter is required'
+                    error: 'Action parameter required'
                 })
             };
         }
 
-        console.log(`[PROXY] Processing action: ${requestData.action}`);
+        console.log(`[PROXY] Procesando acción: ${requestData.action}`);
         
-        // Validar acciones conocidas
-        const validActions = [
-            'getGroups', 'getTodayGroups', 'getStudents', 'getStudentsByGroup',
-            'getProfessors', 'getAssistants', 'getGroupByCode', 'checkClassExists',
-            'getSpreadsheetInfo', 'testConnection', 'saveAttendance', 'createClassRecord'
-        ];
+        // DETECCIÓN ESPECIAL PARA OPERACIONES LARGAS
+        const isLongOperation = [
+            'saveAttendance',
+            'saveGroupReposition',
+            'createClassRecord'
+        ].includes(requestData.action);
         
-        if (!validActions.includes(requestData.action)) {
-            console.warn(`[PROXY] Acción desconocida: ${requestData.action}`);
-            // Continuar de todos modos, dejar que Apps Script maneje el error
-        }
+        const operationTimeout = isLongOperation ? 60000 : TIMEOUT_MS; // 60s para operaciones de guardado
+        
+        console.log(`[PROXY] Timeout configurado: ${operationTimeout}ms para ${requestData.action}`);
 
-        // Preparar request para Apps Script
-        const appsScriptPayload = {
-            action: requestData.action,
-            ...requestData
-        };
+        // Función de retry con backoff exponencial
+        const makeRequestWithRetry = async (attempt = 1) => {
+            console.log(`[PROXY] Intento ${attempt}/${MAX_RETRIES + 1} para ${requestData.action}`);
+            
+            const controller = new AbortController();
+            const timeoutId = setTimeout(() => {
+                console.log(`[PROXY] Timeout alcanzado (${operationTimeout}ms) en intento ${attempt}`);
+                controller.abort();
+            }, operationTimeout);
 
-        // Remover duplicados
-        if (appsScriptPayload.action && requestData.action && appsScriptPayload.action === requestData.action) {
-            // OK, no hay duplicados
-        }
-
-        console.log(`[PROXY] Enviando a Apps Script:`, JSON.stringify(appsScriptPayload, null, 2));
-
-        // Timeout controller
-        const controller = new AbortController();
-        const timeoutId = setTimeout(() => {
-            controller.abort();
-        }, TIMEOUT_MS);
-
-        try {
-            const response = await fetch(GOOGLE_SCRIPT_URL, {
-                method: 'POST', // Siempre POST para Apps Script
-                headers: {
-                    'Content-Type': 'application/json'
-                },
-                body: JSON.stringify(appsScriptPayload),
-                signal: controller.signal
-            });
-
-            clearTimeout(timeoutId);
-
-            console.log(`[PROXY] Apps Script response status: ${response.status}`);
-            console.log(`[PROXY] Apps Script response headers:`, Object.fromEntries(response.headers.entries()));
-
-            if (!response.ok) {
-                const errorText = await response.text();
-                console.error(`[PROXY] Apps Script HTTP error: ${response.status} - ${errorText}`);
-                
-                return {
-                    statusCode: 502,
-                    headers,
-                    body: JSON.stringify({
-                        success: false,
-                        error: `Google Apps Script HTTP error: ${response.status}`,
-                        details: errorText.substring(0, 500),
-                        action: requestData.action
-                    })
-                };
-            }
-
-            const responseText = await response.text();
-            console.log(`[PROXY] Apps Script response length: ${responseText.length} chars`);
-            console.log(`[PROXY] Apps Script response preview:`, responseText.substring(0, 200));
-
-            // Verificar que sea JSON válido
             try {
-                const jsonData = JSON.parse(responseText);
-                console.log(`[PROXY] Valid JSON response`);
-                console.log(`[PROXY] Response success:`, jsonData.success);
+                const response = await fetch(GOOGLE_SCRIPT_URL, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(requestData),
+                    signal: controller.signal
+                });
+
+                clearTimeout(timeoutId);
+
+                console.log(`[PROXY] Respuesta recibida: ${response.status} en ${new Date().toISOString()}`);
+
+                if (!response.ok) {
+                    const errorText = await response.text();
+                    console.error(`[PROXY] Error HTTP ${response.status}: ${errorText.substring(0, 200)}`);
+                    
+                    // Retry para errores específicos
+                    if ([502, 503, 504].includes(response.status) && attempt <= MAX_RETRIES) {
+                        const delay = Math.pow(2, attempt) * 1000; // Backoff exponencial
+                        console.log(`[PROXY] Reintentando en ${delay}ms...`);
+                        await new Promise(resolve => setTimeout(resolve, delay));
+                        return makeRequestWithRetry(attempt + 1);
+                    }
+                    
+                    throw new Error(`Google Apps Script HTTP ${response.status}: ${errorText.substring(0, 100)}`);
+                }
+
+                const responseText = await response.text();
+                console.log(`[PROXY] Respuesta exitosa (${responseText.length} chars)`);
+
+                // Verificar JSON válido
+                try {
+                    const jsonData = JSON.parse(responseText);
+                    return {
+                        statusCode: 200,
+                        headers,
+                        body: responseText
+                    };
+                } catch (e) {
+                    console.error('[PROXY] JSON inválido:', responseText.substring(0, 200));
+                    throw new Error(`Invalid JSON from Google Apps Script: ${e.message}`);
+                }
+
+            } catch (fetchError) {
+                clearTimeout(timeoutId);
                 
-                if (!jsonData.success) {
-                    console.warn(`[PROXY] Apps Script returned success=false:`, jsonData.error);
+                if (fetchError.name === 'AbortError') {
+                    console.error(`[PROXY] Timeout después de ${operationTimeout}ms en intento ${attempt}`);
+                    
+                    // Retry para timeouts
+                    if (attempt <= MAX_RETRIES) {
+                        const delay = Math.pow(2, attempt) * 1000;
+                        console.log(`[PROXY] Reintentando después de timeout en ${delay}ms...`);
+                        await new Promise(resolve => setTimeout(resolve, delay));
+                        return makeRequestWithRetry(attempt + 1);
+                    }
+                    
+                    return {
+                        statusCode: 504,
+                        headers,
+                        body: JSON.stringify({
+                            success: false,
+                            error: `Request timeout after ${operationTimeout}ms (tried ${attempt} times)`,
+                            action: requestData.action,
+                            suggestion: 'Try again - Google Apps Script may be busy'
+                        })
+                    };
+                }
+
+                console.error(`[PROXY] Error de fetch en intento ${attempt}:`, fetchError.message);
+                
+                // Retry para errores de red
+                if (attempt <= MAX_RETRIES && 
+                    (fetchError.message.includes('fetch') || 
+                     fetchError.message.includes('network') ||
+                     fetchError.message.includes('ECONNRESET'))) {
+                    const delay = Math.pow(2, attempt) * 1000;
+                    console.log(`[PROXY] Reintentando después de error de red en ${delay}ms...`);
+                    await new Promise(resolve => setTimeout(resolve, delay));
+                    return makeRequestWithRetry(attempt + 1);
                 }
                 
-                return {
-                    statusCode: 200,
-                    headers,
-                    body: responseText
-                };
-                
-            } catch (e) {
-                console.error('[PROXY] Invalid JSON response from Apps Script');
-                console.error('[PROXY] Raw response:', responseText);
-                
-                return {
-                    statusCode: 502,
-                    headers,
-                    body: JSON.stringify({
-                        success: false,
-                        error: 'Invalid JSON response from Google Apps Script',
-                        details: responseText.substring(0, 200),
-                        action: requestData.action
-                    })
-                };
+                throw fetchError;
             }
+        };
 
-        } catch (fetchError) {
-            clearTimeout(timeoutId);
-            
-            if (fetchError.name === 'AbortError') {
-                console.error(`[PROXY] Timeout después de ${TIMEOUT_MS}ms`);
-                return {
-                    statusCode: 504,
-                    headers,
-                    body: JSON.stringify({
-                        success: false,
-                        error: `Request timeout after ${TIMEOUT_MS}ms`,
-                        action: requestData.action
-                    })
-                };
-            }
-
-            console.error('[PROXY] Fetch error:', fetchError);
-            return {
-                statusCode: 502,
-                headers,
-                body: JSON.stringify({
-                    success: false,
-                    error: 'Failed to connect to Google Apps Script',
-                    details: fetchError.message,
-                    action: requestData.action
-                })
-            };
-        }
+        // Ejecutar con retry
+        return await makeRequestWithRetry();
 
     } catch (error) {
-        console.error('[PROXY] General error:', error);
+        console.error('[PROXY] Error general:', error.message);
         return {
             statusCode: 500,
             headers,
             body: JSON.stringify({
                 success: false,
-                error: 'Internal proxy error',
-                details: error.message
+                error: 'Proxy internal error',
+                details: error.message,
+                timestamp: new Date().toISOString()
             })
         };
     }
