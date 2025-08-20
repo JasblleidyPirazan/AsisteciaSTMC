@@ -1,14 +1,15 @@
 /**
- * CONTROLADOR DE ASISTENCIA - VERSIÓN CORREGIDA CON FIX APLICADOS
- * ================================================================
+ * CONTROLADOR DE ASISTENCIA - VERSIÓN CORREGIDA COMPLETA
+ * ======================================================
  * 🔧 FIXES APLICADOS:
  * ✅ Campo Grupo_Codigo agregado a registros
  * ✅ Manejo de clases duplicadas
  * ✅ Validación exhaustiva de datos
  * ✅ Limpieza de registros pendientes
  * ✅ Sistema de debugging completo
- * 🆕 FIX CRÍTICO: Clase se crea solo al confirmar guardado (no antes)
- * 🆕 FIX: Mejor manejo de borradores con IDs temporales
+ * ✅ FIX CRÍTICO: Clase se crea solo al confirmar guardado (no antes)
+ * ✅ FIX: Mejor manejo de borradores con IDs temporales
+ * ✅ FIX INTEGRADO: confirmFinalSave usa ClassControlService
  */
 
 const AttendanceController = {
@@ -383,11 +384,11 @@ const AttendanceController = {
     },
 
     /**
-     * 🔧 FIX: NUEVA función para generar ID temporal
+     * 🔧 CORREGIDO: Método mejorado para crear ID temporal más descriptivo
      */
     _generateTemporaryClassId(fecha, groupCode) {
         const timestamp = Date.now();
-        const randomSuffix = Math.random().toString(36).substring(2, 8).toUpperCase();
+        const randomSuffix = Math.random().toString(36).substring(2, 6).toUpperCase();
         return `TEMP_${fecha}_${groupCode}_${timestamp}_${randomSuffix}`;
     },
 
@@ -510,61 +511,6 @@ const AttendanceController = {
             console.error('AttendanceController: Error guardando cancelación:', error);
             this._debugLogState('SAVE_CANCELLATION_ERROR', { error: error.message });
             UIUtils.showError(`Error al guardar cancelación: ${error.message}`);
-        }
-    },
-
-    /**
-     * 🔧 FIX: NUEVA función para crear clase solo cuando se confirma
-     */
-    async _createClassRecordNow(assistantId) {
-        debugLog('AttendanceController: Creando clase EN CONFIRMACIÓN...');
-        
-        try {
-            const selectedDate = window.AppState.selectedDate || DateUtils.getCurrentDate();
-            const groupCode = this._state.currentGroup.codigo;
-            
-            console.log('🔧 FIX: Creando clase real en backend...', {
-                selectedDate,
-                groupCode,
-                assistantId
-            });
-            
-            const classRecord = await ClassControlService.createClassRecord(
-                selectedDate,
-                groupCode,
-                ClassControlService.CLASS_STATES.REALIZADA,
-                {
-                    asistenteId: assistantId || '',
-                    creadoPor: window.AppState.user?.email || 'usuario'
-                }
-            );
-            
-            debugLog(`AttendanceController: Clase creada con ID: ${classRecord.id}`);
-            return classRecord;
-            
-        } catch (error) {
-            console.error('AttendanceController: Error creando clase en confirmación:', error);
-            
-            // 🔧 FIX: Manejo mejorado de clases duplicadas
-            if (error.message.includes('ya fue reportada')) {
-                console.log('🔧 FIX: Clase ya existe - buscando clase existente...');
-                
-                try {
-                    // Buscar la clase existente
-                    const selectedDate = window.AppState.selectedDate || DateUtils.getCurrentDate();
-                    const groupCode = this._state.currentGroup.codigo;
-                    const existingClass = await ClassControlService.getClassByDateAndGroup(selectedDate, groupCode);
-                    
-                    if (existingClass && existingClass.ID) {
-                        console.log('✅ FIX: Usando clase existente:', existingClass.ID);
-                        return { id: existingClass.ID, ID: existingClass.ID };
-                    }
-                } catch (searchError) {
-                    console.error('❌ Error buscando clase existente:', searchError);
-                }
-            }
-            
-            throw new Error(`No se pudo crear el registro de clase: ${error.message}`);
         }
     },
 
@@ -742,133 +688,162 @@ const AttendanceController = {
     },
 
     /**
-     * 🔧 FIX: MODIFICAR confirmFinalSave para crear clase + asistencias juntas
+     * 🔧 CORREGIDO: Confirma y guarda usando ClassControlService
+     * Reemplaza el método confirmFinalSave existente en AttendanceController
      */
     async confirmFinalSave() {
-        console.log('🔧 FIX: CONFIRMACIÓN FINAL - Guardando clase y asistencias juntas');
-        this._debugLogState('CONFIRM_FINAL_SAVE_START_FINAL');
+        console.log('🔧 FIX: confirmFinalSave - Usando ClassControlService CORREGIDO');
+        this._debugLogState('CONFIRM_FINAL_SAVE_START_CORREGIDO');
         
         try {
             this._closePreviewModal();
             
             const attendanceData = this._state.attendanceData;
             const attendanceCount = Object.keys(attendanceData).length;
+            const selectedDate = window.AppState.selectedDate || DateUtils.getCurrentDate();
+            const groupCode = this._state.currentGroup.codigo;
+            const selectedAssistant = this._state.selectedAssistant;
             
-            console.log('🔧 FIX: Estado antes del guardado final:', {
+            console.log('🔧 FIX: Estado antes del guardado CORREGIDO:', {
                 attendanceCount,
+                hasClassId: !!this._state.classId,
                 classId: this._state.classId,
                 isTemporary: this._state.classId?.startsWith('TEMP_'),
-                selectedDate: window.AppState.selectedDate,
-                groupCode: this._state.currentGroup?.codigo,
-                selectedAssistant: this._state.selectedAssistant?.id,
-                attendanceDataSample: Object.values(attendanceData).slice(0, 2),
-                allAttendanceKeys: Object.keys(attendanceData)
+                selectedDate,
+                groupCode,
+                selectedAssistant: selectedAssistant?.id,
+                attendanceDataSample: Object.values(attendanceData).slice(0, 2)
             });
             
-            // Validaciones
+            // 🔧 CORREGIDO: Validaciones mejoradas
             if (attendanceCount === 0) {
                 UIUtils.showWarning('No hay asistencia registrada para guardar');
                 return;
             }
             
-            // 🔧 FIX: Verificar integridad de cada registro de asistencia
-            const recordsWithIssues = [];
-            Object.entries(attendanceData).forEach(([studentId, record]) => {
-                if (!record || !record.studentId || !record.status) {
-                    recordsWithIssues.push({ studentId, record });
-                }
-            });
+            // Verificar que todos los registros tengan datos válidos
+            const invalidRecords = Object.values(attendanceData).filter(record => 
+                !record || !record.studentId || !record.status
+            );
             
-            if (recordsWithIssues.length > 0) {
-                console.error('❌ Registros con problemas detectados:', recordsWithIssues);
-                throw new Error(`${recordsWithIssues.length} registros tienen problemas de integridad`);
+            if (invalidRecords.length > 0) {
+                console.error('❌ Registros inválidos detectados:', invalidRecords);
+                throw new Error(`${invalidRecords.length} registros tienen datos incompletos`);
             }
             
             this._setState({ isProcessing: true });
-            this._showLoadingModal('Guardando clase y asistencias...', 'Creando registros...');
+            this._showLoadingModal('Guardando clase y asistencias...', 'Usando flujo unificado...');
             
-            const selectedDate = window.AppState.selectedDate || DateUtils.getCurrentDate();
-            const groupCode = this._state.currentGroup.codigo;
-            const selectedAssistant = this._state.selectedAssistant;
+            console.log('🔧 FIX: Usando ClassControlService.handleClassRealized');
             
-            console.log('🔧 FIX: Paso 1 - Creando clase en backend...');
-            
-            // 🔧 FIX: CREAR CLASE AQUÍ (no antes)
-            const classRecord = await this._createClassRecordNow(selectedAssistant?.id || '');
-            
-            if (!classRecord || !classRecord.id) {
-                throw new Error('No se pudo crear el registro de clase');
-            }
-            
-            console.log('🔧 FIX: Clase creada con ID real:', classRecord.id);
-            
-            // 🔧 FIX: Actualizar estado con ID real
-            this._setState({ classId: classRecord.id });
-            
-            console.log('🔧 FIX: Paso 2 - Creando registros de asistencia...');
-            
-            // Crear registros de asistencia con ID real
-            const { records, errors } = AttendanceService.createGroupAttendanceRecords(
+            // ✅ CORREGIDO: Usar ClassControlService en lugar de crear clase manualmente
+            const result = await ClassControlService.handleClassRealized(
+                selectedDate,
+                groupCode,
                 attendanceData,
-                {
-                    groupCode: groupCode,
-                    date: selectedDate,
-                    classType: 'Regular',
-                    idClase: classRecord.id, // ✅ ID real de la clase
-                    sentBy: window.AppState.user?.email || 'usuario'
-                }
+                selectedAssistant?.id || ''
             );
             
-            console.log('🔧 FIX: Registros de asistencia creados:', {
-                recordsCount: records.length,
-                errorsCount: errors.length,
-                firstRecordSample: records[0],
-                allRecordsHaveClassId: records.every(r => r.ID_Clase),
-                allRecordsHaveGroupCode: records.every(r => r.Grupo_Codigo),
-                realClassId: classRecord.id
-            });
-            
-            if (errors.length > 0) {
-                throw new Error(`Errores en ${errors.length} registros: ${errors.join(', ')}`);
-            }
-            
-            console.log('🔧 FIX: Paso 3 - Guardando asistencias...');
-            
-            // Guardar asistencias
-            const result = await AttendanceService.saveAttendance(records);
-            
-            console.log('🔧 FIX: Resultado del guardado:', result);
+            console.log('✅ FIX: ClassControlService.handleClassRealized completado:', result);
             
             this._hideLoadingModal();
             
             // Limpiar borrador después de éxito
             this._clearDraftFromLocalStorage();
             
-            // Mostrar éxito
-            this._showSuccessModal(result, groupCode, selectedDate, attendanceCount, selectedAssistant);
+            // Mostrar éxito con datos del resultado unificado
+            this._showSuccessModal(
+                result.attendanceResult, 
+                groupCode, 
+                selectedDate, 
+                result.summary.attendanceRecords,
+                selectedAssistant
+            );
             
-            this._debugLogState('CONFIRM_FINAL_SAVE_SUCCESS', { 
-                savedCount: records.length,
-                method: result.method 
+            this._debugLogState('CONFIRM_FINAL_SAVE_SUCCESS_CORREGIDO', { 
+                savedCount: result.summary.attendanceRecords,
+                method: result.attendanceResult.method,
+                classId: result.summary.classId
             });
             
-            console.log('✅ FIX: Guardado completo exitoso');
+            console.log('✅ FIX: Guardado completo exitoso usando flujo unificado');
             
         } catch (error) {
             this._hideLoadingModal();
-            console.error('❌ Error en confirmación final:', error);
+            console.error('❌ Error en confirmFinalSave corregido:', error);
             console.error('❌ Stack trace:', error.stack);
-            this._debugLogState('CONFIRM_FINAL_SAVE_ERROR', { 
+            this._debugLogState('CONFIRM_FINAL_SAVE_ERROR_CORREGIDO', { 
                 error: error.message,
                 stack: error.stack 
             });
             
-            // 🔧 FIX: En caso de error, ofrecer guardado como borrador
+            // En caso de error, ofrecer guardado como borrador
             this._saveDraftToLocalStorage();
             UIUtils.showError(`Error al guardar: ${error.message}. Los datos se guardaron como borrador.`);
             
         } finally {
             this._setState({ isProcessing: false });
+        }
+    },
+
+    /**
+     * 🔧 CORREGIDO: Mejor validación del flujo de asistencia
+     * Método adicional para debugging y validación
+     */
+    validateAttendanceFlow() {
+        console.log('🔍 Validando flujo de asistencia...');
+        
+        const validation = {
+            timestamp: new Date().toISOString(),
+            hasCurrentGroup: !!this._state.currentGroup,
+            hasStudents: this._state.currentStudents.length > 0,
+            hasAttendanceData: Object.keys(this._state.attendanceData).length > 0,
+            hasSelectedAssistant: !!this._state.selectedAssistant,
+            classIdStatus: {
+                exists: !!this._state.classId,
+                value: this._state.classId,
+                isTemporary: this._state.classId?.startsWith('TEMP_')
+            },
+            flowState: {
+                currentView: this._state.currentView,
+                isProcessing: this._state.isProcessing,
+                attendanceType: this._state.attendanceType
+            }
+        };
+        
+        console.log('📋 Validación del flujo:', validation);
+        
+        const isValidForSave = validation.hasCurrentGroup && 
+                              validation.hasStudents && 
+                              validation.hasAttendanceData;
+        
+        console.log(isValidForSave ? '✅ Flujo válido para guardar' : '❌ Flujo incompleto');
+        
+        return {
+            valid: isValidForSave,
+            details: validation
+        };
+    },
+
+    /**
+     * 🔧 AGREGADO: Método para recuperar de errores de guardado
+     */
+    async retryFailedSave() {
+        console.log('🔄 Reintentando guardado fallido...');
+        
+        try {
+            // Verificar que tenemos datos para reintentar
+            const validation = this.validateAttendanceFlow();
+            if (!validation.valid) {
+                throw new Error('No hay datos válidos para reintentar');
+            }
+            
+            // Intentar nuevamente
+            await this.confirmFinalSave();
+            
+        } catch (error) {
+            console.error('❌ Error en reintento:', error);
+            UIUtils.showError(`Error en reintento: ${error.message}`);
         }
     },
 
@@ -1411,4 +1386,10 @@ window.debugAttendanceData = function() {
     };
 };
 
-debugLog('AttendanceController - VERSIÓN CORREGIDA CON FIX APLICADOS');
+console.log('🔧 AttendanceController.confirmFinalSave CORREGIDO cargado');
+console.log('📋 Métodos agregados:');
+console.log('   - confirmFinalSave() - Versión corregida que usa ClassControlService');
+console.log('   - validateAttendanceFlow() - Validación del estado actual');
+console.log('   - retryFailedSave() - Reintento en caso de error');
+
+debugLog('AttendanceController - VERSIÓN CORREGIDA COMPLETA CON FIX INTEGRADOS');
