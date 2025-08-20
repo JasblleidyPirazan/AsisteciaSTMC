@@ -900,4 +900,354 @@ window.addEventListener('unhandledrejection', (event) => {
     }
 });
 
+// ===========================================
+// UTILIDADES GLOBALES AGREGADAS - CORRECCIONES
+// ===========================================
+// 🔧 FUNCIONES GLOBALES para normalización y validación consistente
+
+/**
+ * 🔧 AGREGADO: Función global para normalizar IDs de estudiantes consistentemente
+ */
+function normalizeStudentId(id) {
+    if (id === null || id === undefined || id === '') {
+        return '';
+    }
+    return String(id).trim();
+}
+
+/**
+ * 🔧 AGREGADO: Función global para normalizar cualquier ID
+ */
+function normalizeId(id) {
+    if (id === null || id === undefined || id === '') {
+        return '';
+    }
+    return String(id).trim();
+}
+
+/**
+ * 🔧 AGREGADO: Función global para validar registro de asistencia
+ */
+function validateAttendanceRecord(record) {
+    const errors = [];
+    
+    if (!record || typeof record !== 'object') {
+        errors.push('Registro de asistencia requerido');
+        return { valid: false, errors };
+    }
+    
+    // Validar ID_Clase (campo crítico)
+    if (!record.ID_Clase || record.ID_Clase.toString().trim() === '') {
+        errors.push('ID_Clase es requerido y no puede estar vacío');
+    }
+    
+    // Validar ID de estudiante
+    if (!record.Estudiante_ID || record.Estudiante_ID.toString().trim() === '') {
+        errors.push('Estudiante_ID es requerido');
+    }
+    
+    // Validar código de grupo
+    if (!record.Grupo_Codigo || record.Grupo_Codigo.toString().trim() === '') {
+        errors.push('Grupo_Codigo es requerido');
+    }
+    
+    // Validar estado
+    const validStates = ['Presente', 'Ausente', 'Justificada', 'Cancelada'];
+    if (!record.Estado || !validStates.includes(record.Estado)) {
+        errors.push(`Estado inválido: ${record.Estado}. Estados válidos: ${validStates.join(', ')}`);
+    }
+    
+    // Validar fecha
+    if (!record.Fecha) {
+        errors.push('Fecha es requerida');
+    } else if (!ValidationUtils.isValidDate(record.Fecha)) {
+        errors.push('Formato de fecha inválido');
+    }
+    
+    return {
+        valid: errors.length === 0,
+        errors
+    };
+}
+
+/**
+ * 🔧 AGREGADO: Función para validar integridad de grupo de registros de asistencia
+ */
+function validateAttendanceGroup(records, expectedClassId = null) {
+    console.log('🔍 Validando grupo de registros de asistencia...');
+    
+    if (!Array.isArray(records)) {
+        return {
+            valid: false,
+            errors: ['Los registros deben ser un array'],
+            summary: { total: 0, valid: 0, invalid: 0 }
+        };
+    }
+    
+    const results = {
+        total: records.length,
+        valid: 0,
+        invalid: 0,
+        errors: [],
+        invalidRecords: []
+    };
+    
+    records.forEach((record, index) => {
+        const validation = validateAttendanceRecord(record);
+        
+        if (validation.valid) {
+            results.valid++;
+            
+            // Validar ID_Clase específico si se proporciona
+            if (expectedClassId && record.ID_Clase !== expectedClassId) {
+                results.errors.push(`Registro ${index + 1}: ID_Clase no coincide (esperado: ${expectedClassId}, actual: ${record.ID_Clase})`);
+                results.invalid++;
+                results.valid--;
+                results.invalidRecords.push({ index, record, errors: [`ID_Clase no coincide`] });
+            }
+        } else {
+            results.invalid++;
+            results.errors.push(`Registro ${index + 1}: ${validation.errors.join(', ')}`);
+            results.invalidRecords.push({ index, record, errors: validation.errors });
+        }
+    });
+    
+    const isValid = results.invalid === 0;
+    
+    console.log(isValid ? '✅ Grupo de registros válido' : '❌ Grupo de registros inválido', {
+        total: results.total,
+        valid: results.valid,
+        invalid: results.invalid,
+        errorsCount: results.errors.length
+    });
+    
+    return {
+        valid: isValid,
+        summary: results,
+        errors: results.errors
+    };
+}
+
+/**
+ * 🔧 AGREGADO: Función para limpiar y normalizar datos de asistencia
+ */
+function cleanAttendanceData(rawData) {
+    if (!rawData || typeof rawData !== 'object') {
+        return {};
+    }
+    
+    const cleaned = {};
+    
+    Object.entries(rawData).forEach(([studentId, record]) => {
+        if (record && record.studentId && record.status) {
+            cleaned[normalizeStudentId(studentId)] = {
+                studentId: normalizeStudentId(record.studentId),
+                status: record.status,
+                justification: record.justification || '',
+                description: record.description || '',
+                timestamp: record.timestamp || DateUtils.getCurrentTimestamp()
+            };
+        }
+    });
+    
+    return cleaned;
+}
+
+/**
+ * 🔧 AGREGADO: Función para verificar consistencia del sistema
+ */
+function checkSystemConsistency() {
+    console.log('🔍 Verificando consistencia del sistema...');
+    
+    const checks = {
+        timestamp: new Date().toISOString(),
+        services: {
+            AttendanceService: {
+                exists: !!window.AttendanceService,
+                hasCreateRecord: typeof AttendanceService?.createAttendanceRecord === 'function',
+                hasCreateGroup: typeof AttendanceService?.createGroupAttendanceRecords === 'function',
+                hasSave: typeof AttendanceService?.saveAttendance === 'function'
+            },
+            ClassControlService: {
+                exists: !!window.ClassControlService,
+                hasHandleRealized: typeof ClassControlService?.handleClassRealized === 'function',
+                hasValidate: typeof ClassControlService?.validateClassReport === 'function'
+            },
+            StudentService: {
+                exists: !!window.StudentService,
+                hasGetAll: typeof StudentService?.getAllStudents === 'function',
+                hasNormalize: typeof StudentService?._normalizeStudent === 'function'
+            }
+        },
+        controllers: {
+            AttendanceController: {
+                exists: !!window.AttendanceController,
+                hasConfirmSave: typeof AttendanceController?.confirmFinalSave === 'function',
+                hasValidateFlow: typeof AttendanceController?.validateAttendanceFlow === 'function'
+            }
+        },
+        utils: {
+            normalizeId: typeof normalizeId === 'function',
+            normalizeStudentId: typeof normalizeStudentId === 'function',
+            validateRecord: typeof validateAttendanceRecord === 'function',
+            validateGroup: typeof validateAttendanceGroup === 'function',
+            cleanData: typeof cleanAttendanceData === 'function'
+        },
+        appState: {
+            exists: !!window.AppState,
+            hasSelectedDate: !!window.AppState?.selectedDate,
+            hasUser: !!window.AppState?.user
+        }
+    };
+    
+    // Verificar que todos los servicios críticos estén disponibles
+    const criticalServices = [
+        checks.services.AttendanceService.exists,
+        checks.services.ClassControlService.exists,
+        checks.services.StudentService.exists,
+        checks.controllers.AttendanceController.exists,
+        checks.appState.exists
+    ];
+    
+    const allCriticalOK = criticalServices.every(Boolean);
+    
+    // Verificar funciones de utilidad
+    const utilsOK = Object.values(checks.utils).every(Boolean);
+    
+    const systemOK = allCriticalOK && utilsOK;
+    
+    console.log(systemOK ? '✅ Sistema consistente' : '❌ Sistema inconsistente');
+    console.log('📋 Detalles de verificación:', checks);
+    
+    return {
+        consistent: systemOK,
+        criticalServices: allCriticalOK,
+        utilities: utilsOK,
+        details: checks
+    };
+}
+
+/**
+ * 🔧 AGREGADO: Función de prueba para el flujo completo de asistencia
+ */
+async function testAttendanceFlow() {
+    console.log('🧪 Probando flujo de asistencia...');
+    
+    try {
+        // Verificar consistencia del sistema primero
+        const consistency = checkSystemConsistency();
+        if (!consistency.consistent) {
+            throw new Error('Sistema inconsistente - verifique servicios');
+        }
+        
+        // Datos de prueba
+        const testData = {
+            'EST001': { studentId: 'EST001', status: 'Presente' },
+            'EST002': { studentId: 'EST002', status: 'Ausente' },
+            'EST003': { studentId: 'EST003', status: 'Justificada', justification: 'Médica' }
+        };
+        
+        // Limpiar datos
+        const cleanedData = cleanAttendanceData(testData);
+        console.log('📋 Datos limpiados:', cleanedData);
+        
+        // Simular creación de registros
+        const testOptions = {
+            idClase: 'TEST_CLASS_ID_12345',
+            groupCode: 'TEST_GROUP',
+            date: DateUtils.getCurrentDate(),
+            classType: 'Regular',
+            sentBy: 'test-user'
+        };
+        
+        console.log('📝 Probando AttendanceService.createGroupAttendanceRecords...');
+        const result = AttendanceService.createGroupAttendanceRecords(cleanedData, testOptions);
+        
+        console.log('📊 Resultado de prueba:', result.summary);
+        
+        // Validar registros creados
+        const validation = validateAttendanceGroup(result.records, testOptions.idClase);
+        console.log('✅ Validación:', validation.valid ? 'EXITOSA' : 'FALLIDA');
+        
+        if (!validation.valid) {
+            console.error('❌ Errores de validación:', validation.errors);
+        }
+        
+        return {
+            success: validation.valid,
+            records: result.records.length,
+            errors: result.errors.length,
+            validation: validation
+        };
+        
+    } catch (error) {
+        console.error('❌ Error en prueba de flujo:', error);
+        return {
+            success: false,
+            error: error.message
+        };
+    }
+}
+
+// ===========================================
+// EXPORTAR FUNCIONES GLOBALMENTE
+// ===========================================
+
+// Hacer las funciones disponibles globalmente
+window.normalizeStudentId = normalizeStudentId;
+window.normalizeId = normalizeId;
+window.validateAttendanceRecord = validateAttendanceRecord;
+window.validateAttendanceGroup = validateAttendanceGroup;
+window.cleanAttendanceData = cleanAttendanceData;
+window.checkSystemConsistency = checkSystemConsistency;
+window.testAttendanceFlow = testAttendanceFlow;
+
+// ===========================================
+// FUNCIONES DE DEBUGGING MEJORADAS
+// ===========================================
+
+/**
+ * 🔧 MEJORADO: Información de debugging extendida
+ */
+window.getExtendedDebugInfo = function() {
+    const basicInfo = typeof window.getAppDebugInfo === 'function' ? 
+                     window.getAppDebugInfo() : {};
+    
+    const extendedInfo = {
+        ...basicInfo,
+        consistency: checkSystemConsistency(),
+        pendingData: {
+            attendance: StorageUtils.getPendingAttendance().length,
+            drafts: StorageUtils.get('attendance_draft') ? 1 : 0
+        },
+        currentSession: {
+            selectedDate: window.AppState?.selectedDate,
+            connectionStatus: window.AppState?.connectionStatus,
+            lastUpdate: new Date().toISOString()
+        },
+        validationTest: null
+    };
+    
+    // Ejecutar prueba de validación si es seguro
+    try {
+        extendedInfo.validationTest = testAttendanceFlow();
+    } catch (error) {
+        extendedInfo.validationTest = { error: error.message };
+    }
+    
+    return extendedInfo;
+};
+
+console.log('🔧 UTILIDADES GLOBALES CORREGIDAS AGREGADAS');
+console.log('📋 Funciones disponibles:');
+console.log('   - normalizeStudentId(id)');
+console.log('   - normalizeId(id)');
+console.log('   - validateAttendanceRecord(record)');
+console.log('   - validateAttendanceGroup(records, expectedClassId)');
+console.log('   - cleanAttendanceData(rawData)');
+console.log('   - checkSystemConsistency()');
+console.log('   - testAttendanceFlow()');
+console.log('   - getExtendedDebugInfo()');
+
+debugLog('utils.js - FUNCIONES GLOBALES DE CORRECCIÓN agregadas correctamente');
 debugLog('utils.js cargado correctamente');
