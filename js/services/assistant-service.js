@@ -1,7 +1,9 @@
 /**
- * SERVICIO DE ASISTENTES
+ * SERVICIO DE ASISTENTES - VERSIÓN OPTIMIZADA
  * =======================
  * Maneja toda la lógica relacionada con asistentes (caddies)
+ * ✅ Debugging removido para mejor rendimiento
+ * ✅ Solo logs críticos de error mantenidos
  */
 
 const AssistantService = {
@@ -16,12 +18,9 @@ const AssistantService = {
      * Obtiene todos los asistentes desde el backend
      */
     async getAllAssistants(forceRefresh = false) {
-        debugLog('AssistantService: Obteniendo todos los asistentes...');
-        
         try {
             // Verificar cache primero
             if (!forceRefresh && this._isCacheValid()) {
-                debugLog('AssistantService: Usando datos del cache');
                 return this._cache.allAssistants;
             }
 
@@ -40,7 +39,6 @@ const AssistantService = {
             // Actualizar cache
             this._updateCache(validAssistants);
             
-            debugLog(`AssistantService: ${validAssistants.length} asistentes cargados`);
             return validAssistants;
 
         } catch (error) {
@@ -61,13 +59,10 @@ const AssistantService = {
      * Obtiene solo asistentes activos
      */
     async getActiveAssistants(forceRefresh = false) {
-        debugLog('AssistantService: Obteniendo asistentes activos...');
-        
         try {
             const allAssistants = await this.getAllAssistants(forceRefresh);
             const activeAssistants = allAssistants.filter(assistant => assistant.activo);
             
-            debugLog(`AssistantService: ${activeAssistants.length} asistentes activos`);
             return activeAssistants;
 
         } catch (error) {
@@ -80,8 +75,6 @@ const AssistantService = {
      * Busca un asistente por ID
      */
     async getAssistantById(assistantId, forceRefresh = false) {
-        debugLog(`AssistantService: Buscando asistente ${assistantId}`);
-        
         try {
             const allAssistants = await this.getAllAssistants(forceRefresh);
             const assistant = allAssistants.find(a => a.id === assistantId);
@@ -102,8 +95,6 @@ const AssistantService = {
      * Busca asistentes por nombre
      */
     async searchAssistantsByName(searchTerm, forceRefresh = false) {
-        debugLog(`AssistantService: Buscando asistentes por nombre: "${searchTerm}"`);
-        
         try {
             const allAssistants = await this.getActiveAssistants(forceRefresh);
             
@@ -117,7 +108,6 @@ const AssistantService = {
                        assistant.id.toLowerCase().includes(term);
             });
 
-            debugLog(`AssistantService: ${matchingAssistants.length} asistentes encontrados`);
             return matchingAssistants;
 
         } catch (error) {
@@ -155,7 +145,6 @@ const AssistantService = {
      * Fuerza la actualización del cache
      */
     async refresh() {
-        debugLog('AssistantService: Forzando actualización del cache');
         return this.getAllAssistants(true);
     },
 
@@ -199,7 +188,6 @@ const AssistantService = {
         const validation = this.validateAssistantData(assistant);
         
         if (!validation.valid) {
-            debugLog(`AssistantService: Asistente inválido:`, validation.errors, assistant);
             return false;
         }
 
@@ -259,5 +247,3 @@ const AssistantService = {
 
 // Hacer disponible globalmente
 window.AssistantService = AssistantService;
-
-debugLog('assistant-service.js cargado correctamente');
