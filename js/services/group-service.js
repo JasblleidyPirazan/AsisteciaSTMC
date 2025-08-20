@@ -1,6 +1,9 @@
 /**
- * SERVICIO DE GRUPOS - VERSIÓN CORREGIDA PARA HEADERS CON CARACTERES ESPECIALES
+ * SERVICIO DE GRUPOS - VERSIÓN OPTIMIZADA
  * =============================================================================
+ * ✅ Manejo de headers con caracteres especiales
+ * ✅ Debugging removido para mejor rendimiento
+ * ✅ Solo logs críticos de error mantenidos
  */
 
 const GroupService = {
@@ -15,12 +18,9 @@ const GroupService = {
      * Obtiene todos los grupos desde el backend
      */
     async getAllGroups(forceRefresh = false) {
-        debugLog('GroupService: Obteniendo todos los grupos...');
-        
         try {
             // Verificar cache primero
             if (!forceRefresh && this._isCacheValid()) {
-                debugLog('GroupService: Usando datos del cache');
                 return this._cache.allGroups;
             }
 
@@ -31,29 +31,16 @@ const GroupService = {
                 throw new Error('Respuesta inválida del servidor');
             }
 
-            debugLog(`GroupService: Datos brutos recibidos - ${groups.length} grupos`);
-            
-            // DEBUG: Mostrar las claves reales del primer grupo
-            if (groups.length > 0) {
-                console.log('🔍 DEBUG: Claves del primer grupo:', Object.keys(groups[0]));
-                console.log('🔍 DEBUG: Primer grupo completo:', groups[0]);
-            }
-
             // Validar y limpiar datos
             const validGroups = groups
                 .map((group, index) => {
-                    const normalized = this._normalizeGroup(group, index);
-                    if (!normalized) {
-                        debugLog(`GroupService: Grupo ${index} no se pudo normalizar:`, group);
-                    }
-                    return normalized;
+                    return this._normalizeGroup(group, index);
                 })
                 .filter(group => group !== null && group !== undefined);
 
             // Actualizar cache
             this._updateCache(validGroups);
             
-            debugLog(`GroupService: ${validGroups.length} grupos válidos de ${groups.length} totales`);
             return validGroups;
 
         } catch (error) {
@@ -71,15 +58,14 @@ const GroupService = {
     },
 
     /**
-     * 🔧 CORREGIDO: Normaliza un grupo manejando headers con caracteres especiales
+     * Normaliza un grupo manejando headers con caracteres especiales
      */
     _normalizeGroup(rawGroup, index = -1) {
         if (!rawGroup || typeof rawGroup !== 'object') {
-            debugLog(`GroupService: rawGroup inválido en índice ${index}:`, rawGroup);
             return null;
         }
 
-        // 🔧 FIX: Función helper para buscar campos con diferentes variaciones
+        // Función helper para buscar campos con diferentes variaciones
         const findField = (obj, variations) => {
             for (const key of Object.keys(obj)) {
                 // Normalizar la clave quitando caracteres especiales y espacios
@@ -109,12 +95,6 @@ const GroupService = {
         
         // Si falta información crítica, rechazar el grupo
         if (!codigo || !hora || !profe) {
-            debugLog(`GroupService: Grupo ${index} rechazado - faltan campos críticos:`, {
-                codigo: codigo || '(vacío)',
-                hora: hora || '(vacío)',
-                profe: profe || '(vacío)',
-                camposDisponibles: Object.keys(rawGroup)
-            });
             return null;
         }
 
@@ -138,11 +118,6 @@ const GroupService = {
             activo: this._normalizeBoolean(findField(rawGroup, ['activo', 'active']), true)
         };
 
-        // DEBUG: Log del grupo normalizado si es uno de los primeros
-        if (window.APP_CONFIG?.DEBUG && index < 3) {
-            debugLog(`GroupService: Grupo ${index} normalizado:`, normalized);
-        }
-
         return normalized;
     },
 
@@ -164,14 +139,10 @@ const GroupService = {
         return truthyValues.includes(str);
     },
 
-    // ... resto de métodos sin cambios ...
-    
     /**
      * Obtiene grupos activos del día especificado
      */
     async getGroupsByDay(dayName, forceRefresh = false) {
-        debugLog(`GroupService: Obteniendo grupos para ${dayName}`);
-        
         try {
             const allGroups = await this.getAllGroups(forceRefresh);
             
@@ -180,7 +151,6 @@ const GroupService = {
                 return this._isGroupActiveOnDay(group, dayName);
             });
 
-            debugLog(`GroupService: ${dayGroups.length} grupos encontrados para ${dayName}`);
             return dayGroups;
 
         } catch (error) {
@@ -201,15 +171,12 @@ const GroupService = {
      * Busca un grupo por código
      */
     async getGroupByCode(codigo, forceRefresh = false) {
-        debugLog(`GroupService: Buscando grupo ${codigo}`);
-        
         try {
             const allGroups = await this.getAllGroups(forceRefresh);
             const group = allGroups.find(g => g.codigo === codigo);
             
             if (!group) {
                 // Intentar una vez más con refresh forzado
-                debugLog(`GroupService: Grupo ${codigo} no encontrado, intentando con refresh...`);
                 const refreshedGroups = await this.getAllGroups(true);
                 const refreshedGroup = refreshedGroups.find(g => g.codigo === codigo);
                 
@@ -310,12 +277,9 @@ const GroupService = {
      * Fuerza la actualización del cache
      */
     async refresh() {
-        debugLog('GroupService: Forzando actualización del cache');
         return this.getAllGroups(true);
     }
 };
 
 // Hacer disponible globalmente
 window.GroupService = GroupService;
-
-debugLog('group-service.js (VERSIÓN CORREGIDA - Manejo de headers con caracteres especiales) cargado correctamente');
