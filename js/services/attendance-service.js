@@ -1,8 +1,10 @@
 /**
- * SERVICIO DE ASISTENCIAS - VERSIÓN FINAL CON DEBUG EXTENSO
- * =========================================================
- * 🔍 DEBUG: Rastrear específicamente el problema del ID_Clase
- * Encargado de crear, validar y guardar registros de asistencia
+ * SERVICIO DE ASISTENCIAS - VERSIÓN CORREGIDA
+ * ==========================================
+ * 🔧 CORRECCIONES APLICADAS:
+ * - ID_Clase siempre presente y validado
+ * - Verificación exhaustiva en createGroupAttendanceRecords
+ * - Mejor logging para debugging
  */
 
 const AttendanceService = {
@@ -23,10 +25,10 @@ const AttendanceService = {
     },
 
     /**
-     * 🔍 DEBUG: Crea un registro de asistencia individual con logging extenso
+     * 🔧 CORREGIDO: Crea un registro de asistencia individual con validación mejorada
      */
     createAttendanceRecord(studentId, groupCode, status, options = {}) {
-        console.log('🔥 DEBUG: AttendanceService.createAttendanceRecord LLAMADO');
+        console.log('🔥 DEBUG: AttendanceService.createAttendanceRecord CORREGIDO');
         console.log('🔍 DEBUG: Parámetros recibidos:', {
             studentId,
             groupCode,
@@ -45,32 +47,32 @@ const AttendanceService = {
                 throw new Error(`Estado de asistencia inválido: ${status}`);
             }
             
-            // 🔍 DEBUG CRÍTICO: Verificar ID_Clase
+            // 🔧 CORREGIDO: Verificar ID_Clase con mejor manejo
             const idClase = options.idClase || options.ID_Clase || '';
             
             console.log('🔍 DEBUG: ID_Clase extraído de options:', {
                 idClase: idClase,
                 hasIdClase: !!idClase,
-                optionsIdClase: options.idClase,
-                optionsID_Clase: options.ID_Clase,
-                allOptionsKeys: Object.keys(options)
+                idClaseLength: idClase.length,
+                optionsKeys: Object.keys(options)
             });
             
-            if (!idClase) {
+            // 🔧 CORREGIDO: Validación más estricta de ID_Clase
+            if (!idClase || idClase.toString().trim() === '') {
                 console.error('❌ DEBUG: ID_Clase VACÍO en createAttendanceRecord!', {
                     studentId,
                     groupCode,
                     options
                 });
-                throw new Error('ID_Clase es obligatorio para crear registro de asistencia');
-            } else {
-                console.log('✅ DEBUG: ID_Clase VÁLIDO:', idClase);
+                throw new Error('ID_Clase es obligatorio y no puede estar vacío');
             }
+            
+            console.log('✅ DEBUG: ID_Clase VÁLIDO:', idClase);
             
             // Crear registro completo
             const record = {
                 ID: DataUtils.generateId('AST'),
-                ID_Clase: idClase, // 🔍 CRÍTICO: Campo principal
+                ID_Clase: idClase.toString().trim(), // 🔧 CORREGIDO: Asegurar string limpio
                 Fecha: options.date || DateUtils.getCurrentDate(),
                 Estudiante_ID: studentId,
                 Grupo_Codigo: groupCode,
@@ -86,15 +88,15 @@ const AttendanceService = {
                 ID: record.ID,
                 ID_Clase: record.ID_Clase,
                 hasID_Clase: !!record.ID_Clase,
+                ID_ClaseLength: record.ID_Clase.length,
                 Estudiante_ID: record.Estudiante_ID,
-                Estado: record.Estado,
-                fullRecord: record
+                Estado: record.Estado
             });
             
-            // 🔍 VERIFICACIÓN FINAL
-            if (!record.ID_Clase) {
-                console.error('❌ DEBUG: Registro creado SIN ID_Clase:', record);
-                throw new Error('Registro creado sin ID_Clase válido');
+            // 🔧 CORREGIDO: Verificación final más robusta
+            if (!record.ID_Clase || record.ID_Clase.trim() === '') {
+                console.error('❌ DEBUG: Registro creado SIN ID_Clase válido:', record);
+                throw new Error('CRÍTICO: Registro creado sin ID_Clase válido');
             }
             
             console.log('✅ DEBUG: Registro válido con ID_Clase:', record.ID_Clase);
@@ -108,37 +110,37 @@ const AttendanceService = {
     },
 
     /**
-     * 🔍 DEBUG: Crea registros de asistencia para un grupo completo
+     * 🔧 CORREGIDO: Crea registros de asistencia para un grupo completo con validación exhaustiva
      */
     createGroupAttendanceRecords(attendanceData, options = {}) {
-        console.log('🔥 DEBUG: AttendanceService.createGroupAttendanceRecords LLAMADO');
+        console.log('🔥 DEBUG: AttendanceService.createGroupAttendanceRecords CORREGIDO');
         console.log('🔍 DEBUG: Parámetros de entrada:', {
             attendanceDataKeys: Object.keys(attendanceData || {}),
             attendanceDataCount: Object.keys(attendanceData || {}).length,
             options: options
         });
         
-        // 🔍 DEBUG CRÍTICO: Verificar idClase en options
+        // 🔧 CORREGIDO: Validación más estricta de idClase
         const { idClase, groupCode, date, classType, sentBy } = options;
         
         console.log('🔍 DEBUG: Extracción de parámetros:', {
             idClase: idClase,
             hasIdClase: !!idClase,
             idClaseType: typeof idClase,
+            idClaseLength: idClase ? idClase.length : 0,
             groupCode,
             date,
             classType,
-            sentBy,
-            allOptionsKeys: Object.keys(options)
+            sentBy
         });
         
-        if (!idClase) {
-            console.error('❌ DEBUG: idClase FALTANTE en options!', options);
-            console.error('❌ DEBUG: Esto causará que todos los registros no tengan ID_Clase');
-            throw new Error('ID_Clase es obligatorio para crear registros de asistencia');
-        } else {
-            console.log('✅ DEBUG: idClase PRESENTE:', idClase);
+        // 🔧 CORREGIDO: Validación obligatoria de idClase
+        if (!idClase || idClase.toString().trim() === '') {
+            console.error('❌ DEBUG: idClase FALTANTE o VACÍO en options!', options);
+            throw new Error('ID_Clase es obligatorio y no puede estar vacío para crear registros de asistencia');
         }
+        
+        console.log('✅ DEBUG: idClase VÁLIDO para grupo:', idClase);
         
         try {
             const records = [];
@@ -164,7 +166,7 @@ const AttendanceService = {
                         throw new Error(`Registro ${index}: ID de estudiante o estado faltante`);
                     }
                     
-                    // 🔍 DEBUG: Pasar idClase en options a createAttendanceRecord
+                    // 🔧 CORREGIDO: Pasar idClase explícitamente
                     const attendanceRecord = this.createAttendanceRecord(
                         record.studentId,
                         groupCode,
@@ -174,22 +176,23 @@ const AttendanceService = {
                             classType,
                             justification: record.justification,
                             description: record.description,
-                            idClase: idClase, // 🔍 CRÍTICO: Pasar ID de clase
+                            idClase: idClase, // 🔧 CRÍTICO: Pasar ID de clase
                             sentBy
                         }
                     );
                     
-                    // 🔍 DEBUG: Verificar que el registro tenga ID_Clase
+                    // 🔧 CORREGIDO: Verificar que el registro tenga ID_Clase
                     console.log(`🔍 DEBUG: Registro ${index + 1} creado:`, {
                         ID: attendanceRecord.ID,
                         ID_Clase: attendanceRecord.ID_Clase,
                         hasID_Clase: !!attendanceRecord.ID_Clase,
+                        ID_ClaseLength: attendanceRecord.ID_Clase ? attendanceRecord.ID_Clase.length : 0,
                         Estudiante_ID: attendanceRecord.Estudiante_ID
                     });
                     
-                    if (!attendanceRecord.ID_Clase) {
+                    if (!attendanceRecord.ID_Clase || attendanceRecord.ID_Clase.trim() === '') {
                         console.error(`❌ DEBUG: Registro ${index + 1} SIN ID_Clase:`, attendanceRecord);
-                        throw new Error(`Registro ${index + 1} sin ID_Clase`);
+                        throw new Error(`Registro ${index + 1} sin ID_Clase válido`);
                     }
                     
                     records.push(attendanceRecord);
@@ -204,27 +207,33 @@ const AttendanceService = {
                 }
             });
             
-            // 🔍 DEBUG: Verificación final de todos los registros
-            const recordsWithClassId = records.filter(r => r.ID_Clase);
-            const recordsWithoutClassId = records.filter(r => !r.ID_Clase);
+            // 🔧 CORREGIDO: Verificación final exhaustiva de todos los registros
+            const recordsWithClassId = records.filter(r => r.ID_Clase && r.ID_Clase.trim() !== '');
+            const recordsWithoutClassId = records.filter(r => !r.ID_Clase || r.ID_Clase.trim() === '');
             
-            console.log('🔍 DEBUG: Resumen de registros creados:', {
+            console.log('🔍 DEBUG: Resumen final de registros creados:', {
                 totalRecords: records.length,
                 recordsWithClassId: recordsWithClassId.length,
                 recordsWithoutClassId: recordsWithoutClassId.length,
                 errors: errors.length,
+                expectedClassId: idClase,
                 firstRecordSample: records[0]
             });
             
             if (recordsWithoutClassId.length > 0) {
                 console.error('❌ DEBUG: REGISTROS SIN ID_CLASE DETECTADOS:', recordsWithoutClassId);
                 recordsWithoutClassId.forEach((record, index) => {
-                    console.error(`❌ DEBUG: Registro sin ID_Clase #${index}:`, record);
+                    console.error(`❌ DEBUG: Registro sin ID_Clase #${index}:`, {
+                        ID: record.ID,
+                        ID_Clase: record.ID_Clase,
+                        Estudiante_ID: record.Estudiante_ID,
+                        fullRecord: record
+                    });
                 });
-                throw new Error(`${recordsWithoutClassId.length} registros sin ID_Clase detectados`);
-            } else {
-                console.log('✅ DEBUG: TODOS los registros tienen ID_Clase');
+                throw new Error(`CRÍTICO: ${recordsWithoutClassId.length} registros sin ID_Clase válido detectados`);
             }
+            
+            console.log('✅ DEBUG: TODOS los registros tienen ID_Clase válido');
             
             debugLog(`AttendanceService: ${records.length} registros creados, ${errors.length} errores`);
             
@@ -246,10 +255,10 @@ const AttendanceService = {
     },
 
     /**
-     * 🔍 DEBUG: Guarda registros de asistencia con logging extenso
+     * 🔧 CORREGIDO: Guarda registros de asistencia con validación mejorada
      */
     async saveAttendance(attendanceRecords, options = {}) {
-        console.log('🔥 DEBUG: AttendanceService.saveAttendance LLAMADO');
+        console.log('🔥 DEBUG: AttendanceService.saveAttendance CORREGIDO');
         console.log('🔍 DEBUG: Parámetros de entrada:', {
             recordsCount: attendanceRecords.length,
             options: options,
@@ -257,9 +266,9 @@ const AttendanceService = {
         });
 
         try {
-            // 🔍 DEBUG: Validar que todos los registros tengan ID_Clase
-            const recordsWithClassId = attendanceRecords.filter(record => record.ID_Clase);
-            const recordsWithoutClassId = attendanceRecords.filter(record => !record.ID_Clase);
+            // 🔧 CORREGIDO: Validación exhaustiva de ID_Clase
+            const recordsWithClassId = attendanceRecords.filter(record => record.ID_Clase && record.ID_Clase.trim() !== '');
+            const recordsWithoutClassId = attendanceRecords.filter(record => !record.ID_Clase || record.ID_Clase.trim() === '');
             
             console.log('🔍 DEBUG: Validación de ID_Clase en saveAttendance:', {
                 totalRecords: attendanceRecords.length,
@@ -269,7 +278,7 @@ const AttendanceService = {
             
             if (recordsWithoutClassId.length > 0) {
                 console.error('❌ DEBUG: Registros sin ID_Clase encontrados antes de guardar:', recordsWithoutClassId);
-                throw new Error(`${recordsWithoutClassId.length} registros sin ID_Clase - no se puede guardar`);
+                throw new Error(`CRÍTICO: ${recordsWithoutClassId.length} registros sin ID_Clase válido - no se puede guardar`);
             }
             
             console.log('✅ DEBUG: Todos los registros tienen ID_Clase válido');
@@ -298,7 +307,7 @@ const AttendanceService = {
                 firstFormattedSample: formattedData[0]
             });
 
-            // 🔍 DEBUG: Lógica híbrida online/offline
+            // Lógica híbrida online/offline
             try {
                 console.log('🔥 DEBUG: Intentando guardado ONLINE...');
                 
@@ -354,7 +363,7 @@ const AttendanceService = {
     },
 
     /**
-     * 🔍 DEBUG: Validación mejorada de registro completo
+     * 🔧 CORREGIDO: Validación mejorada de registro completo
      */
     validateAttendanceRecord(record) {
         const errors = [];
@@ -376,10 +385,10 @@ const AttendanceService = {
             }
         });
 
-        // 🔍 DEBUG: Validación específica de ID_Clase
-        if (!record.ID_Clase) {
-            console.error('❌ DEBUG: Validación falló - ID_Clase faltante:', record);
-            errors.push('ID de clase requerido (ID_Clase)');
+        // 🔧 CORREGIDO: Validación específica mejorada de ID_Clase
+        if (!record.ID_Clase || record.ID_Clase.toString().trim() === '') {
+            console.error('❌ DEBUG: Validación falló - ID_Clase faltante o vacío:', record);
+            errors.push('ID de clase requerido y no puede estar vacío (ID_Clase)');
         } else {
             console.log('✅ DEBUG: Validación ID_Clase OK:', record.ID_Clase);
         }
@@ -410,20 +419,16 @@ const AttendanceService = {
     },
 
     /**
-     * 🔍 DEBUG: Formato para backend con verificación
+     * Formato para backend (sin cambios significativos)
      */
     formatForBackend(attendanceRecords) {
         console.log('🔍 DEBUG: Formateando registros para backend...');
-        console.log('🔍 DEBUG: Registros a formatear:', {
-            count: attendanceRecords.length,
-            firstRecord: attendanceRecords[0]
-        });
-
-        // Verificar que todos tengan ID_Clase antes de formatear
-        const recordsWithoutClass = attendanceRecords.filter(record => !record.ID_Clase);
+        
+        // 🔧 CORREGIDO: Verificar que todos tengan ID_Clase antes de formatear
+        const recordsWithoutClass = attendanceRecords.filter(record => !record.ID_Clase || record.ID_Clase.trim() === '');
         if (recordsWithoutClass.length > 0) {
             console.error('❌ DEBUG: Registros sin ID_Clase al formatear:', recordsWithoutClass);
-            throw new Error(`${recordsWithoutClass.length} registros sin ID_Clase al formatear`);
+            throw new Error(`${recordsWithoutClass.length} registros sin ID_Clase válido al formatear`);
         }
 
         console.log('✅ DEBUG: Los registros ya están en formato correcto de objetos');
@@ -431,7 +436,7 @@ const AttendanceService = {
     },
 
     /**
-     * Calcula estadísticas de asistencia
+     * Calcula estadísticas de asistencia (sin cambios)
      */
     calculateAttendanceStats(attendanceRecords) {
         try {
@@ -485,12 +490,8 @@ const AttendanceService = {
         }
     },
 
-    // ===========================================
-    // MÉTODOS PRIVADOS
-    // ===========================================
-
     /**
-     * 🔍 DEBUG: Guarda registros offline con verificaciones
+     * 🔧 CORREGIDO: Guarda registros offline con verificaciones mejoradas
      */
     _saveOffline(attendanceRecords, options = {}) {
         console.log('🔍 DEBUG: Guardando registros offline...');
@@ -499,8 +500,8 @@ const AttendanceService = {
 
         attendanceRecords.forEach((record, index) => {
             try {
-                // Verificar que el registro tenga ID_Clase antes de guardar offline
-                if (!record.ID_Clase) {
+                // 🔧 CORREGIDO: Verificar que el registro tenga ID_Clase antes de guardar offline
+                if (!record.ID_Clase || record.ID_Clase.trim() === '') {
                     console.warn(`⚠️ DEBUG: Guardando registro ${index + 1} sin ID_Clase offline:`, record);
                 }
 
@@ -530,34 +531,4 @@ const AttendanceService = {
 // Hacer disponible globalmente
 window.AttendanceService = AttendanceService;
 
-// 🔍 DEBUG: Función global para verificar AttendanceService
-window.debugAttendanceService = function(testData = null) {
-    console.log('🔍 DEBUGGING ATTENDANCE SERVICE:');
-    
-    if (testData) {
-        console.log('Probando con datos de prueba...');
-        try {
-            const result = AttendanceService.createGroupAttendanceRecords(testData.attendanceData, testData.options);
-            console.log('Resultado de prueba:', result);
-            return result;
-        } catch (error) {
-            console.error('Error en prueba:', error);
-            return { error: error.message };
-        }
-    }
-    
-    return {
-        service: 'AttendanceService',
-        methods: Object.getOwnPropertyNames(AttendanceService).filter(name => typeof AttendanceService[name] === 'function'),
-        constants: {
-            ATTENDANCE_STATUS: AttendanceService.ATTENDANCE_STATUS,
-            ATTENDANCE_TYPES: AttendanceService.ATTENDANCE_TYPES
-        },
-        currentState: {
-            version: 'FINAL_DEBUG_VERSION',
-            timestamp: new Date().toISOString()
-        }
-    };
-};
-
-debugLog('AttendanceService - VERSIÓN FINAL CON DEBUG EXTENSO CARGADO');
+debugLog('AttendanceService - VERSIÓN CORREGIDA CON VALIDACIONES MEJORADAS');
