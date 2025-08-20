@@ -1,7 +1,7 @@
 // netlify/functions/sheets-proxy.js
 // VERSIÓN OPTIMIZADA PARA TIMEOUTS LARGOS
 
-const GOOGLE_SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbwfUyNfyv5arTRZnD9gZTHYEdKQq-3QzyDqgHmGvmA9cDnKjJ1cRJThDBSmqpY3_T4D/exec';
+const GOOGLE_SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbzZ714ZGs4wbxIOsGtiMAb9msp1Teev2_cBTzPIa8Zx9wp3xUQfCHGuRH7IVsvWFw/exec';
 const TIMEOUT_MS = 45000; // 45 segundos (aumentado de 25s)
 const MAX_RETRIES = 2;
 
