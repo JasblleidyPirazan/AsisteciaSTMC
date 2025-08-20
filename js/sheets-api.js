@@ -2,7 +2,7 @@
  * SISTEMA DE ASISTENCIA TENIS - API GOOGLE APPS SCRIPT (CON PROXY)
  * =================================================================
  * Funciones para interactuar con Google Apps Script a través de Netlify Functions
- * VERSIÓN CORREGIDA: Incluye fix para checkClassExists y saveGroupReposition
+ * VERSIÓN CORREGIDA: Incluye fix para checkClassExists, saveGroupReposition y testConnection
  */
 
 // ===========================================
@@ -389,7 +389,7 @@ const SheetsAPI = {
     },
 
     /**
-     * ✅ CORREGIDO: Guarda reposición grupal completa - MOVIDO DENTRO DEL OBJETO
+     * ✅ CORREGIDO: Guarda reposición grupal completa
      */
     async saveGroupReposition(repositionData) {
         debugLog('Guardando reposición grupal:', repositionData);
@@ -524,25 +524,53 @@ const SheetsAPI = {
     },
     
     /**
-     * Verifica la conectividad con Google Apps Script
+     * Verifica la conectividad con Google Apps Script - CORREGIDO
      */
     async testConnection() {
         debugLog('Probando conexión con Google Apps Script...');
         
         try {
+            // Usar un timeout más corto para la prueba de conexión
+            const controller = new AbortController();
+            const timeoutId = setTimeout(() => controller.abort(), 10000); // 10 segundos
+            
             const result = await this.makeGetRequest('testConnection');
+            clearTimeout(timeoutId);
+            
             debugLog('Conexión exitosa:', result);
             return {
                 success: true,
-                message: result.message || 'Conexión exitosa',
-                timestamp: result.timestamp || new Date().toISOString()
+                message: result?.message || 'Conexión exitosa',
+                timestamp: result?.timestamp || new Date().toISOString()
             };
             
         } catch (error) {
             console.error('Error de conectividad:', error);
+            
+            // Determinar el tipo específico de error
+            let errorType = 'unknown';
+            let errorMessage = 'Error de conexión desconocido';
+            
+            if (error.name === 'AbortError') {
+                errorType = 'timeout';
+                errorMessage = 'Timeout al conectar con el servidor (10s)';
+            } else if (error.message?.includes('fetch')) {
+                errorType = 'network';
+                errorMessage = 'Error de red - Sin conexión a internet';
+            } else if (error.message?.includes('HTTP')) {
+                errorType = 'http';
+                errorMessage = `Error del servidor: ${error.message}`;
+            } else if (error.message) {
+                errorType = 'api';
+                errorMessage = error.message;
+            }
+            
             return {
                 success: false,
-                error: error.message
+                error: errorMessage,
+                errorType: errorType,
+                originalError: error.message || 'Error sin mensaje',
+                timestamp: new Date().toISOString()
             };
         }
     },
@@ -794,12 +822,53 @@ const SyncManager = {
 };
 
 // ===========================================
+// MÉTODOS AUXILIARES DEL CONTROLADOR - CORREGIDOS
+// ===========================================
+
+/**
+ * Prueba la conexión con el backend - CORREGIDO
+ */
+async function _testBackendConnection() {
+    debugLog('AppController: Probando conexión con backend...');
+    
+    try {
+        const connectionTest = await SheetsAPI.testConnection();
+        
+        debugLog('AppController: Resultado de conexión:', connectionTest);
+        
+        if (connectionTest && connectionTest.success) {
+            UIUtils.updateConnectionStatus('online');
+            debugLog('AppController: Conexión con backend exitosa');
+        } else {
+            // Manejar fallo de conexión sin lanzar error
+            const errorMsg = connectionTest?.error || 'Error de conexión desconocido';
+            debugLog(`AppController: Conexión falló: ${errorMsg}`);
+            UIUtils.updateConnectionStatus('offline');
+            UIUtils.showWarning('Sin conexión con el servidor. Trabajando en modo offline.');
+        }
+        
+    } catch (error) {
+        console.error('AppController: Error crítico en testConnection:', error);
+        debugLog('AppController: Error de conexión, trabajando offline');
+        UIUtils.updateConnectionStatus('offline');
+        
+        // Mostrar mensaje apropiado según el tipo de error
+        if (error.message?.includes('fetch') || error.message?.includes('network')) {
+            UIUtils.showWarning('Sin conexión a internet. Trabajando en modo offline.');
+        } else {
+            UIUtils.showWarning('Problema de conectividad. Trabajando en modo offline.');
+        }
+    }
+}
+
+// ===========================================
 // EXPORTAR AL OBJETO GLOBAL WINDOW
 // ===========================================
 
 // CRÍTICO: Hacer SheetsAPI disponible globalmente
 window.SheetsAPI = SheetsAPI;
 window.SyncManager = SyncManager;
+window._testBackendConnection = _testBackendConnection;
 
 // ===========================================
 // INICIALIZACIÓN Y CONFIGURACIÓN
