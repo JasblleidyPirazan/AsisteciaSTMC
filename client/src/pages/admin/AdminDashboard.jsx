@@ -22,6 +22,7 @@ const SECTIONS = [
   { label: 'Eventos', path: '/admin/events', icon: '🏆' },
   { label: 'Liquidación', path: '/admin/payroll', icon: '💰' },
   { label: 'Inscripciones', path: '/admin/enrollment', icon: '📋' },
+  { label: 'Reportes', path: '/admin/reports', icon: '📊' },
   { label: 'Configuración', path: '/admin/config', icon: '⚙️' },
 ];
 

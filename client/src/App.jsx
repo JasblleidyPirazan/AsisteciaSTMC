@@ -8,6 +8,11 @@ import EnrollmentPage from './pages/EnrollmentPage';
 import ParentPortalPage from './pages/parent/ParentPortalPage';
 import AdminDashboard from './pages/admin/AdminDashboard';
 import StudentsPage from './pages/admin/StudentsPage';
+import GroupsPage from './pages/admin/GroupsPage';
+import ProfessorsPage from './pages/admin/ProfessorsPage';
+import AssistantsPage from './pages/admin/AssistantsPage';
+import EventsPage from './pages/admin/EventsPage';
+import ReportsPage from './pages/admin/ReportsPage';
 import PayrollPage from './pages/admin/PayrollPage';
 import ConfigPage from './pages/admin/ConfigPage';
 import EnrollmentRequestsPage from './pages/admin/EnrollmentRequestsPage';
@@ -68,6 +73,31 @@ function AppRoutes() {
       <Route path="/admin/enrollment" element={
         <RequireAuth roles={['ADMIN']}>
           <EnrollmentRequestsPage />
+        </RequireAuth>
+      } />
+      <Route path="/admin/groups" element={
+        <RequireAuth roles={['ADMIN']}>
+          <GroupsPage />
+        </RequireAuth>
+      } />
+      <Route path="/admin/professors" element={
+        <RequireAuth roles={['ADMIN']}>
+          <ProfessorsPage />
+        </RequireAuth>
+      } />
+      <Route path="/admin/assistants" element={
+        <RequireAuth roles={['ADMIN']}>
+          <AssistantsPage />
+        </RequireAuth>
+      } />
+      <Route path="/admin/events" element={
+        <RequireAuth roles={['ADMIN']}>
+          <EventsPage />
+        </RequireAuth>
+      } />
+      <Route path="/admin/reports" element={
+        <RequireAuth roles={['ADMIN']}>
+          <ReportsPage />
         </RequireAuth>
       } />
 
