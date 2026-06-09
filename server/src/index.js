@@ -20,25 +20,14 @@ const app = express();
 
 // Security headers
 app.use(helmet({
-  contentSecurityPolicy: false, // Disabled to allow inline React scripts in dev
+  contentSecurityPolicy: false,
+  crossOriginEmbedderPolicy: false,
 }));
 
-// CORS — restrict to Railway domain in production
-const allowedOrigins = process.env.CORS_ORIGIN
-  ? process.env.CORS_ORIGIN.split(',')
-  : ['http://localhost:5173', 'http://localhost:3000'];
-
+// CORS — allow all origins since auth uses JWT (not cookies), so CSRF is not a threat.
+// Same-origin requests from Railway domain always work; this also allows API testing tools.
 app.use(cors({
-  origin: process.env.NODE_ENV === 'production'
-    ? (origin, cb) => {
-        // Allow same-origin requests (no origin header) and configured origins
-        if (!origin || allowedOrigins.some((o) => origin.startsWith(o))) {
-          cb(null, true);
-        } else {
-          cb(new Error('No permitido por CORS'));
-        }
-      }
-    : true,
+  origin: true,
   credentials: true,
 }));
 
