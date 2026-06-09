@@ -7,54 +7,47 @@ const router = express.Router();
 router.get('/', async (req, res, next) => {
   try {
     const { period, payeeId } = req.query;
-
     if (!period) {
       return res.status(400).json({ success: false, error: 'period requerido (ej: 2025-06-1)' });
     }
 
     const where = { period };
 
-    // Teachers/assistants can only see their own payroll
     if (req.user.role === 'TEACHER') {
       const professor = await prisma.professor.findUnique({ where: { userId: req.user.id } });
       if (!professor) return res.json({ success: true, data: [] });
-      where.payeeId = professor.id;
+      where.professorId = professor.id;
       where.payeeType = 'PROFESSOR';
     } else if (req.user.role === 'ASSISTANT') {
       const assistant = await prisma.assistant.findUnique({ where: { userId: req.user.id } });
       if (!assistant) return res.json({ success: true, data: [] });
-      where.payeeId = assistant.id;
+      where.assistantId = assistant.id;
       where.payeeType = 'ASSISTANT';
     } else if (payeeId) {
-      where.payeeId = payeeId;
+      // Admin filtering by payee — match either professor or assistant
+      where.OR = [{ professorId: payeeId }, { assistantId: payeeId }];
     }
 
     const records = await prisma.costRecord.findMany({
       where,
       include: {
-        session: {
-          include: {
-            group: { select: { id: true, code: true, name: true } },
-          },
-        },
+        session: { include: { group: { select: { id: true, code: true, name: true } } } },
+        professor: { select: { id: true, name: true } },
+        assistant: { select: { id: true, name: true } },
       },
       orderBy: { session: { date: 'asc' } },
     });
 
-    // Aggregate by payee
+    // Group by actual payee (professor or assistant id)
     const byPayee = {};
     for (const r of records) {
-      if (!byPayee[r.payeeId]) {
-        byPayee[r.payeeId] = {
-          payeeId: r.payeeId,
-          payeeType: r.payeeType,
-          period,
-          total: 0,
-          records: [],
-        };
+      const id = r.professorId || r.assistantId;
+      const name = r.professor?.name || r.assistant?.name;
+      if (!byPayee[id]) {
+        byPayee[id] = { payeeId: id, payeeType: r.payeeType, name, period, total: 0, records: [] };
       }
-      byPayee[r.payeeId].total += parseFloat(r.total);
-      byPayee[r.payeeId].records.push(r);
+      byPayee[id].total += parseFloat(r.total);
+      byPayee[id].records.push(r);
     }
 
     res.json({ success: true, data: Object.values(byPayee) });
@@ -78,10 +71,11 @@ router.get('/summary', requireRole('ADMIN'), async (req, res, next) => {
 
     const summary = {};
     for (const r of records) {
-      const name = r.payeeType === 'PROFESSOR' ? r.professor?.name : r.assistant?.name;
-      const key = `${r.payeeType}-${r.payeeId}`;
+      const id = r.professorId || r.assistantId;
+      const name = r.professor?.name || r.assistant?.name;
+      const key = `${r.payeeType}-${id}`;
       if (!summary[key]) {
-        summary[key] = { payeeId: r.payeeId, payeeType: r.payeeType, name, total: 0, classCount: 0 };
+        summary[key] = { payeeId: id, payeeType: r.payeeType, name, total: 0, classCount: 0 };
       }
       summary[key].total += parseFloat(r.total);
       summary[key].classCount++;

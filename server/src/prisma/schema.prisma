@@ -42,9 +42,9 @@ model Professor {
   user          User?          @relation(fields: [userId], references: [id])
   groups        Group[]
   substitutedSessions ClassSession[] @relation("SubstituteProfessor")
-  costRecords   CostRecord[]   @relation("ProfessorCosts")
-  makeupClasses MakeupClass[]
-  events        Event[]
+  costRecords         CostRecord[]   @relation("ProfessorCosts")
+  makeupClasses       MakeupClass[]
+  events              Event[]
 
   @@map("professors")
 }
@@ -57,8 +57,8 @@ model Assistant {
   createdAt DateTime @default(now()) @map("created_at")
 
   user        User?        @relation(fields: [userId], references: [id])
-  sessions    ClassSession[]
-  costRecords CostRecord[] @relation("AssistantCosts")
+  sessions      ClassSession[]
+  costRecords   CostRecord[]   @relation("AssistantCosts")
   makeupClasses MakeupClass[]
 
   @@map("assistants")
@@ -188,7 +188,8 @@ enum AttendanceType {
 model CostRecord {
   id             String    @id @default(cuid())
   sessionId      String    @map("session_id")
-  payeeId        String    @map("payee_id")
+  professorId    String?   @map("professor_id")
+  assistantId    String?   @map("assistant_id")
   payeeType      PayeeType @map("payee_type")
   presentCount   Int       @default(0) @map("present_count")
   effectiveUnits Decimal   @map("effective_units") @db.Decimal(3, 1)
@@ -198,8 +199,8 @@ model CostRecord {
   createdAt      DateTime  @default(now()) @map("created_at")
 
   session   ClassSession @relation(fields: [sessionId], references: [id])
-  professor Professor?   @relation("ProfessorCosts", fields: [payeeId], references: [id], map: "cost_records_professor_fk")
-  assistant Assistant?   @relation("AssistantCosts", fields: [payeeId], references: [id], map: "cost_records_assistant_fk")
+  professor Professor?   @relation("ProfessorCosts", fields: [professorId], references: [id])
+  assistant Assistant?   @relation("AssistantCosts", fields: [assistantId], references: [id])
 
   @@map("cost_records")
 }

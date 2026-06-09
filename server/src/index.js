@@ -1,25 +1,75 @@
 const express = require('express');
 const cors = require('cors');
+const helmet = require('helmet');
+const rateLimit = require('express-rate-limit');
 const path = require('path');
+
+// Validate required environment variables before starting
+const REQUIRED_ENV = ['DATABASE_URL', 'JWT_SECRET'];
+for (const key of REQUIRED_ENV) {
+  if (!process.env[key]) {
+    console.error(`Error: Variable de entorno requerida faltante: ${key}`);
+    process.exit(1);
+  }
+}
 
 const { authMiddleware } = require('./middleware/auth');
 const errorHandler = require('./middleware/errorHandler');
 
 const app = express();
 
-app.use(cors({ origin: process.env.CORS_ORIGIN || '*' }));
-app.use(express.json({ limit: '2mb' }));
+// Security headers
+app.use(helmet({
+  contentSecurityPolicy: false, // Disabled to allow inline React scripts in dev
+}));
+
+// CORS — restrict to Railway domain in production
+const allowedOrigins = process.env.CORS_ORIGIN
+  ? process.env.CORS_ORIGIN.split(',')
+  : ['http://localhost:5173', 'http://localhost:3000'];
+
+app.use(cors({
+  origin: process.env.NODE_ENV === 'production'
+    ? (origin, cb) => {
+        // Allow same-origin requests (no origin header) and configured origins
+        if (!origin || allowedOrigins.some((o) => origin.startsWith(o))) {
+          cb(null, true);
+        } else {
+          cb(new Error('No permitido por CORS'));
+        }
+      }
+    : true,
+  credentials: true,
+}));
+
+app.use(express.json({ limit: '512kb' }));
+
+// Rate limiting on auth endpoints
+const authLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000, // 15 minutes
+  max: 20,
+  message: { success: false, error: 'Demasiados intentos de inicio de sesión. Intenta en 15 minutos.' },
+  standardHeaders: true,
+  legacyHeaders: false,
+});
+
+// Rate limiting on public enrollment endpoint
+const enrollmentLimiter = rateLimit({
+  windowMs: 60 * 60 * 1000, // 1 hour
+  max: 5,
+  message: { success: false, error: 'Demasiadas solicitudes. Intenta en 1 hora.' },
+});
 
 // Health check (no auth)
 app.get('/api/health', (req, res) => {
   res.json({ success: true, message: 'Sistema de Asistencia STMC activo', version: '2.0.0' });
 });
 
-// Public enrollment form (no auth)
-app.use('/api/enrollment', require('./routes/enrollment'));
+// Public enrollment (rate-limited)
+app.use('/api/enrollment', enrollmentLimiter, require('./routes/enrollment'));
 
-// Auth
-app.use('/api/auth', require('./routes/auth'));
+// Auth (rate-limited on login)
+app.use('/api/auth', authLimiter, require('./routes/auth'));
 
 // Protected API routes
 app.use('/api/groups', authMiddleware, require('./routes/groups'));
@@ -33,7 +83,7 @@ app.use('/api/reports', authMiddleware, require('./routes/reports'));
 app.use('/api/config', authMiddleware, require('./routes/config'));
 app.use('/api/parent', authMiddleware, require('./routes/parent'));
 
-// Serve React frontend in production
+// Serve React frontend
 const clientDist = path.join(__dirname, '../../client/dist');
 app.use(express.static(clientDist));
 app.get('*', (req, res) => {

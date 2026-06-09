@@ -30,13 +30,13 @@ async function calculateCosts(sessionId) {
   if (!session) throw new Error('Sesión no encontrada');
   if (!['REALIZADA', 'CANCELADA_MITAD'].includes(session.status)) return;
 
-  const config = await prisma.systemConfig.findMany({
+  const configs = await prisma.systemConfig.findMany({
     where: { key: { in: ['rate_per_student', 'assistant_fixed_rate', 'reposition_rate'] } },
   });
-  const configMap = Object.fromEntries(config.map((c) => [c.key, parseFloat(c.value)]));
-  const ratePerStudent = configMap.rate_per_student || 15000;
-  const assistantFixedRate = configMap.assistant_fixed_rate || 12000;
-  const repositionRate = configMap.reposition_rate || ratePerStudent;
+  const cfg = Object.fromEntries(configs.map((c) => [c.key, parseFloat(c.value)]));
+  const ratePerStudent = cfg.rate_per_student || 15000;
+  const assistantFixedRate = cfg.assistant_fixed_rate || 12000;
+  const repositionRate = cfg.reposition_rate || ratePerStudent;
 
   const effectiveUnits = parseFloat(session.effectiveUnits);
   const period = getPeriodForDate(session.date);
@@ -53,6 +53,7 @@ async function calculateCosts(sessionId) {
     regularPresent * ratePerStudent * effectiveUnits +
     repositionPresent * repositionRate * effectiveUnits;
 
+  // Delete previous cost records for this session before recalculating
   await prisma.costRecord.deleteMany({ where: { sessionId } });
 
   const records = [];
@@ -60,7 +61,8 @@ async function calculateCosts(sessionId) {
   if (professor && professorTotal > 0) {
     records.push({
       sessionId,
-      payeeId: professor.id,
+      professorId: professor.id,
+      assistantId: null,
       payeeType: 'PROFESSOR',
       presentCount: regularPresent + repositionPresent,
       effectiveUnits: session.effectiveUnits,
@@ -74,7 +76,8 @@ async function calculateCosts(sessionId) {
     const assistantTotal = assistantFixedRate * effectiveUnits;
     records.push({
       sessionId,
-      payeeId: session.assistant.id,
+      professorId: null,
+      assistantId: session.assistant.id,
       payeeType: 'ASSISTANT',
       presentCount: 0,
       effectiveUnits: session.effectiveUnits,
@@ -88,7 +91,10 @@ async function calculateCosts(sessionId) {
     await prisma.costRecord.createMany({ data: records });
   }
 
-  return { professorTotal, assistantTotal: session.assistant ? assistantFixedRate * effectiveUnits : 0 };
+  return {
+    professorTotal,
+    assistantTotal: session.assistant ? assistantFixedRate * effectiveUnits : 0,
+  };
 }
 
 module.exports = { calculateCosts, getCurrentPeriod, getPeriodForDate };

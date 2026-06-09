@@ -9,11 +9,29 @@ const router = express.Router();
 router.post('/', async (req, res, next) => {
   try {
     const { studentName, parentName, email, phone, notes } = req.body;
-    if (!studentName || !parentName || !email) {
-      return res.status(400).json({ success: false, error: 'Nombre del estudiante, padre y email son requeridos' });
+
+    // Input validation
+    if (!studentName || typeof studentName !== 'string' || studentName.trim().length < 2) {
+      return res.status(400).json({ success: false, error: 'Nombre del estudiante inválido (mínimo 2 caracteres)' });
     }
+    if (!parentName || typeof parentName !== 'string' || parentName.trim().length < 2) {
+      return res.status(400).json({ success: false, error: 'Nombre del acudiente inválido' });
+    }
+    if (!email || typeof email !== 'string' || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+      return res.status(400).json({ success: false, error: 'Email inválido' });
+    }
+    if (studentName.length > 200 || parentName.length > 200 || email.length > 254) {
+      return res.status(400).json({ success: false, error: 'Datos demasiado largos' });
+    }
+
     const request = await prisma.enrollmentRequest.create({
-      data: { studentName, parentName, email: email.toLowerCase(), phone, notes },
+      data: {
+        studentName: studentName.trim(),
+        parentName: parentName.trim(),
+        email: email.toLowerCase().trim(),
+        phone: phone?.slice(0, 20) || null,
+        notes: notes?.slice(0, 1000) || null,
+      },
     });
     res.status(201).json({
       success: true,

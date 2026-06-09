@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react';
+import { api } from '../api/client';
 
 const PENDING_KEY = 'stmc_pending_sessions';
 
@@ -45,7 +46,6 @@ async function syncPending() {
   const pending = getPendingSessions();
   if (pending.length === 0) return;
 
-  const { api } = await import('../api/client');
   const synced = [];
 
   for (const item of pending) {
