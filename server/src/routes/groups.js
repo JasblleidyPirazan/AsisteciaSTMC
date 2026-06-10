@@ -145,7 +145,14 @@ router.put('/:id', requireRole('ADMIN', 'PHYSICAL_TRAINER'), async (req, res, ne
 
 router.delete('/:id', requireRole('ADMIN', 'PHYSICAL_TRAINER'), async (req, res, next) => {
   try {
-    await prisma.group.update({ where: { id: req.params.id }, data: { active: false } });
+    const { reason } = req.body || {};
+    if (!reason || !reason.trim()) {
+      return res.status(400).json({ success: false, error: 'Se requiere un motivo para desactivar el grupo' });
+    }
+    await prisma.group.update({
+      where: { id: req.params.id },
+      data: { active: false, deactivationReason: reason.trim(), deactivatedAt: new Date() },
+    });
     res.json({ success: true, data: { message: 'Grupo desactivado' } });
   } catch (err) {
     next(err);

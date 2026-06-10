@@ -52,7 +52,16 @@ router.get('/:id', async (req, res, next) => {
 
     const student = await prisma.student.findUnique({
       where: { id: req.params.id },
-      include: { enrollments: { include: { group: { include: { professor: true } } } } },
+      include: {
+        enrollments: { include: { group: { include: { professor: true } } } },
+        groupHistory: {
+          include: {
+            fromGroup: { select: { id: true, code: true } },
+            toGroup: { select: { id: true, code: true } },
+          },
+          orderBy: { changedAt: 'desc' },
+        },
+      },
     });
     if (!student) return res.status(404).json({ success: false, error: 'Estudiante no encontrado' });
     res.json({ success: true, data: student });
@@ -80,6 +89,21 @@ router.post('/', requireRole('ADMIN', 'PHYSICAL_TRAINER'), async (req, res, next
       },
       include: { enrollments: { include: { group: true } } },
     });
+
+    // Record initial group assignment in history
+    if (primaryGroupId) {
+      await prisma.studentGroupHistory.create({
+        data: {
+          studentId: student.id,
+          fromGroupId: null,
+          toGroupId: primaryGroupId,
+          actionType: 'ADD_GROUP',
+          reason: 'Inscripción inicial',
+          changedById: req.user.id,
+        },
+      });
+    }
+
     res.status(201).json({ success: true, data: student });
   } catch (err) {
     next(err);
@@ -88,12 +112,18 @@ router.post('/', requireRole('ADMIN', 'PHYSICAL_TRAINER'), async (req, res, next
 
 router.put('/:id', requireRole('ADMIN', 'PHYSICAL_TRAINER'), async (req, res, next) => {
   try {
-    const { name, email, parentUserId, active } = req.body;
+    const { name, email, parentUserId, active, deactivationReason } = req.body;
     const data = {};
     if (name !== undefined) data.name = name;
     if (email !== undefined) data.email = email;
     if (parentUserId !== undefined) data.parentUserId = parentUserId;
-    if (active !== undefined) data.active = active;
+    if (active !== undefined) {
+      data.active = active;
+      if (!active) {
+        data.deactivatedAt = new Date();
+        data.deactivationReason = deactivationReason || null;
+      }
+    }
 
     const student = await prisma.student.update({
       where: { id: req.params.id },
@@ -108,21 +138,108 @@ router.put('/:id', requireRole('ADMIN', 'PHYSICAL_TRAINER'), async (req, res, ne
 
 router.delete('/:id', requireRole('ADMIN', 'PHYSICAL_TRAINER'), async (req, res, next) => {
   try {
-    await prisma.student.update({ where: { id: req.params.id }, data: { active: false } });
+    const { reason } = req.body || {};
+    if (!reason || !reason.trim()) {
+      return res.status(400).json({ success: false, error: 'Se requiere un motivo para desactivar el estudiante' });
+    }
+
+    await prisma.student.update({
+      where: { id: req.params.id },
+      data: {
+        active: false,
+        deactivationReason: reason.trim(),
+        deactivatedAt: new Date(),
+      },
+    });
     res.json({ success: true, data: { message: 'Estudiante desactivado' } });
   } catch (err) {
     next(err);
   }
 });
 
+// Transfer student from one group to another (replaces primary enrollment, records history)
+router.post('/:id/transfer', requireRole('ADMIN', 'PHYSICAL_TRAINER'), async (req, res, next) => {
+  try {
+    const { fromGroupId, toGroupId, reason } = req.body;
+    if (!toGroupId) return res.status(400).json({ success: false, error: 'toGroupId requerido' });
+
+    const studentId = req.params.id;
+
+    // If fromGroupId provided, remove that enrollment; otherwise find and remove primary
+    if (fromGroupId) {
+      await prisma.studentEnrollment.deleteMany({
+        where: { studentId, groupId: fromGroupId },
+      });
+    } else {
+      // Remove primary enrollment
+      await prisma.studentEnrollment.deleteMany({
+        where: { studentId, enrollmentType: 'PRIMARY' },
+      });
+    }
+
+    // Create new primary enrollment
+    await prisma.studentEnrollment.upsert({
+      where: { studentId_groupId: { studentId, groupId: toGroupId } },
+      update: { enrollmentType: 'PRIMARY' },
+      create: { studentId, groupId: toGroupId, enrollmentType: 'PRIMARY' },
+    });
+
+    // Record history
+    await prisma.studentGroupHistory.create({
+      data: {
+        studentId,
+        fromGroupId: fromGroupId || null,
+        toGroupId,
+        actionType: 'TRANSFER',
+        reason: reason || null,
+        changedById: req.user.id,
+      },
+    });
+
+    const student = await prisma.student.findUnique({
+      where: { id: studentId },
+      include: {
+        enrollments: { include: { group: { select: { id: true, code: true, name: true } } } },
+        groupHistory: {
+          include: {
+            fromGroup: { select: { id: true, code: true } },
+            toGroup: { select: { id: true, code: true } },
+          },
+          orderBy: { changedAt: 'desc' },
+          take: 10,
+        },
+      },
+    });
+    res.json({ success: true, data: student });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// Add student to an additional group (multigrupo)
 router.post('/:id/enrollments', requireRole('ADMIN', 'PHYSICAL_TRAINER'), async (req, res, next) => {
   try {
     const { groupId, enrollmentType } = req.body;
+    const studentId = req.params.id;
+
     const enrollment = await prisma.studentEnrollment.upsert({
-      where: { studentId_groupId: { studentId: req.params.id, groupId } },
-      update: { enrollmentType: enrollmentType || 'PRIMARY' },
-      create: { studentId: req.params.id, groupId, enrollmentType: enrollmentType || 'PRIMARY' },
+      where: { studentId_groupId: { studentId, groupId } },
+      update: { enrollmentType: enrollmentType || 'SECONDARY' },
+      create: { studentId, groupId, enrollmentType: enrollmentType || 'SECONDARY' },
     });
+
+    // Record history
+    await prisma.studentGroupHistory.create({
+      data: {
+        studentId,
+        fromGroupId: null,
+        toGroupId: groupId,
+        actionType: 'ADD_GROUP',
+        reason: null,
+        changedById: req.user.id,
+      },
+    });
+
     res.json({ success: true, data: enrollment });
   } catch (err) {
     next(err);
@@ -131,9 +248,24 @@ router.post('/:id/enrollments', requireRole('ADMIN', 'PHYSICAL_TRAINER'), async 
 
 router.delete('/:id/enrollments/:groupId', requireRole('ADMIN', 'PHYSICAL_TRAINER'), async (req, res, next) => {
   try {
+    const { studentId: sid, groupId } = { studentId: req.params.id, groupId: req.params.groupId };
+
     await prisma.studentEnrollment.delete({
-      where: { studentId_groupId: { studentId: req.params.id, groupId: req.params.groupId } },
+      where: { studentId_groupId: { studentId: sid, groupId } },
     });
+
+    // Record history
+    await prisma.studentGroupHistory.create({
+      data: {
+        studentId: sid,
+        fromGroupId: groupId,
+        toGroupId: null,
+        actionType: 'REMOVE_GROUP',
+        reason: null,
+        changedById: req.user.id,
+      },
+    });
+
     res.json({ success: true, data: { message: 'Matrícula eliminada' } });
   } catch (err) {
     next(err);

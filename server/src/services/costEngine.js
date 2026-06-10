@@ -16,6 +16,16 @@ function getPeriodForDate(date) {
   return `${year}-${month}-${half}`;
 }
 
+// Returns the flat bracket rate for the given number of regular students present.
+// The rate is a fixed amount per session (not per student).
+function getBracketRate(regularPresent, cfg) {
+  if (regularPresent <= 0) return 0;
+  if (regularPresent <= 2) return parseFloat(cfg.rate_2_students || 30000);
+  if (regularPresent === 3) return parseFloat(cfg.rate_3_students || 45000);
+  if (regularPresent === 4) return parseFloat(cfg.rate_4_students || 60000);
+  return parseFloat(cfg.rate_5plus_students || 75000);
+}
+
 async function calculateCosts(sessionId) {
   const session = await prisma.classSession.findUnique({
     where: { id: sessionId },
@@ -31,12 +41,23 @@ async function calculateCosts(sessionId) {
   if (!['REALIZADA', 'CANCELADA_MITAD'].includes(session.status)) return;
 
   const configs = await prisma.systemConfig.findMany({
-    where: { key: { in: ['rate_per_student', 'assistant_fixed_rate', 'reposition_rate'] } },
+    where: {
+      key: {
+        in: [
+          'rate_2_students',
+          'rate_3_students',
+          'rate_4_students',
+          'rate_5plus_students',
+          'assistant_fixed_rate',
+          'reposition_rate',
+        ],
+      },
+    },
   });
-  const cfg = Object.fromEntries(configs.map((c) => [c.key, parseFloat(c.value)]));
-  const ratePerStudent = cfg.rate_per_student || 15000;
-  const assistantFixedRate = cfg.assistant_fixed_rate || 12000;
-  const repositionRate = cfg.reposition_rate || ratePerStudent;
+  const cfg = Object.fromEntries(configs.map((c) => [c.key, c.value]));
+
+  const assistantFixedRate = parseFloat(cfg.assistant_fixed_rate || 12000);
+  const repositionRate = parseFloat(cfg.reposition_rate || 15000);
 
   const effectiveUnits = parseFloat(session.effectiveUnits);
   const period = getPeriodForDate(session.date);
@@ -48,9 +69,10 @@ async function calculateCosts(sessionId) {
     (r) => r.attendanceType === 'REPOSICION' && r.status === 'PRESENTE'
   ).length;
 
+  const bracketRate = getBracketRate(regularPresent, cfg);
   const professor = session.substituteProfessor || session.group.professor;
   const professorTotal =
-    regularPresent * ratePerStudent * effectiveUnits +
+    bracketRate * effectiveUnits +
     repositionPresent * repositionRate * effectiveUnits;
 
   // Delete previous cost records for this session before recalculating
@@ -58,15 +80,15 @@ async function calculateCosts(sessionId) {
 
   const records = [];
 
-  if (professor && professorTotal > 0) {
+  if (professor && (bracketRate > 0 || repositionPresent > 0)) {
     records.push({
       sessionId,
       professorId: professor.id,
       assistantId: null,
       payeeType: 'PROFESSOR',
-      presentCount: regularPresent + repositionPresent,
+      presentCount: regularPresent,
       effectiveUnits: session.effectiveUnits,
-      rate: ratePerStudent,
+      rate: bracketRate,
       total: professorTotal,
       period,
     });
@@ -97,4 +119,4 @@ async function calculateCosts(sessionId) {
   };
 }
 
-module.exports = { calculateCosts, getCurrentPeriod, getPeriodForDate };
+module.exports = { calculateCosts, getCurrentPeriod, getPeriodForDate, getBracketRate };

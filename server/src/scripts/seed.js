@@ -21,9 +21,12 @@ async function main() {
     console.log(`Admin ya existe: ${email}`);
   }
 
-  // Default system config
+  // Default system config — ranged professor rates + assistant/reposition rates
   const defaults = [
-    { key: 'rate_per_student', value: '15000' },
+    { key: 'rate_2_students', value: '30000' },
+    { key: 'rate_3_students', value: '45000' },
+    { key: 'rate_4_students', value: '60000' },
+    { key: 'rate_5plus_students', value: '75000' },
     { key: 'assistant_fixed_rate', value: '12000' },
     { key: 'reposition_rate', value: '15000' },
   ];

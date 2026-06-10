@@ -109,6 +109,99 @@ router.get('/assistant/:assistantId', async (req, res, next) => {
   }
 });
 
+router.get('/professor/:professorId', async (req, res, next) => {
+  try {
+    const { from, to } = req.query;
+    const dateFilter = {};
+    if (from) dateFilter.gte = new Date(from);
+    if (to) dateFilter.lte = new Date(to);
+
+    const where = {
+      status: { not: 'PROGRAMADA' },
+      group: { professorId: req.params.professorId },
+    };
+    if (from || to) where.date = dateFilter;
+
+    const sessions = await prisma.classSession.findMany({
+      where,
+      include: {
+        group: { select: { id: true, code: true, name: true } },
+        attendanceRecords: { select: { status: true, attendanceType: true } },
+        costRecords: {
+          where: { professorId: req.params.professorId },
+          select: { total: true, rate: true, presentCount: true, effectiveUnits: true },
+        },
+      },
+      orderBy: { date: 'desc' },
+    });
+
+    const totalPay = sessions.reduce((sum, s) => {
+      return sum + s.costRecords.reduce((cs, r) => cs + parseFloat(r.total), 0);
+    }, 0);
+
+    const data = sessions.map((s) => {
+      const counts = { PRESENTE: 0, AUSENTE: 0, JUSTIFICADA: 0 };
+      s.attendanceRecords.forEach((r) => counts[r.status]++);
+      const total = s.attendanceRecords.length;
+      const pay = s.costRecords.reduce((cs, r) => cs + parseFloat(r.total), 0);
+      return {
+        ...s,
+        present: counts.PRESENTE,
+        absent: counts.AUSENTE,
+        justified: counts.JUSTIFICADA,
+        attendanceRate: total > 0 ? Math.round((counts.PRESENTE / total) * 100) : 0,
+        pay,
+      };
+    });
+
+    const realized = data.filter((s) => ['REALIZADA', 'CANCELADA_MITAD'].includes(s.status)).length;
+
+    res.json({
+      success: true,
+      data: { sessions: data, summary: { total: sessions.length, realized, totalPay } },
+    });
+  } catch (err) {
+    next(err);
+  }
+});
+
+router.get('/class/:sessionId', async (req, res, next) => {
+  try {
+    const session = await prisma.classSession.findUnique({
+      where: { id: req.params.sessionId },
+      include: {
+        group: { include: { professor: { select: { id: true, name: true } } } },
+        substituteProfessor: { select: { id: true, name: true } },
+        assistant: { select: { id: true, name: true } },
+        attendanceRecords: {
+          include: { student: { select: { id: true, name: true } } },
+          orderBy: { student: { name: 'asc' } },
+        },
+        costRecords: true,
+      },
+    });
+    if (!session) return res.status(404).json({ success: false, error: 'Sesión no encontrada' });
+
+    const counts = { PRESENTE: 0, AUSENTE: 0, JUSTIFICADA: 0 };
+    session.attendanceRecords.forEach((r) => counts[r.status]++);
+
+    const totalCost = session.costRecords.reduce((s, r) => s + parseFloat(r.total), 0);
+
+    res.json({
+      success: true,
+      data: {
+        ...session,
+        present: counts.PRESENTE,
+        absent: counts.AUSENTE,
+        justified: counts.JUSTIFICADA,
+        totalCost,
+      },
+    });
+  } catch (err) {
+    next(err);
+  }
+});
+
 router.get('/dashboard', async (req, res, next) => {
   try {
     const now = new Date();

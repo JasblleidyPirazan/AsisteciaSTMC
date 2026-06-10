@@ -1,6 +1,7 @@
 const express = require('express');
 const prisma = require('../lib/prisma');
 const { requireRole } = require('../middleware/auth');
+const XLSX = require('xlsx');
 
 const router = express.Router();
 
@@ -28,7 +29,6 @@ router.get('/', async (req, res, next) => {
       where.assistantId = assistant.id;
       where.payeeType = 'ASSISTANT';
     } else if (payeeId) {
-      // Admin filtering by payee — match either professor or assistant
       where.OR = [{ professorId: payeeId }, { assistantId: payeeId }];
     }
 
@@ -42,7 +42,6 @@ router.get('/', async (req, res, next) => {
       orderBy: { session: { date: 'asc' } },
     });
 
-    // Group by actual payee (professor or assistant id)
     const byPayee = {};
     for (const r of records) {
       const id = r.professorId || r.assistantId;
@@ -85,7 +84,125 @@ router.get('/summary', requireRole('ADMIN'), async (req, res, next) => {
       summary[key].classCount++;
     }
 
-    res.json({ success: true, data: Object.values(summary) });
+    // Sort: professors first, then assistants
+    const sorted = Object.values(summary).sort((a, b) => {
+      if (a.payeeType !== b.payeeType) return a.payeeType === 'PROFESSOR' ? -1 : 1;
+      return a.name.localeCompare(b.name);
+    });
+
+    const totalProfessors = sorted
+      .filter((s) => s.payeeType === 'PROFESSOR')
+      .reduce((sum, s) => sum + s.total, 0);
+    const totalAssistants = sorted
+      .filter((s) => s.payeeType === 'ASSISTANT')
+      .reduce((sum, s) => sum + s.total, 0);
+
+    res.json({
+      success: true,
+      data: {
+        items: sorted,
+        totalProfessors,
+        totalAssistants,
+        grandTotal: totalProfessors + totalAssistants,
+      },
+    });
+  } catch (err) {
+    next(err);
+  }
+});
+
+router.get('/export', requireRole('ADMIN'), async (req, res, next) => {
+  try {
+    const { period } = req.query;
+    if (!period) return res.status(400).json({ success: false, error: 'period requerido' });
+
+    const records = await prisma.costRecord.findMany({
+      where: { period },
+      include: {
+        session: { include: { group: { select: { code: true } } } },
+        professor: { select: { name: true } },
+        assistant: { select: { name: true } },
+      },
+      orderBy: [{ payeeType: 'asc' }, { session: { date: 'asc' } }],
+    });
+
+    // Build row data for professors
+    const profRows = [];
+    const asstRows = [];
+
+    for (const r of records) {
+      const name = r.professor?.name || r.assistant?.name || '';
+      const date = new Date(r.session.date + 'T12:00:00').toLocaleDateString('es-CO', {
+        day: '2-digit', month: '2-digit', year: 'numeric',
+      });
+      const row = {
+        Nombre: name,
+        Fecha: date,
+        Grupo: r.session.group?.code || '',
+        'Estudiantes presentes': r.presentCount,
+        'Unidades efectivas': parseFloat(r.effectiveUnits),
+        'Tarifa (COP)': parseFloat(r.rate),
+        'Total (COP)': parseFloat(r.total),
+      };
+      if (r.payeeType === 'PROFESSOR') profRows.push(row);
+      else asstRows.push(row);
+    }
+
+    const wb = XLSX.utils.book_new();
+
+    // Professors sheet
+    const wsProfHeader = [
+      ['LIQUIDACIÓN DE PROFESORES', '', '', '', '', '', ''],
+      [`Período: ${period}`, '', '', '', '', '', ''],
+      [],
+    ];
+    const profData = [...wsProfHeader, Object.keys(profRows[0] || { Nombre: '' }), ...profRows.map(Object.values)];
+    const wsProf = profRows.length > 0
+      ? XLSX.utils.aoa_to_sheet([
+          ['LIQUIDACIÓN DE PROFESORES'],
+          [`Período: ${period}`],
+          [],
+          Object.keys(profRows[0]),
+          ...profRows.map(Object.values),
+          [],
+          ['', '', '', '', '', 'TOTAL PROFESORES', profRows.reduce((s, r) => s + r['Total (COP)'], 0)],
+        ])
+      : XLSX.utils.aoa_to_sheet([['Sin registros de profesores para este período']]);
+    XLSX.utils.book_append_sheet(wb, wsProf, 'Profesores');
+
+    // Assistants sheet
+    const wsAsst = asstRows.length > 0
+      ? XLSX.utils.aoa_to_sheet([
+          ['LIQUIDACIÓN DE ASISTENTES'],
+          [`Período: ${period}`],
+          [],
+          Object.keys(asstRows[0]),
+          ...asstRows.map(Object.values),
+          [],
+          ['', '', '', '', '', 'TOTAL ASISTENTES', asstRows.reduce((s, r) => s + r['Total (COP)'], 0)],
+        ])
+      : XLSX.utils.aoa_to_sheet([['Sin registros de asistentes para este período']]);
+    XLSX.utils.book_append_sheet(wb, wsAsst, 'Asistentes');
+
+    // Summary sheet
+    const grandTotal = [...profRows, ...asstRows].reduce((s, r) => s + r['Total (COP)'], 0);
+    const wsSum = XLSX.utils.aoa_to_sheet([
+      ['RESUMEN LIQUIDACIÓN'],
+      [`Período: ${period}`],
+      [],
+      ['Concepto', 'Total (COP)'],
+      ['Total Profesores', profRows.reduce((s, r) => s + r['Total (COP)'], 0)],
+      ['Total Asistentes', asstRows.reduce((s, r) => s + r['Total (COP)'], 0)],
+      [],
+      ['GRAN TOTAL', grandTotal],
+    ]);
+    XLSX.utils.book_append_sheet(wb, wsSum, 'Resumen');
+
+    const buffer = XLSX.write(wb, { type: 'buffer', bookType: 'xlsx' });
+
+    res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+    res.setHeader('Content-Disposition', `attachment; filename="liquidacion-${period}.xlsx"`);
+    res.send(buffer);
   } catch (err) {
     next(err);
   }

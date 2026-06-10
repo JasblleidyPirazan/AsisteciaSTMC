@@ -2,10 +2,13 @@ import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { api } from '../../api/client';
 
-const TABS = ['Grupo', 'Estudiante', 'Asistente'];
+const TABS = ['Grupo', 'Estudiante', 'Asistente', 'Profesor', 'Clase'];
 
 function fmt(d) {
-  return new Date(d).toLocaleDateString('es-CO', { day: '2-digit', month: 'short', year: 'numeric' });
+  return new Date(d + 'T12:00:00').toLocaleDateString('es-CO', { day: '2-digit', month: 'short', year: 'numeric' });
+}
+function fmtCOP(n) {
+  return new Intl.NumberFormat('es-CO', { style: 'currency', currency: 'COP', maximumFractionDigits: 0 }).format(n || 0);
 }
 
 const STATUS_LABEL = { REALIZADA: 'Realizada', CANCELADA: 'Cancelada', CANCELADA_MITAD: 'Cancelada mitad', PROGRAMADA: 'Programada' };
@@ -19,11 +22,16 @@ export default function ReportsPage() {
   const [groups, setGroups] = useState([]);
   const [students, setStudents] = useState([]);
   const [assistants, setAssistants] = useState([]);
+  const [professors, setProfessors] = useState([]);
+  const [sessions, setSessions] = useState([]);
   const [loadingLists, setLoadingLists] = useState(true);
 
   const [groupId, setGroupId] = useState('');
   const [studentId, setStudentId] = useState('');
   const [assistantId, setAssistantId] = useState('');
+  const [professorId, setProfessorId] = useState('');
+  const [sessionId, setSessionId] = useState('');
+  const [classGroupId, setClassGroupId] = useState('');
   const [from, setFrom] = useState('');
   const [to, setTo] = useState('');
 
@@ -36,13 +44,29 @@ export default function ReportsPage() {
       api.get('/groups', { active: 'true' }),
       api.get('/students', { active: 'true' }),
       api.get('/assistants', { active: 'true' }),
-    ]).then(([g, s, a]) => { setGroups(g); setStudents(s); setAssistants(a); })
+      api.get('/professors', { active: 'true' }),
+    ]).then(([g, s, a, p]) => { setGroups(g); setStudents(s); setAssistants(a); setProfessors(p); })
       .finally(() => setLoadingLists(false));
   }, []);
+
+  // Load sessions when a group is selected for the Clase tab
+  useEffect(() => {
+    if (tab === 4 && classGroupId) {
+      api.get(`/reports/group/${classGroupId}`).then((data) => {
+        setSessions(Array.isArray(data) ? data : []);
+      }).catch(() => setSessions([]));
+    } else {
+      setSessions([]);
+      setSessionId('');
+    }
+  }, [tab, classGroupId]);
 
   useEffect(() => {
     setData(null);
     setError('');
+    setSessionId('');
+    setSessions([]);
+    setClassGroupId('');
   }, [tab]);
 
   async function handleSearch(e) {
@@ -58,7 +82,9 @@ export default function ReportsPage() {
       let result;
       if (tab === 0) result = await api.get(`/reports/group/${groupId}`, params);
       else if (tab === 1) result = await api.get(`/reports/student/${studentId}`, params);
-      else result = await api.get(`/reports/assistant/${assistantId}`, params);
+      else if (tab === 2) result = await api.get(`/reports/assistant/${assistantId}`, params);
+      else if (tab === 3) result = await api.get(`/reports/professor/${professorId}`, params);
+      else result = await api.get(`/reports/class/${sessionId}`);
 
       setData(result);
     } catch (err) {
@@ -68,7 +94,12 @@ export default function ReportsPage() {
     }
   }
 
-  const canSearch = (tab === 0 && groupId) || (tab === 1 && studentId) || (tab === 2 && assistantId);
+  const canSearch =
+    (tab === 0 && groupId) ||
+    (tab === 1 && studentId) ||
+    (tab === 2 && assistantId) ||
+    (tab === 3 && professorId) ||
+    (tab === 4 && sessionId);
 
   return (
     <div className="page">
@@ -78,12 +109,12 @@ export default function ReportsPage() {
       </div>
 
       <div className="page-content">
-        <div style={{ display: 'flex', gap: 8, marginBottom: 16 }}>
+        <div style={{ display: 'flex', gap: 6, marginBottom: 16, flexWrap: 'wrap' }}>
           {TABS.map((t, i) => (
             <button
               key={t}
               className={`btn ${tab === i ? 'btn-primary' : 'btn-outline'}`}
-              style={{ flex: 1, minHeight: 36, fontSize: '0.8rem' }}
+              style={{ minHeight: 34, fontSize: '0.78rem', padding: '0 10px' }}
               onClick={() => setTab(i)}
             >
               {t}
@@ -121,19 +152,52 @@ export default function ReportsPage() {
                   </select>
                 </>
               )}
+              {tab === 3 && (
+                <>
+                  <label className="form-label">Profesor</label>
+                  <select className="form-input form-select" value={professorId} onChange={(e) => setProfessorId(e.target.value)}>
+                    <option value="">Seleccionar profesor</option>
+                    {professors.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
+                  </select>
+                </>
+              )}
+              {tab === 4 && (
+                <>
+                  <label className="form-label">Grupo</label>
+                  <select className="form-input form-select mb-2" value={classGroupId} onChange={(e) => { setClassGroupId(e.target.value); setSessionId(''); }}>
+                    <option value="">Seleccionar grupo</option>
+                    {groups.map((g) => <option key={g.id} value={g.id}>{g.code}</option>)}
+                  </select>
+                  {classGroupId && (
+                    <>
+                      <label className="form-label">Sesión</label>
+                      <select className="form-input form-select" value={sessionId} onChange={(e) => setSessionId(e.target.value)}>
+                        <option value="">Seleccionar sesión</option>
+                        {sessions.map((s) => (
+                          <option key={s.id} value={s.id}>
+                            {fmt(s.date)} — {STATUS_LABEL[s.status]}
+                          </option>
+                        ))}
+                      </select>
+                    </>
+                  )}
+                </>
+              )}
             </div>
           )}
 
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
-            <div className="form-group">
-              <label className="form-label">Desde</label>
-              <input type="date" className="form-input" value={from} onChange={(e) => setFrom(e.target.value)} />
+          {tab !== 4 && (
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+              <div className="form-group">
+                <label className="form-label">Desde</label>
+                <input type="date" className="form-input" value={from} onChange={(e) => setFrom(e.target.value)} />
+              </div>
+              <div className="form-group">
+                <label className="form-label">Hasta</label>
+                <input type="date" className="form-input" value={to} onChange={(e) => setTo(e.target.value)} />
+              </div>
             </div>
-            <div className="form-group">
-              <label className="form-label">Hasta</label>
-              <input type="date" className="form-input" value={to} onChange={(e) => setTo(e.target.value)} />
-            </div>
-          </div>
+          )}
 
           <button type="submit" className="btn btn-primary btn-full" disabled={!canSearch || loading}>
             {loading ? 'Consultando...' : 'Ver reporte'}
@@ -145,6 +209,8 @@ export default function ReportsPage() {
         {data && tab === 0 && <GroupReport data={data} />}
         {data && tab === 1 && <StudentReport data={data} />}
         {data && tab === 2 && <AssistantReport data={data} />}
+        {data && tab === 3 && <ProfessorReport data={data} />}
+        {data && tab === 4 && <ClassReport data={data} />}
       </div>
     </div>
   );
@@ -237,6 +303,81 @@ function AssistantReport({ data }) {
         </div>
       ))}
       {sessions.length === 0 && <div className="alert alert-info">Sin sesiones en el período.</div>}
+    </div>
+  );
+}
+
+function ProfessorReport({ data }) {
+  const { sessions = [], summary = {} } = data;
+  return (
+    <div className="mt-4">
+      <div className="stats-row mb-3">
+        <div className="stat-box"><div className="num">{summary.total || 0}</div><div className="lbl">Sesiones</div></div>
+        <div className="stat-box"><div className="num">{summary.realized || 0}</div><div className="lbl">Realizadas</div></div>
+        <div className="stat-box"><div className="num">{fmtCOP(summary.totalPay)}</div><div className="lbl">Total pago</div></div>
+      </div>
+      {sessions.map((s) => (
+        <div key={s.id} className="card mb-2">
+          <div className="flex items-center justify-between">
+            <div>
+              <div className="text-sm font-medium">{fmt(s.date)} · {s.group?.code}</div>
+              <div className="text-xs text-gray">
+                P:{s.present} A:{s.absent} J:{s.justified}
+              </div>
+            </div>
+            <div style={{ textAlign: 'right', flexShrink: 0 }}>
+              <span className="badge" style={{ background: STATUS_COLOR[s.status] + '20', color: STATUS_COLOR[s.status] }}>
+                {STATUS_LABEL[s.status]}
+              </span>
+              {s.pay > 0 && <div className="text-sm font-medium mt-1">{fmtCOP(s.pay)}</div>}
+            </div>
+          </div>
+        </div>
+      ))}
+      {sessions.length === 0 && <div className="alert alert-info">Sin sesiones en el período.</div>}
+    </div>
+  );
+}
+
+function ClassReport({ data }) {
+  if (!data) return null;
+  const { attendanceRecords = [], group, date, status, present, absent, justified, totalCost,
+    substituteProfessor, assistant } = data;
+
+  return (
+    <div className="mt-4">
+      <div className="card mb-3">
+        <div className="font-medium mb-1">{group?.code}</div>
+        <div className="text-sm text-gray mb-2">{fmt(date)} · {STATUS_LABEL[status]}</div>
+        {substituteProfessor && <div className="text-xs text-gray">Sustituto: {substituteProfessor.name}</div>}
+        {assistant && <div className="text-xs text-gray">Asistente: {assistant.name}</div>}
+      </div>
+
+      <div className="stats-row mb-3">
+        <div className="stat-box"><div className="num">{present}</div><div className="lbl">Presentes</div></div>
+        <div className="stat-box"><div className="num">{absent}</div><div className="lbl">Ausentes</div></div>
+        <div className="stat-box"><div className="num">{justified}</div><div className="lbl">Justificados</div></div>
+        {totalCost > 0 && <div className="stat-box"><div className="num" style={{ fontSize: '0.9rem' }}>{fmtCOP(totalCost)}</div><div className="lbl">Costo</div></div>}
+      </div>
+
+      {attendanceRecords.map((r) => (
+        <div key={r.id} className="card mb-1">
+          <div className="flex items-center justify-between">
+            <div>
+              <div className="text-sm">{r.student?.name}</div>
+              {r.attendanceType === 'REPOSICION' && <div className="text-xs text-gray">Reposición</div>}
+            </div>
+            <span style={{
+              fontWeight: 700, fontSize: '0.9rem', width: 30, height: 30, borderRadius: '50%',
+              display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0,
+              background: ATTENDANCE_COLOR[r.status] + '20', color: ATTENDANCE_COLOR[r.status],
+            }}>
+              {ATTENDANCE_LABEL[r.status]}
+            </span>
+          </div>
+        </div>
+      ))}
+      {attendanceRecords.length === 0 && <div className="alert alert-info">Sin registros de asistencia.</div>}
     </div>
   );
 }

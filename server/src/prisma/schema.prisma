@@ -16,10 +16,10 @@ model User {
   createdAt    DateTime @default(now()) @map("created_at")
   updatedAt    DateTime @updatedAt @map("updated_at")
 
-  professor         Professor?
-  assistant         Assistant?
-  parentOf          Student[]      @relation("ParentUser")
-  reportedSessions  ClassSession[] @relation("SessionReporter")
+  professor          Professor?
+  assistant          Assistant?
+  parentOf           Student[]          @relation("ParentUser")
+  reportedSessions   ClassSession[]     @relation("SessionReporter")
   reportedAttendance AttendanceRecord[] @relation("AttendanceReporter")
 
   @@map("users")
@@ -34,14 +34,14 @@ enum Role {
 }
 
 model Professor {
-  id     String  @id @default(cuid())
-  userId String? @unique @map("user_id")
-  name   String
-  active Boolean @default(true)
+  id        String   @id @default(cuid())
+  userId    String?  @unique @map("user_id")
+  name      String
+  active    Boolean  @default(true)
   createdAt DateTime @default(now()) @map("created_at")
 
-  user          User?          @relation(fields: [userId], references: [id])
-  groups        Group[]
+  user                User?          @relation(fields: [userId], references: [id])
+  groups              Group[]
   substitutedSessions ClassSession[] @relation("SubstituteProfessor")
   costRecords         CostRecord[]   @relation("ProfessorCosts")
   makeupClasses       MakeupClass[]
@@ -51,13 +51,13 @@ model Professor {
 }
 
 model Assistant {
-  id     String  @id @default(cuid())
-  userId String? @unique @map("user_id")
-  name   String
-  active Boolean @default(true)
+  id        String   @id @default(cuid())
+  userId    String?  @unique @map("user_id")
+  name      String
+  active    Boolean  @default(true)
   createdAt DateTime @default(now()) @map("created_at")
 
-  user        User?        @relation(fields: [userId], references: [id])
+  user          User?          @relation(fields: [userId], references: [id])
   sessions      ClassSession[]
   costRecords   CostRecord[]   @relation("AssistantCosts")
   makeupClasses MakeupClass[]
@@ -66,45 +66,52 @@ model Assistant {
 }
 
 model Student {
-  id           String  @id @default(cuid())
-  name         String
-  email        String?
-  parentUserId String? @map("parent_user_id")
-  active       Boolean @default(true)
-  createdAt    DateTime @default(now()) @map("created_at")
+  id                 String    @id @default(cuid())
+  name               String
+  email              String?
+  parentUserId       String?   @map("parent_user_id")
+  active             Boolean   @default(true)
+  deactivationReason String?   @map("deactivation_reason")
+  deactivatedAt      DateTime? @map("deactivated_at")
+  createdAt          DateTime  @default(now()) @map("created_at")
 
-  parentUser       User?              @relation("ParentUser", fields: [parentUserId], references: [id])
-  enrollments      StudentEnrollment[]
+  parentUser        User?                 @relation("ParentUser", fields: [parentUserId], references: [id])
+  enrollments       StudentEnrollment[]
   attendanceRecords AttendanceRecord[]
   makeupEnrollments MakeupEnrollment[]
+  groupHistory      StudentGroupHistory[]
 
   @@map("students")
 }
 
 model Group {
-  id              String  @id @default(cuid())
-  code            String  @unique
-  name            String?
-  professorId     String  @map("professor_id")
-  lunes           Boolean @default(false)
-  martes          Boolean @default(false)
-  miercoles       Boolean @default(false)
-  jueves          Boolean @default(false)
-  viernes         Boolean @default(false)
-  sabado          Boolean @default(false)
-  domingo         Boolean @default(false)
-  startTime       String  @map("start_time")
-  endTime         String  @map("end_time")
-  durationMinutes Int     @map("duration_minutes")
-  classUnits      Decimal @map("class_units") @db.Decimal(3, 1)
-  court           Int?
-  ballLevel       String? @map("ball_level")
-  active          Boolean @default(true)
-  createdAt       DateTime @default(now()) @map("created_at")
+  id                 String    @id @default(cuid())
+  code               String    @unique
+  name               String?
+  professorId        String    @map("professor_id")
+  lunes              Boolean   @default(false)
+  martes             Boolean   @default(false)
+  miercoles          Boolean   @default(false)
+  jueves             Boolean   @default(false)
+  viernes            Boolean   @default(false)
+  sabado             Boolean   @default(false)
+  domingo            Boolean   @default(false)
+  startTime          String    @map("start_time")
+  endTime            String    @map("end_time")
+  durationMinutes    Int       @map("duration_minutes")
+  classUnits         Decimal   @map("class_units") @db.Decimal(3, 1)
+  court              Int?
+  ballLevel          String?   @map("ball_level")
+  active             Boolean   @default(true)
+  deactivationReason String?   @map("deactivation_reason")
+  deactivatedAt      DateTime? @map("deactivated_at")
+  createdAt          DateTime  @default(now()) @map("created_at")
 
-  professor   Professor          @relation(fields: [professorId], references: [id])
+  professor   Professor             @relation(fields: [professorId], references: [id])
   enrollments StudentEnrollment[]
   sessions    ClassSession[]
+  historyFrom StudentGroupHistory[] @relation("FromGroup")
+  historyTo   StudentGroupHistory[] @relation("ToGroup")
 
   @@map("groups")
 }
@@ -139,10 +146,10 @@ model ClassSession {
   reportedById          String?       @map("reported_by_id")
   createdAt             DateTime      @default(now()) @map("created_at")
 
-  group               Group             @relation(fields: [groupId], references: [id])
-  substituteProfessor Professor?        @relation("SubstituteProfessor", fields: [substituteProfessorId], references: [id])
-  assistant           Assistant?        @relation(fields: [assistantId], references: [id])
-  reportedBy          User?             @relation("SessionReporter", fields: [reportedById], references: [id])
+  group               Group              @relation(fields: [groupId], references: [id])
+  substituteProfessor Professor?         @relation("SubstituteProfessor", fields: [substituteProfessorId], references: [id])
+  assistant           Assistant?         @relation(fields: [assistantId], references: [id])
+  reportedBy          User?              @relation("SessionReporter", fields: [reportedById], references: [id])
   attendanceRecords   AttendanceRecord[]
   costRecords         CostRecord[]
 
@@ -167,9 +174,9 @@ model AttendanceRecord {
   reportedById   String?          @map("reported_by_id")
   createdAt      DateTime         @default(now()) @map("created_at")
 
-  session      ClassSession @relation(fields: [sessionId], references: [id])
-  student      Student      @relation(fields: [studentId], references: [id])
-  reportedBy   User?        @relation("AttendanceReporter", fields: [reportedById], references: [id])
+  session    ClassSession @relation(fields: [sessionId], references: [id])
+  student    Student      @relation(fields: [studentId], references: [id])
+  reportedBy User?        @relation("AttendanceReporter", fields: [reportedById], references: [id])
 
   @@unique([sessionId, studentId])
   @@map("attendance_records")
@@ -284,4 +291,46 @@ model SystemConfig {
   updatedBy String?  @map("updated_by")
 
   @@map("system_config")
+}
+
+model StudentGroupHistory {
+  id          String   @id @default(cuid())
+  studentId   String   @map("student_id")
+  fromGroupId String?  @map("from_group_id")
+  toGroupId   String?  @map("to_group_id")
+  actionType  String   @map("action_type") // TRANSFER | ADD_GROUP | REMOVE_GROUP
+  reason      String?
+  changedById String?  @map("changed_by_id")
+  changedAt   DateTime @default(now()) @map("changed_at")
+
+  student   Student @relation(fields: [studentId], references: [id])
+  fromGroup Group?  @relation("FromGroup", fields: [fromGroupId], references: [id])
+  toGroup   Group?  @relation("ToGroup", fields: [toGroupId], references: [id])
+
+  @@map("student_group_history")
+}
+
+model Semester {
+  id        String   @id @default(cuid())
+  name      String
+  startDate DateTime @map("start_date") @db.Date
+  endDate   DateTime @map("end_date") @db.Date
+  active    Boolean  @default(false)
+  createdAt DateTime @default(now()) @map("created_at")
+
+  exclusions SemesterExclusion[]
+
+  @@map("semesters")
+}
+
+model SemesterExclusion {
+  id         String   @id @default(cuid())
+  semesterId String   @map("semester_id")
+  date       DateTime @db.Date
+  reason     String?
+  createdAt  DateTime @default(now()) @map("created_at")
+
+  semester Semester @relation(fields: [semesterId], references: [id])
+
+  @@map("semester_exclusions")
 }

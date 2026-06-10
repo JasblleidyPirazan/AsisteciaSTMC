@@ -35,6 +35,11 @@ export default function GroupsPage() {
   const [error, setError] = useState('');
   const [saving, setSaving] = useState(false);
 
+  // Deactivation modal
+  const [deactivateTarget, setDeactivateTarget] = useState(null);
+  const [deactivateReason, setDeactivateReason] = useState('');
+  const [deactivating, setDeactivating] = useState(false);
+
   useEffect(() => {
     Promise.all([
       api.get('/groups', { active: 'true' }),
@@ -73,10 +78,18 @@ export default function GroupsPage() {
     }
   }
 
-  async function handleDeactivate(id) {
-    if (!confirm('¿Desactivar grupo?')) return;
-    await api.delete(`/groups/${id}`);
-    setGroups(groups.filter((g) => g.id !== id));
+  async function confirmDeactivate() {
+    if (!deactivateReason.trim()) return;
+    setDeactivating(true);
+    try {
+      await api.delete(`/groups/${deactivateTarget.id}`, { reason: deactivateReason.trim() });
+      setGroups(groups.filter((g) => g.id !== deactivateTarget.id));
+      setDeactivateTarget(null);
+    } catch (err) {
+      alert(err.message);
+    } finally {
+      setDeactivating(false);
+    }
   }
 
   if (loading) return <div className="page"><div className="spinner" /></div>;
@@ -200,7 +213,7 @@ export default function GroupsPage() {
                 <button
                   className="btn btn-ghost"
                   style={{ minHeight: 32, padding: '0 8px', fontSize: '0.8rem', color: 'var(--red)', flexShrink: 0 }}
-                  onClick={() => handleDeactivate(g.id)}
+                  onClick={() => { setDeactivateTarget(g); setDeactivateReason(''); }}
                 >
                   Desactivar
                 </button>
@@ -209,6 +222,41 @@ export default function GroupsPage() {
           ))
         )}
       </div>
+
+      {deactivateTarget && (
+        <div className="modal-overlay" onClick={() => setDeactivateTarget(null)}>
+          <div className="modal-content" onClick={(e) => e.stopPropagation()}>
+            <h3 className="mb-3">Desactivar grupo</h3>
+            <p className="text-sm mb-3">
+              Vas a desactivar el grupo <strong>{deactivateTarget.code}</strong>. Esta acción requiere un motivo.
+            </p>
+            <div className="form-group">
+              <label className="form-label">Motivo *</label>
+              <textarea
+                className="form-input"
+                rows={3}
+                placeholder="Ej: Fin de semestre, grupo disuelto por falta de estudiantes..."
+                value={deactivateReason}
+                onChange={(e) => setDeactivateReason(e.target.value)}
+                style={{ resize: 'vertical' }}
+              />
+            </div>
+            <div className="flex gap-2 mt-2">
+              <button className="btn btn-outline" style={{ flex: 1 }} onClick={() => setDeactivateTarget(null)}>
+                Cancelar
+              </button>
+              <button
+                className="btn"
+                style={{ flex: 2, background: 'var(--red)', color: '#fff' }}
+                disabled={!deactivateReason.trim() || deactivating}
+                onClick={confirmDeactivate}
+              >
+                {deactivating ? 'Desactivando...' : 'Confirmar'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

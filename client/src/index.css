@@ -317,3 +317,33 @@ p { line-height: 1.5; }
 @media (min-width: 768px) {
   .page { border-left: 1px solid var(--gray-200); border-right: 1px solid var(--gray-200); }
 }
+
+/* Modal */
+.modal-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.45);
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+  z-index: 100;
+  padding: 0 0 env(safe-area-inset-bottom);
+}
+.modal-content {
+  background: #fff;
+  border-radius: var(--radius) var(--radius) 0 0;
+  padding: 20px 16px;
+  width: 100%;
+  max-width: 480px;
+  max-height: 85vh;
+  overflow-y: auto;
+}
+.badge {
+  display: inline-flex;
+  align-items: center;
+  padding: 2px 8px;
+  border-radius: 12px;
+  font-size: 0.72rem;
+  font-weight: 600;
+}
+.mt-3 { margin-top: 12px; }

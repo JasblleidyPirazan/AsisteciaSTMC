@@ -70,6 +70,7 @@ app.use('/api/events', authMiddleware, require('./routes/events'));
 app.use('/api/payroll', authMiddleware, require('./routes/payroll'));
 app.use('/api/reports', authMiddleware, require('./routes/reports'));
 app.use('/api/config', authMiddleware, require('./routes/config'));
+app.use('/api/semesters', authMiddleware, require('./routes/semesters'));
 app.use('/api/parent', authMiddleware, require('./routes/parent'));
 
 // Serve React frontend

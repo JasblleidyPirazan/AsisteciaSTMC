@@ -129,7 +129,10 @@ CORS_ORIGIN        # URL del dominio en Railway (ej: https://asisteciastmc.up.ra
 | `MakeupClass` | Reposiciones grupales |
 | `Event` | Torneos/clínicas con pago fijo |
 | `EnrollmentRequest` | Solicitudes de inscripción (estado PENDING/APPROVED/REJECTED) |
-| `SystemConfig` | Tarifas configurables: rate_per_student, assistant_fixed_rate, reposition_rate |
+| `SystemConfig` | Tarifas configurables: rate_2_students, rate_3_students, rate_4_students, rate_5plus_students, assistant_fixed_rate, reposition_rate |
+| `StudentGroupHistory` | Historial de cambios de grupo: TRANSFER, ADD_GROUP, REMOVE_GROUP |
+| `Semester` | Semestres: nombre, fechas inicio/fin, activo (solo uno activo a la vez) |
+| `SemesterExclusion` | Fechas excluidas de un semestre (festivos, vacaciones) |
 
 ---
 
@@ -141,9 +144,12 @@ Archivo: `server/src/services/costEngine.js`
 - Clases sencillas (45 min): `effectiveUnits = 1.0`
 - Clases dobles (90 min): `effectiveUnits = 2.0`
 - Cancelada a la mitad: `effectiveUnits = 1.0` (toggle en el resumen)
-- **Profesor**: `presentes_regulares × tarifa × units + presentes_reposicion × tarifa_repo × units`
+- **Profesor (tarifa por tramo)**: `tramo(presentes_regulares) × units + presentes_reposicion × tarifa_repo × units`
+  - Tramos: 1-2 → `rate_2_students`, 3 → `rate_3_students`, 4 → `rate_4_students`, 5+ → `rate_5plus_students`
+  - La tarifa de tramo es un monto fijo por sesión (no por estudiante), multiplicado por effectiveUnits
 - **Asistente**: `tarifa_fija × units`
 - Solo sesiones REALIZADA o CANCELADA_MITAD generan costo
+- Función `getBracketRate(presentCount, cfg)` en costEngine.js implementa la lógica de tramos
 
 ---
 
@@ -226,6 +232,15 @@ Desde la base de datos o el seed, crear un `User` con `role: 'PHYSICAL_TRAINER'`
 - `POST /api/sessions/:id/cancel` — cancelar con motivo
 - `POST /api/sessions/:id/assist` — asistente marca que acompañó
 
+### Estudiantes — gestión de grupos
+- `POST /api/students/:id/transfer` — cambiar grupo (registra historial). Body: `{ fromGroupId?, toGroupId, reason? }`
+- `POST /api/students/:id/enrollments` — agregar a grupo adicional
+- `DELETE /api/students/:id/enrollments/:groupId` — quitar de un grupo
+- `DELETE /api/students/:id` — desactivar; **requiere `reason` en el body**
+
+### Grupos
+- `DELETE /api/groups/:id` — desactivar; **requiere `reason` en el body**
+
 ### Admin
 - CRUD: `/api/students`, `/api/groups`, `/api/professors`, `/api/assistants`, `/api/events`
 - `GET /api/enrollment/requests?status=PENDING`
@@ -236,7 +251,17 @@ Desde la base de datos o el seed, crear un `User` con `role: 'PHYSICAL_TRAINER'`
 - `GET /api/reports/group/:id`
 - `GET /api/reports/student/:id`
 - `GET /api/reports/assistant/:id`
+- `GET /api/reports/professor/:id`
+- `GET /api/reports/class/:sessionId`
 - `GET/PUT /api/config`
+- `GET /api/payroll/export?period=X` — descarga Excel con Profesores, Asistentes y Resumen
+- `GET /api/semesters` — lista semestres
+- `GET /api/semesters/active` — semestre activo
+- `POST /api/semesters` — crear semestre (ADMIN)
+- `PUT /api/semesters/:id` — editar / activar semestre (ADMIN)
+- `DELETE /api/semesters/:id` — eliminar semestre (ADMIN)
+- `POST /api/semesters/:id/exclusions` — agregar fecha excluida (ADMIN)
+- `DELETE /api/semesters/:id/exclusions/:exclId` — eliminar fecha excluida (ADMIN)
 
 ### Portal padres
 - `GET /api/parent/children`
@@ -330,3 +355,15 @@ cd client && npm run build
 5. **useAuth.jsx** tiene JSX (usa `<AuthContext.Provider>`), debe tener extensión `.jsx` no `.js`.
 
 6. **Token JWT:** almacenado en `localStorage` con key `stmc_token`. El cliente (`api/client.js`) lo agrega automáticamente en cada request como `Authorization: Bearer ...`.
+
+7. **Motor de costos — tarifa por tramo:** El pago al profesor ya no es por estudiante individual sino por tramo (2, 3, 4, 5+). La función `getBracketRate(count, cfg)` en costEngine.js retorna la tarifa plana para ese tramo. El campo `CostRecord.rate` almacena esta tarifa de tramo (no es por estudiante).
+
+8. **Desactivación con motivo:** `DELETE /api/students/:id` y `DELETE /api/groups/:id` ahora **requieren** `{ reason: "..." }` en el body. La UI muestra un modal. Los modelos tienen `deactivationReason` y `deactivatedAt`.
+
+9. **Modal CSS:** Las clases `.modal-overlay` y `.modal-content` están en `index.css`. El modal se cierra al hacer clic fuera del contenido (stopPropagation en el contenido).
+
+10. **Export Excel:** `GET /api/payroll/export?period=X` retorna un `.xlsx` binario. El frontend usa `fetch` raw (no `api.get`) para obtener el blob y disparar la descarga con `URL.createObjectURL`.
+
+11. **Semestres:** Solo puede haber un semestre activo a la vez. Al activar uno, los demás se desactivan automáticamente. Los reportes no filtran aún por semestre automáticamente — se puede pasar `from`/`to` manualmente.
+
+12. **StudentGroupHistory:** Se registra automáticamente en los endpoints de `/transfer`, `/enrollments` (POST y DELETE). actionType: `TRANSFER` | `ADD_GROUP` | `REMOVE_GROUP`.

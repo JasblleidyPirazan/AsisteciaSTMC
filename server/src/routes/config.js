@@ -4,16 +4,32 @@ const { requireRole } = require('../middleware/auth');
 
 const router = express.Router();
 
-const CONFIG_KEYS = ['rate_per_student', 'assistant_fixed_rate', 'reposition_rate'];
+const CONFIG_KEYS = [
+  'rate_2_students',
+  'rate_3_students',
+  'rate_4_students',
+  'rate_5plus_students',
+  'assistant_fixed_rate',
+  'reposition_rate',
+];
+
+const DEFAULTS = {
+  rate_2_students: '30000',
+  rate_3_students: '45000',
+  rate_4_students: '60000',
+  rate_5plus_students: '75000',
+  assistant_fixed_rate: '12000',
+  reposition_rate: '15000',
+};
 
 router.get('/', requireRole('ADMIN'), async (req, res, next) => {
   try {
     const configs = await prisma.systemConfig.findMany({ where: { key: { in: CONFIG_KEYS } } });
     const data = Object.fromEntries(configs.map((c) => [c.key, c.value]));
-    // Provide defaults if not set
-    if (!data.rate_per_student) data.rate_per_student = '15000';
-    if (!data.assistant_fixed_rate) data.assistant_fixed_rate = '12000';
-    if (!data.reposition_rate) data.reposition_rate = '15000';
+    // Apply defaults for any missing keys
+    for (const key of CONFIG_KEYS) {
+      if (!data[key]) data[key] = DEFAULTS[key];
+    }
     res.json({ success: true, data });
   } catch (err) {
     next(err);
@@ -35,7 +51,7 @@ router.put('/', requireRole('ADMIN'), async (req, res, next) => {
       }
     }
     await Promise.all(updates);
-    res.json({ success: true, data: { message: 'Tarifas actualizadas' } });
+    res.json({ success: true, data: { message: 'Configuración actualizada' } });
   } catch (err) {
     next(err);
   }
