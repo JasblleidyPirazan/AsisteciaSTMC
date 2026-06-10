@@ -1,35 +1,31 @@
 import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { api } from '../../api/client';
+import { useAuth } from '../../hooks/useAuth';
 
 function fmt(n) {
   return new Intl.NumberFormat('es-CO', { style: 'currency', currency: 'COP', maximumFractionDigits: 0 }).format(n || 0);
 }
 
-function getCurrentPeriod() {
-  const now = new Date();
-  const y = now.getFullYear();
-  const m = String(now.getMonth() + 1).padStart(2, '0');
-  const half = now.getDate() <= 15 ? '1' : '2';
-  return `${y}-${m}-${half}`;
-}
-
-const SECTIONS = [
-  { label: 'Estudiantes', path: '/admin/students', icon: '👤' },
-  { label: 'Grupos', path: '/admin/groups', icon: '🎾' },
-  { label: 'Profesores', path: '/admin/professors', icon: '🏫' },
-  { label: 'Asistentes', path: '/admin/assistants', icon: '🤝' },
-  { label: 'Eventos', path: '/admin/events', icon: '🏆' },
-  { label: 'Liquidación', path: '/admin/payroll', icon: '💰' },
-  { label: 'Inscripciones', path: '/admin/enrollment', icon: '📋' },
-  { label: 'Reportes', path: '/admin/reports', icon: '📊' },
-  { label: 'Configuración', path: '/admin/config', icon: '⚙️' },
+const ALL_SECTIONS = [
+  { label: 'Estudiantes', path: '/admin/students', icon: '👤', roles: ['ADMIN', 'PHYSICAL_TRAINER'] },
+  { label: 'Grupos', path: '/admin/groups', icon: '🎾', roles: ['ADMIN', 'PHYSICAL_TRAINER'] },
+  { label: 'Eventos', path: '/admin/events', icon: '🏆', roles: ['ADMIN', 'PHYSICAL_TRAINER'] },
+  { label: 'Reportes', path: '/admin/reports', icon: '📊', roles: ['ADMIN', 'PHYSICAL_TRAINER'] },
+  { label: 'Profesores', path: '/admin/professors', icon: '🏫', roles: ['ADMIN'] },
+  { label: 'Asistentes', path: '/admin/assistants', icon: '🤝', roles: ['ADMIN'] },
+  { label: 'Liquidación', path: '/admin/payroll', icon: '💰', roles: ['ADMIN'] },
+  { label: 'Inscripciones', path: '/admin/enrollment', icon: '📋', roles: ['ADMIN'] },
+  { label: 'Configuración', path: '/admin/config', icon: '⚙️', roles: ['ADMIN'] },
 ];
 
 export default function AdminDashboard() {
   const navigate = useNavigate();
+  const { user } = useAuth();
   const [stats, setStats] = useState(null);
-  const period = getCurrentPeriod();
+  const isAdmin = user?.role === 'ADMIN';
+
+  const sections = ALL_SECTIONS.filter((s) => s.roles.includes(user?.role));
 
   useEffect(() => {
     api.get('/reports/dashboard').then(setStats).catch(() => {});
@@ -39,7 +35,7 @@ export default function AdminDashboard() {
     <div className="page">
       <div className="page-header">
         <button className="nav-back" onClick={() => navigate('/')}>←</button>
-        <h1>Administración</h1>
+        <h1>{isAdmin ? 'Administración' : 'Gestión'}</h1>
       </div>
 
       <div className="page-content">
@@ -60,18 +56,20 @@ export default function AdminDashboard() {
                 <div className="lbl">Canceladas</div>
               </div>
             </div>
-            <div className="card mb-4">
-              <div className="cost-row">
-                <span>Total a pagar (mes)</span>
-                <span className="cost-total">{fmt(stats.totalPayableThisMonth)}</span>
+            {isAdmin && (
+              <div className="card mb-4">
+                <div className="cost-row">
+                  <span>Total a pagar (mes)</span>
+                  <span className="cost-total">{fmt(stats.totalPayableThisMonth)}</span>
+                </div>
               </div>
-            </div>
+            )}
           </>
         )}
 
         <h2 className="mb-3">Módulos</h2>
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
-          {SECTIONS.map((s) => (
+          {sections.map((s) => (
             <button
               key={s.path}
               className="card card-tap"

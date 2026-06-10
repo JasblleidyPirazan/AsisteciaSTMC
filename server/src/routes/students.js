@@ -61,7 +61,7 @@ router.get('/:id', async (req, res, next) => {
   }
 });
 
-router.post('/', requireRole('ADMIN'), async (req, res, next) => {
+router.post('/', requireRole('ADMIN', 'PHYSICAL_TRAINER'), async (req, res, next) => {
   try {
     const { name, email, parentUserId, primaryGroupId, secondaryGroupId } = req.body;
     if (!name) return res.status(400).json({ success: false, error: 'Nombre requerido' });
@@ -86,7 +86,7 @@ router.post('/', requireRole('ADMIN'), async (req, res, next) => {
   }
 });
 
-router.put('/:id', requireRole('ADMIN'), async (req, res, next) => {
+router.put('/:id', requireRole('ADMIN', 'PHYSICAL_TRAINER'), async (req, res, next) => {
   try {
     const { name, email, parentUserId, active } = req.body;
     const data = {};
@@ -106,7 +106,7 @@ router.put('/:id', requireRole('ADMIN'), async (req, res, next) => {
   }
 });
 
-router.delete('/:id', requireRole('ADMIN'), async (req, res, next) => {
+router.delete('/:id', requireRole('ADMIN', 'PHYSICAL_TRAINER'), async (req, res, next) => {
   try {
     await prisma.student.update({ where: { id: req.params.id }, data: { active: false } });
     res.json({ success: true, data: { message: 'Estudiante desactivado' } });
@@ -115,7 +115,7 @@ router.delete('/:id', requireRole('ADMIN'), async (req, res, next) => {
   }
 });
 
-router.post('/:id/enrollments', requireRole('ADMIN'), async (req, res, next) => {
+router.post('/:id/enrollments', requireRole('ADMIN', 'PHYSICAL_TRAINER'), async (req, res, next) => {
   try {
     const { groupId, enrollmentType } = req.body;
     const enrollment = await prisma.studentEnrollment.upsert({
@@ -129,7 +129,7 @@ router.post('/:id/enrollments', requireRole('ADMIN'), async (req, res, next) => 
   }
 });
 
-router.delete('/:id/enrollments/:groupId', requireRole('ADMIN'), async (req, res, next) => {
+router.delete('/:id/enrollments/:groupId', requireRole('ADMIN', 'PHYSICAL_TRAINER'), async (req, res, next) => {
   try {
     await prisma.studentEnrollment.delete({
       where: { studentId_groupId: { studentId: req.params.id, groupId: req.params.groupId } },

@@ -17,7 +17,7 @@ router.get('/', async (req, res, next) => {
   }
 });
 
-router.post('/', requireRole('ADMIN'), async (req, res, next) => {
+router.post('/', requireRole('ADMIN', 'PHYSICAL_TRAINER'), async (req, res, next) => {
   try {
     const { name, date, professorId, fixedRate, description } = req.body;
     if (!name || !date || !professorId || !fixedRate) {
@@ -33,7 +33,7 @@ router.post('/', requireRole('ADMIN'), async (req, res, next) => {
   }
 });
 
-router.put('/:id', requireRole('ADMIN'), async (req, res, next) => {
+router.put('/:id', requireRole('ADMIN', 'PHYSICAL_TRAINER'), async (req, res, next) => {
   try {
     const { name, date, professorId, fixedRate, description, active } = req.body;
     const data = {};

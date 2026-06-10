@@ -6,6 +6,10 @@ const router = express.Router();
 
 router.get('/', async (req, res, next) => {
   try {
+    if (req.user.role === 'PHYSICAL_TRAINER') {
+      return res.status(403).json({ success: false, error: 'Acceso no autorizado' });
+    }
+
     const { period, payeeId } = req.query;
     if (!period) {
       return res.status(400).json({ success: false, error: 'period requerido (ej: 2025-06-1)' });

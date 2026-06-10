@@ -53,6 +53,7 @@ export default function DashboardPage() {
   }
 
   const isAdmin = user?.role === 'ADMIN';
+  const isPhysicalTrainer = user?.role === 'PHYSICAL_TRAINER';
   const isAssistant = user?.role === 'ASSISTANT';
 
   return (
@@ -64,10 +65,10 @@ export default function DashboardPage() {
           <p className="text-xs text-gray">{user?.email} · {user?.role}</p>
         </div>
         <div style={{ display: 'flex', gap: 8 }}>
-          {isAdmin && (
+          {(isAdmin || isPhysicalTrainer) && (
             <button className="btn btn-outline" style={{ minHeight: 36, padding: '0 12px', fontSize: '0.875rem' }}
               onClick={() => navigate('/admin')}>
-              Admin
+              {isAdmin ? 'Admin' : 'Gestión'}
             </button>
           )}
           <button className="btn btn-ghost" style={{ minHeight: 36 }} onClick={logout}>

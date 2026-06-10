@@ -159,16 +159,46 @@ Archivo: `server/src/services/costEngine.js`
 
 ## Roles y Accesos
 
-| Acción | ADMIN | TEACHER | ASSISTANT | PARENT |
-|---|---|---|---|---|
-| CRUD datos maestros | ✅ | ❌ | ❌ | ❌ |
-| Ver grupos del día | ✅ | Solo los propios | Todos | Los del hijo |
-| Tomar asistencia | ✅ | Solo sus grupos | ❌ | Solo su hijo |
-| Marcar clases acompañadas | ✅ | ❌ | ✅ | ❌ |
-| Ver cálculo de costos | ✅ | Solo el propio | Solo el propio | ❌ |
-| Liquidación quincenal | ✅ | ❌ | ❌ | ❌ |
-| Configurar tarifas | ✅ | ❌ | ❌ | ❌ |
-| Portal hijo/a | ✅ | ❌ | ❌ | ✅ |
+| Acción | ADMIN | TEACHER | PHYSICAL_TRAINER | ASSISTANT | PARENT |
+|---|---|---|---|---|---|
+| CRUD estudiantes | ✅ | ❌ | ✅ | ❌ | ❌ |
+| CRUD grupos | ✅ | ❌ | ✅ | ❌ | ❌ |
+| CRUD eventos | ✅ | ❌ | ✅ | ❌ | ❌ |
+| Ver grupos del día | ✅ | Solo los propios | Todos | Todos | Los del hijo |
+| Tomar asistencia | ✅ | Solo sus grupos | Todos los grupos | ❌ | Solo su hijo |
+| Marcar clases acompañadas | ✅ | ❌ | ❌ | ✅ | ❌ |
+| Ver cálculo de costos | ✅ | Solo el propio | ❌ | Solo el propio | ❌ |
+| Liquidación quincenal | ✅ | ❌ | ❌ | ❌ | ❌ |
+| Configurar tarifas | ✅ | ❌ | ❌ | ❌ | ❌ |
+| Gestionar profesores/asistentes | ✅ | ❌ | ❌ | ❌ | ❌ |
+| Aprobar inscripciones | ✅ | ❌ | ❌ | ❌ | ❌ |
+| Portal hijo/a | ✅ | ❌ | ❌ | ❌ | ✅ |
+
+### Rol PHYSICAL_TRAINER — Preparador Físico
+
+Creado para el preparador físico de la academia. Tiene acceso operativo y de gestión, pero **no ve información económica**.
+
+**Puede:**
+- Ver todos los grupos del día (sin filtro por profesor)
+- Reportar asistencia de todos los grupos
+- CRUD de estudiantes y grupos
+- Programar eventos (torneos/clínicas)
+- Ver reportes de asistencia
+- Agregar reposiciones en el flujo de asistencia
+
+**No puede:**
+- Ver liquidación de pagos (`/admin/payroll`)
+- Ver configuración de tarifas (`/admin/config`)
+- Gestionar cuentas de profesores o asistentes
+- Aprobar inscripciones
+
+**En el frontend:**
+- Dashboard muestra botón "Gestión" en lugar de "Admin"
+- Panel de gestión muestra: Estudiantes, Grupos, Eventos, Reportes
+- No ve: Liquidación, Configuración, Inscripciones, Profesores, Asistentes
+
+**Cómo crear una cuenta PHYSICAL_TRAINER:**
+Desde la base de datos o el seed, crear un `User` con `role: 'PHYSICAL_TRAINER'`. No existe aún formulario en la UI para ello — hacerlo vía SQL o añadir una opción en la página de configuración admin.
 
 ---
 

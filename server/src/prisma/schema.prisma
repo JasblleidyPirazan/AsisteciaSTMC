@@ -30,6 +30,7 @@ enum Role {
   TEACHER
   ASSISTANT
   PARENT
+  PHYSICAL_TRAINER
 }
 
 model Professor {

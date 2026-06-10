@@ -71,7 +71,7 @@ function AppRoutes() {
       } />
 
       <Route path="/attendance/:groupId" element={
-        <RequireAuth roles={['ADMIN', 'TEACHER', 'PARENT']}>
+        <RequireAuth roles={['ADMIN', 'TEACHER', 'PARENT', 'PHYSICAL_TRAINER']}>
           <AttendanceFlow />
         </RequireAuth>
       } />
@@ -83,15 +83,31 @@ function AppRoutes() {
       } />
 
       <Route path="/admin" element={
-        <RequireAuth roles={['ADMIN']}>
+        <RequireAuth roles={['ADMIN', 'PHYSICAL_TRAINER']}>
           <AdminDashboard />
         </RequireAuth>
       } />
       <Route path="/admin/students" element={
-        <RequireAuth roles={['ADMIN']}>
+        <RequireAuth roles={['ADMIN', 'PHYSICAL_TRAINER']}>
           <StudentsPage />
         </RequireAuth>
       } />
+      <Route path="/admin/groups" element={
+        <RequireAuth roles={['ADMIN', 'PHYSICAL_TRAINER']}>
+          <GroupsPage />
+        </RequireAuth>
+      } />
+      <Route path="/admin/events" element={
+        <RequireAuth roles={['ADMIN', 'PHYSICAL_TRAINER']}>
+          <EventsPage />
+        </RequireAuth>
+      } />
+      <Route path="/admin/reports" element={
+        <RequireAuth roles={['ADMIN', 'PHYSICAL_TRAINER']}>
+          <ReportsPage />
+        </RequireAuth>
+      } />
+      {/* ADMIN-only routes */}
       <Route path="/admin/payroll" element={
         <RequireAuth roles={['ADMIN']}>
           <PayrollPage />
@@ -107,11 +123,6 @@ function AppRoutes() {
           <EnrollmentRequestsPage />
         </RequireAuth>
       } />
-      <Route path="/admin/groups" element={
-        <RequireAuth roles={['ADMIN']}>
-          <GroupsPage />
-        </RequireAuth>
-      } />
       <Route path="/admin/professors" element={
         <RequireAuth roles={['ADMIN']}>
           <ProfessorsPage />
@@ -120,16 +131,6 @@ function AppRoutes() {
       <Route path="/admin/assistants" element={
         <RequireAuth roles={['ADMIN']}>
           <AssistantsPage />
-        </RequireAuth>
-      } />
-      <Route path="/admin/events" element={
-        <RequireAuth roles={['ADMIN']}>
-          <EventsPage />
-        </RequireAuth>
-      } />
-      <Route path="/admin/reports" element={
-        <RequireAuth roles={['ADMIN']}>
-          <ReportsPage />
         </RequireAuth>
       } />
 

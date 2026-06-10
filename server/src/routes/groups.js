@@ -71,7 +71,7 @@ router.get('/:id/students', async (req, res, next) => {
   }
 });
 
-router.post('/', requireRole('ADMIN'), async (req, res, next) => {
+router.post('/', requireRole('ADMIN', 'PHYSICAL_TRAINER'), async (req, res, next) => {
   try {
     const { code, name, professorId, lunes, martes, miercoles, jueves, viernes, sabado, domingo,
       startTime, endTime, court, ballLevel } = req.body;
@@ -100,7 +100,7 @@ router.post('/', requireRole('ADMIN'), async (req, res, next) => {
   }
 });
 
-router.put('/:id', requireRole('ADMIN'), async (req, res, next) => {
+router.put('/:id', requireRole('ADMIN', 'PHYSICAL_TRAINER'), async (req, res, next) => {
   try {
     const { code, name, professorId, lunes, martes, miercoles, jueves, viernes, sabado, domingo,
       startTime, endTime, court, ballLevel, active } = req.body;
@@ -143,7 +143,7 @@ router.put('/:id', requireRole('ADMIN'), async (req, res, next) => {
   }
 });
 
-router.delete('/:id', requireRole('ADMIN'), async (req, res, next) => {
+router.delete('/:id', requireRole('ADMIN', 'PHYSICAL_TRAINER'), async (req, res, next) => {
   try {
     await prisma.group.update({ where: { id: req.params.id }, data: { active: false } });
     res.json({ success: true, data: { message: 'Grupo desactivado' } });
