@@ -31,7 +31,7 @@ app.use(cors({
   credentials: true,
 }));
 
-app.use(express.json({ limit: '512kb' }));
+app.use(express.json({ limit: '5mb' }));
 
 // Rate limiting on auth endpoints
 const authLimiter = rateLimit({

@@ -8,28 +8,39 @@ const router = express.Router();
 // Public: submit enrollment request (no auth required)
 router.post('/', async (req, res, next) => {
   try {
-    const { studentName, parentName, email, phone, notes } = req.body;
+    const { studentName, birthDate, parentName, email, phone, eps, paymentDate, paymentProof, notes } = req.body;
 
-    // Input validation
     if (!studentName || typeof studentName !== 'string' || studentName.trim().length < 2) {
       return res.status(400).json({ success: false, error: 'Nombre del estudiante inválido (mínimo 2 caracteres)' });
-    }
-    if (!parentName || typeof parentName !== 'string' || parentName.trim().length < 2) {
-      return res.status(400).json({ success: false, error: 'Nombre del acudiente inválido' });
     }
     if (!email || typeof email !== 'string' || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
       return res.status(400).json({ success: false, error: 'Email inválido' });
     }
-    if (studentName.length > 200 || parentName.length > 200 || email.length > 254) {
+    if (studentName.length > 200 || email.length > 254) {
       return res.status(400).json({ success: false, error: 'Datos demasiado largos' });
+    }
+    if (parentName && parentName.length > 200) {
+      return res.status(400).json({ success: false, error: 'Nombre del acudiente demasiado largo' });
+    }
+    if (paymentProof && typeof paymentProof === 'string') {
+      if (!paymentProof.startsWith('data:image/')) {
+        return res.status(400).json({ success: false, error: 'El soporte de pago debe ser una imagen' });
+      }
+      if (paymentProof.length > 4 * 1024 * 1024) {
+        return res.status(400).json({ success: false, error: 'La imagen del soporte es demasiado grande (máx. 3MB)' });
+      }
     }
 
     const request = await prisma.enrollmentRequest.create({
       data: {
         studentName: studentName.trim(),
-        parentName: parentName.trim(),
+        birthDate: birthDate ? new Date(birthDate) : null,
+        parentName: parentName?.trim() || null,
         email: email.toLowerCase().trim(),
-        phone: phone?.slice(0, 20) || null,
+        phone: phone?.slice(0, 30) || null,
+        eps: eps?.slice(0, 100) || null,
+        paymentDate: paymentDate ? new Date(paymentDate) : null,
+        paymentProof: paymentProof || null,
         notes: notes?.slice(0, 1000) || null,
       },
     });
