@@ -365,3 +365,10 @@ input.form-input, select.form-select, textarea.form-input {
     transition-duration: 0.01ms !important;
   }
 }
+
+/* Estado seleccionado en botones de asistencia */
+.att-btn.selected {
+  transform: scale(1.1);
+  box-shadow: var(--shadow);
+}
+.att-btn.dim { opacity: 0.35; }

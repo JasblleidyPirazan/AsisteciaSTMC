@@ -7,6 +7,7 @@ import DashboardPage from './pages/DashboardPage';
 import AttendanceFlow from './pages/AttendanceFlow/index';
 import EnrollmentPage from './pages/EnrollmentPage';
 import ParentPortalPage from './pages/parent/ParentPortalPage';
+import MyPayrollPage from './pages/MyPayrollPage';
 import AdminDashboard from './pages/admin/AdminDashboard';
 import StudentsPage from './pages/admin/StudentsPage';
 import GroupsPage from './pages/admin/GroupsPage';
@@ -79,6 +80,12 @@ function AppRoutes() {
       <Route path="/parent" element={
         <RequireAuth roles={['PARENT', 'ADMIN']}>
           <ParentPortalPage />
+        </RequireAuth>
+      } />
+
+      <Route path="/my-payroll" element={
+        <RequireAuth roles={['TEACHER', 'ASSISTANT']}>
+          <MyPayrollPage />
         </RequireAuth>
       } />
 

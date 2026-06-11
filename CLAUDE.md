@@ -133,6 +133,7 @@ CORS_ORIGIN        # URL del dominio en Railway (ej: https://asisteciastmc.up.ra
 | `StudentGroupHistory` | Historial de cambios de grupo: TRANSFER, ADD_GROUP, REMOVE_GROUP |
 | `Semester` | Semestres: nombre, fechas inicio/fin, activo (solo uno activo a la vez) |
 | `SemesterExclusion` | Fechas excluidas de un semestre (festivos, vacaciones) |
+| `SessionEditLog` | Log de ediciones de reportes de asistencia (previousState/newState en Json) |
 
 ---
 
@@ -228,8 +229,8 @@ Desde la base de datos o el seed, crear un `User` con `role: 'PHYSICAL_TRAINER'`
 ### Sesiones
 - `GET /api/sessions/check?groupId=X&date=Y` — ¿ya existe sesión?
 - `POST /api/sessions` — crear sesión
-- `POST /api/sessions/:id/finalize` — guardar asistencia + calcular costos
-- `POST /api/sessions/:id/cancel` — cancelar con motivo
+- `POST /api/sessions/:id/finalize` — guardar asistencia + calcular costos. **Si la sesión ya estaba finalizada, se trata como edición:** guarda `SessionEditLog` con el estado anterior, reemplaza todos los registros (el último reporte manda) y recalcula costos
+- `POST /api/sessions/:id/cancel` — cancelar con motivo (elimina cost records si existían)
 - `POST /api/sessions/:id/assist` — asistente marca que acompañó
 
 ### Estudiantes — gestión de grupos
@@ -254,7 +255,7 @@ Desde la base de datos o el seed, crear un `User` con `role: 'PHYSICAL_TRAINER'`
 - `GET /api/reports/professor/:id`
 - `GET /api/reports/class/:sessionId`
 - `GET/PUT /api/config`
-- `GET /api/payroll/export?period=X` — descarga Excel con Profesores, Asistentes y Resumen
+- `GET /api/payroll/export?period=X` — descarga Excel. ADMIN: 3 hojas (Profesores, Asistentes, Resumen). TEACHER/ASSISTANT: una sola hoja "Mi liquidación" con solo sus registros
 - `GET /api/semesters` — lista semestres
 - `GET /api/semesters/active` — semestre activo
 - `POST /api/semesters` — crear semestre (ADMIN)
@@ -295,6 +296,7 @@ Desde la base de datos o el seed, crear un `User` con `role: 'PHYSICAL_TRAINER'`
 | `/admin/payroll` | PayrollPage | ADMIN |
 | `/admin/config` | ConfigPage | ADMIN |
 | `/admin/enrollment` | EnrollmentRequestsPage | ADMIN |
+| `/my-payroll` | MyPayrollPage | TEACHER, ASSISTANT — quincena propia + descarga Excel |
 
 ---
 
@@ -380,3 +382,7 @@ cd client && npm run build
 11. **Semestres:** Solo puede haber un semestre activo a la vez. Al activar uno, los demás se desactivan automáticamente. Los reportes no filtran aún por semestre automáticamente — se puede pasar `from`/`to` manualmente.
 
 12. **StudentGroupHistory:** Se registra automáticamente en los endpoints de `/transfer`, `/enrollments` (POST y DELETE). actionType: `TRANSFER` | `ADD_GROUP` | `REMOVE_GROUP`.
+
+13. **Edición de reportes de asistencia:** Re-finalizar una sesión REALIZADA/CANCELADA_MITAD es una edición. El flujo de asistencia detecta la sesión existente (vía `/sessions/check`), precarga el reporte y salta al paso 3 con banner "Editando reporte". El backend reemplaza **todos** los AttendanceRecord (deleteMany + createMany) para que el último reporte sea la única fuente de verdad, guarda `SessionEditLog` y recalcula costos. El historial de ediciones se ve en Reportes → Clase.
+
+14. **Botones P/A/J:** las clases CSS de estado son en inglés (`.present/.absent/.justified`) — el mapeo está en `STATUS_CLASS` de Step3Students.jsx. La opción seleccionada lleva además `.selected` (escala + sombra) y las no seleccionadas `.dim`.

@@ -70,6 +70,12 @@ export default function DashboardPage() {
               {isAdmin ? 'Admin' : 'Gestión'}
             </button>
           )}
+          {(user?.role === 'TEACHER' || isAssistant) && (
+            <button className="btn btn-outline" style={{ minHeight: 36, padding: '0 12px', fontSize: '0.875rem' }}
+              onClick={() => navigate('/my-payroll')}>
+              💰 Mi quincena
+            </button>
+          )}
           <button className="btn btn-ghost" style={{ minHeight: 36 }} onClick={logout}>
             Salir
           </button>

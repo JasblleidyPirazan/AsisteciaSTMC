@@ -21,6 +21,7 @@ model User {
   parentOf           Student[]          @relation("ParentUser")
   reportedSessions   ClassSession[]     @relation("SessionReporter")
   reportedAttendance AttendanceRecord[] @relation("AttendanceReporter")
+  sessionEdits       SessionEditLog[]   @relation("SessionEditor")
 
   @@map("users")
 }
@@ -152,9 +153,24 @@ model ClassSession {
   reportedBy          User?              @relation("SessionReporter", fields: [reportedById], references: [id])
   attendanceRecords   AttendanceRecord[]
   costRecords         CostRecord[]
+  editLogs            SessionEditLog[]
 
   @@unique([groupId, date])
   @@map("class_sessions")
+}
+
+model SessionEditLog {
+  id            String   @id @default(cuid())
+  sessionId     String   @map("session_id")
+  editedById    String?  @map("edited_by_id")
+  editedAt      DateTime @default(now()) @map("edited_at")
+  previousState Json?    @map("previous_state")
+  newState      Json?    @map("new_state")
+
+  session  ClassSession @relation(fields: [sessionId], references: [id])
+  editedBy User?        @relation("SessionEditor", fields: [editedById], references: [id])
+
+  @@map("session_edit_logs")
 }
 
 enum SessionStatus {

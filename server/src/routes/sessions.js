@@ -145,8 +145,26 @@ router.post('/:id/finalize', async (req, res, next) => {
       return res.status(403).json({ success: false, error: 'No tienes permiso para reportar este grupo' });
     }
 
-    if (session.status === 'REALIZADA' || session.status === 'CANCELADA_MITAD') {
-      return res.status(409).json({ success: false, error: 'Sesión ya finalizada' });
+    // Re-finalizing an already-finalized session is an EDIT: we snapshot the
+    // previous state into an edit log and the new report becomes authoritative.
+    const isEdit = ['REALIZADA', 'CANCELADA_MITAD'].includes(session.status);
+    let previousState = null;
+    if (isEdit) {
+      const prevRecords = await prisma.attendanceRecord.findMany({
+        where: { sessionId: req.params.id },
+        include: { student: { select: { name: true } } },
+      });
+      previousState = {
+        status: session.status,
+        effectiveUnits: parseFloat(session.effectiveUnits),
+        records: prevRecords.map((r) => ({
+          studentId: r.studentId,
+          name: r.student?.name,
+          status: r.status,
+          attendanceType: r.attendanceType,
+          justification: r.justification,
+        })),
+      };
     }
 
     let effectiveUnits = parseFloat(session.group.classUnits);
@@ -156,31 +174,42 @@ router.post('/:id/finalize', async (req, res, next) => {
       status = 'CANCELADA_MITAD';
     }
 
-    // Upsert attendance records
-    for (const record of attendanceRecords || []) {
-      await prisma.attendanceRecord.upsert({
-        where: { sessionId_studentId: { sessionId: req.params.id, studentId: record.studentId } },
-        update: {
-          status: record.status,
-          attendanceType: record.attendanceType || 'REGULAR',
-          justification: record.justification?.slice(0, 500) || null,
-          reportedById: req.user.id,
-        },
-        create: {
-          sessionId: req.params.id,
-          studentId: record.studentId,
-          status: record.status,
-          attendanceType: record.attendanceType || 'REGULAR',
-          justification: record.justification?.slice(0, 500) || null,
-          reportedById: req.user.id,
-        },
-      });
+    // Replace all attendance records so the latest report is the single source
+    // of truth (an edit can also remove a reposition student, for example)
+    const newRecords = (attendanceRecords || []).map((record) => ({
+      sessionId: req.params.id,
+      studentId: record.studentId,
+      status: record.status,
+      attendanceType: record.attendanceType || 'REGULAR',
+      justification: record.justification?.slice(0, 500) || null,
+      reportedById: req.user.id,
+    }));
+    await prisma.attendanceRecord.deleteMany({ where: { sessionId: req.params.id } });
+    if (newRecords.length > 0) {
+      await prisma.attendanceRecord.createMany({ data: newRecords });
     }
 
     await prisma.classSession.update({
       where: { id: req.params.id },
       data: { status, effectiveUnits, reportedById: req.user.id },
     });
+
+    if (isEdit) {
+      await prisma.sessionEditLog.create({
+        data: {
+          sessionId: req.params.id,
+          editedById: req.user.id,
+          previousState,
+          newState: {
+            status,
+            effectiveUnits,
+            records: newRecords.map(({ studentId, status: st, attendanceType, justification }) => ({
+              studentId, status: st, attendanceType, justification,
+            })),
+          },
+        },
+      });
+    }
 
     const costs = await calculateCosts(req.params.id);
 
@@ -217,6 +246,10 @@ router.post('/:id/cancel', async (req, res, next) => {
       where: { id: req.params.id },
       data: { status: 'CANCELADA', cancellationReason: cancellationReason.slice(0, 500), reportedById: req.user.id },
     });
+
+    // If the session had been finalized before, its cost records no longer apply
+    await prisma.costRecord.deleteMany({ where: { sessionId: req.params.id } });
+
     res.json({ success: true, data: session });
   } catch (err) {
     next(err);

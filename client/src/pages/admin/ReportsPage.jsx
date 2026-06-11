@@ -338,10 +338,16 @@ function ProfessorReport({ data }) {
   );
 }
 
+function countStates(records = []) {
+  const c = { PRESENTE: 0, AUSENTE: 0, JUSTIFICADA: 0 };
+  records.forEach((r) => { if (c[r.status] !== undefined) c[r.status]++; });
+  return `P:${c.PRESENTE} A:${c.AUSENTE} J:${c.JUSTIFICADA}`;
+}
+
 function ClassReport({ data }) {
   if (!data) return null;
   const { attendanceRecords = [], group, date, status, present, absent, justified, totalCost,
-    substituteProfessor, assistant } = data;
+    substituteProfessor, assistant, editLogs = [] } = data;
 
   return (
     <div className="mt-4">
@@ -377,6 +383,24 @@ function ClassReport({ data }) {
         </div>
       ))}
       {attendanceRecords.length === 0 && <div className="alert alert-info">Sin registros de asistencia.</div>}
+
+      {editLogs.length > 0 && (
+        <div className="card mt-3">
+          <h3 className="mb-2" style={{ fontSize: '0.9rem' }}>✏️ Historial de ediciones ({editLogs.length})</h3>
+          {editLogs.map((log) => (
+            <div key={log.id} className="mb-2" style={{ borderBottom: '1px solid var(--gray-200)', paddingBottom: 8 }}>
+              <div className="text-sm font-medium">
+                {new Date(log.editedAt).toLocaleString('es-CO', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' })}
+                {log.editedBy?.email && <span className="text-gray"> · {log.editedBy.email}</span>}
+              </div>
+              <div className="text-xs text-gray">
+                Antes: {countStates(log.previousState?.records)} → Después: {countStates(log.newState?.records)}
+              </div>
+            </div>
+          ))}
+          <div className="text-xs text-gray">El reporte vigente corresponde a la última edición.</div>
+        </div>
+      )}
     </div>
   );
 }

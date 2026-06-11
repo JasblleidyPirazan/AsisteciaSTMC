@@ -111,13 +111,27 @@ router.get('/summary', requireRole('ADMIN'), async (req, res, next) => {
   }
 });
 
-router.get('/export', requireRole('ADMIN'), async (req, res, next) => {
+router.get('/export', requireRole('ADMIN', 'TEACHER', 'ASSISTANT'), async (req, res, next) => {
   try {
     const { period } = req.query;
     if (!period) return res.status(400).json({ success: false, error: 'period requerido' });
 
+    // Teachers and assistants can only export their own biweekly report
+    const where = { period };
+    if (req.user.role === 'TEACHER') {
+      const professor = await prisma.professor.findUnique({ where: { userId: req.user.id } });
+      if (!professor) return res.status(404).json({ success: false, error: 'Perfil de profesor no encontrado' });
+      where.professorId = professor.id;
+      where.payeeType = 'PROFESSOR';
+    } else if (req.user.role === 'ASSISTANT') {
+      const assistant = await prisma.assistant.findUnique({ where: { userId: req.user.id } });
+      if (!assistant) return res.status(404).json({ success: false, error: 'Perfil de asistente no encontrado' });
+      where.assistantId = assistant.id;
+      where.payeeType = 'ASSISTANT';
+    }
+
     const records = await prisma.costRecord.findMany({
-      where: { period },
+      where,
       include: {
         session: { include: { group: { select: { code: true } } } },
         professor: { select: { name: true } },
@@ -150,6 +164,29 @@ router.get('/export', requireRole('ADMIN'), async (req, res, next) => {
     }
 
     const wb = XLSX.utils.book_new();
+
+    // Teachers/assistants get a single personal sheet
+    if (req.user.role !== 'ADMIN') {
+      const myRows = req.user.role === 'TEACHER' ? profRows : asstRows;
+      const title = req.user.role === 'TEACHER' ? 'MI LIQUIDACIÓN — PROFESOR' : 'MI LIQUIDACIÓN — ASISTENTE';
+      const wsMine = myRows.length > 0
+        ? XLSX.utils.aoa_to_sheet([
+            [title],
+            [`Período: ${period}`],
+            [],
+            Object.keys(myRows[0]),
+            ...myRows.map(Object.values),
+            [],
+            ['', '', '', '', '', 'TOTAL', myRows.reduce((s, r) => s + r['Total (COP)'], 0)],
+          ])
+        : XLSX.utils.aoa_to_sheet([['Sin registros para este período']]);
+      XLSX.utils.book_append_sheet(wb, wsMine, 'Mi liquidación');
+
+      const buffer = XLSX.write(wb, { type: 'buffer', bookType: 'xlsx' });
+      res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+      res.setHeader('Content-Disposition', `attachment; filename="mi-liquidacion-${period}.xlsx"`);
+      return res.send(buffer);
+    }
 
     // Professors sheet
     const wsProf = profRows.length > 0

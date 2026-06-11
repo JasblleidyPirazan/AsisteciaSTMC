@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react';
 import { api } from '../../api/client';
 
 const STATUS_LABELS = { PRESENTE: 'P', AUSENTE: 'A', JUSTIFICADA: 'J' };
+const STATUS_CLASS = { PRESENTE: 'present', AUSENTE: 'absent', JUSTIFICADA: 'justified' };
 
 export default function Step3Students({ groupId, records, onChange, onNext }) {
   const [students, setStudents] = useState([]);
@@ -95,7 +96,8 @@ export default function Step3Students({ groupId, records, onChange, onNext }) {
             {(['PRESENTE', 'AUSENTE', 'JUSTIFICADA']).map((s) => (
               <button
                 key={s}
-                className={`att-btn ${r.status === s ? s.toLowerCase() : ''}`}
+                className={`att-btn ${r.status === s ? `selected ${STATUS_CLASS[s]}` : r.status ? 'dim' : ''}`}
+                aria-pressed={r.status === s}
                 onClick={() => setStatus(r.studentId, s)}
               >
                 {STATUS_LABELS[s]}

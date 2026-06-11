@@ -5,7 +5,7 @@ import CostSummary from '../../components/CostSummary';
 const STATUS_COLORS = { PRESENTE: 'badge-green', AUSENTE: 'badge-red', JUSTIFICADA: 'badge-yellow' };
 
 export default function Step4Summary({ group, session, substitute, assistant, records,
-  cancelledHalf, onCancelledHalfChange, onSubmit, loading, userRole }) {
+  cancelledHalf, onCancelledHalfChange, onSubmit, loading, userRole, editing }) {
 
   const [rates, setRates] = useState({});
   const isDouble = parseFloat(group.classUnits) === 2.0;
@@ -96,7 +96,7 @@ export default function Step4Summary({ group, session, substitute, assistant, re
           onClick={onSubmit}
           disabled={loading}
         >
-          {loading ? 'Enviando...' : '✅ Enviar reporte'}
+          {loading ? 'Enviando...' : editing ? '💾 Guardar cambios' : '✅ Enviar reporte'}
         </button>
       </div>
       <div style={{ height: 72 }} />

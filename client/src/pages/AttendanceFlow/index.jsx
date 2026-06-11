@@ -28,6 +28,34 @@ export default function AttendanceFlow() {
   const [error, setError] = useState('');
   const [done, setDone] = useState(false);
   const [costs, setCosts] = useState(null);
+  const [editing, setEditing] = useState(false);
+  const [checking, setChecking] = useState(true);
+
+  // If a finalized report already exists for this group+date, switch to edit
+  // mode: prefill the previous report and jump straight to the student list.
+  useEffect(() => {
+    if (!group) return;
+    api.get('/sessions/check', { groupId, date })
+      .then(({ exists, session: existing }) => {
+        if (exists && ['REALIZADA', 'CANCELADA_MITAD'].includes(existing.status)) {
+          setEditing(true);
+          setSession(existing);
+          setCancelledHalf(existing.status === 'CANCELADA_MITAD');
+          setAttendanceRecords(
+            (existing.attendanceRecords || []).map((r) => ({
+              studentId: r.studentId,
+              name: r.student?.name,
+              status: r.status,
+              attendanceType: r.attendanceType,
+              justification: r.justification,
+            }))
+          );
+          setStep(3);
+        }
+      })
+      .catch(() => {})
+      .finally(() => setChecking(false));
+  }, []);
 
   if (!group) {
     navigate('/');
@@ -91,8 +119,12 @@ export default function AttendanceFlow() {
       <div className="page">
         <div className="page-content" style={{ textAlign: 'center', paddingTop: 60 }}>
           <div style={{ fontSize: '4rem' }}>✅</div>
-          <h2 className="mt-4">Reporte enviado</h2>
-          <p className="text-gray mt-2">La asistencia quedó registrada correctamente.</p>
+          <h2 className="mt-4">{editing ? 'Reporte actualizado' : 'Reporte enviado'}</h2>
+          <p className="text-gray mt-2">
+            {editing
+              ? 'Los cambios quedaron guardados y se registró la edición.'
+              : 'La asistencia quedó registrada correctamente.'}
+          </p>
           <button className="btn btn-primary btn-full mt-4" onClick={() => navigate('/')}>
             Volver al inicio
           </button>
@@ -101,16 +133,29 @@ export default function AttendanceFlow() {
     );
   }
 
+  if (checking) {
+    return <div className="page"><div className="spinner" /></div>;
+  }
+
   return (
     <div className="page">
       <OfflineBanner />
       <div className="page-header">
-        <button className="nav-back" onClick={() => step === 1 ? navigate('/') : setStep(step - 1)}>←</button>
+        <button className="nav-back" onClick={() => step === 1 || (editing && step === 3) ? navigate('/') : setStep(step - 1)}>←</button>
         <div>
           <h2>{group.code}</h2>
-          <p className="text-xs text-gray">Paso {step} de 4 · {date}</p>
+          <p className="text-xs text-gray">
+            {editing ? 'Editando reporte' : `Paso ${step} de 4`} · {date}
+          </p>
         </div>
       </div>
+
+      {editing && (
+        <div className="alert alert-info" style={{ margin: '0 20px 12px' }}>
+          ✏️ Esta clase ya fue reportada. Estás editando el reporte — se guardará un
+          registro de la edición y la liquidación se recalculará.
+        </div>
+      )}
 
       {error && <div className="alert alert-error" style={{ margin: '0 20px' }}>{error}</div>}
 
@@ -153,6 +198,7 @@ export default function AttendanceFlow() {
             onSubmit={handleFinalize}
             loading={loading}
             userRole={user?.role}
+            editing={editing}
           />
         )}
       </div>
