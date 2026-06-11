@@ -40,6 +40,8 @@ export default function AttendanceFlow() {
         if (exists && ['REALIZADA', 'CANCELADA_MITAD'].includes(existing.status)) {
           setEditing(true);
           setSession(existing);
+          setSubstitute(existing.substituteProfessor || null);
+          setAssistant(existing.assistant || null);
           setCancelledHalf(existing.status === 'CANCELADA_MITAD');
           setAttendanceRecords(
             (existing.attendanceRecords || []).map((r) => ({
@@ -97,7 +99,12 @@ export default function AttendanceFlow() {
     setLoading(true);
     setError('');
     try {
-      const payload = { attendanceRecords, cancelledHalf };
+      const payload = {
+        attendanceRecords,
+        cancelledHalf,
+        substituteProfessorId: substitute?.id || null,
+        assistantId: assistant?.id || null,
+      };
       let result;
       if (!navigator.onLine) {
         savePendingSession({ sessionId: session.id, payload });
@@ -141,7 +148,7 @@ export default function AttendanceFlow() {
     <div className="page">
       <OfflineBanner />
       <div className="page-header">
-        <button className="nav-back" onClick={() => step === 1 || (editing && step === 3) ? navigate('/') : setStep(step - 1)}>←</button>
+        <button className="nav-back" onClick={() => step === 1 || (editing && step === 2) ? navigate('/') : setStep(step - 1)}>←</button>
         <div>
           <h2>{group.code}</h2>
           <p className="text-xs text-gray">

@@ -119,46 +119,80 @@ export default function DashboardPage() {
 }
 
 function AssistantView({ groups, loading, date }) {
-  const [marked, setMarked] = useState({});
+  const { user } = useAuth();
+  const [sessionsByGroup, setSessionsByGroup] = useState({});
+  const [myAssistantId, setMyAssistantId] = useState(null);
   const [saving, setSaving] = useState({});
+  const [loadingSessions, setLoadingSessions] = useState(true);
+  const [error, setError] = useState('');
 
-  async function toggleAssist(groupId, sessionId) {
-    if (!sessionId) return;
-    setSaving((s) => ({ ...s, [groupId]: true }));
+  useEffect(() => {
+    setLoadingSessions(true);
+    Promise.all([
+      api.get('/sessions', { date }),
+      api.get('/assistants', { active: 'true' }),
+    ]).then(([sessions, assistants]) => {
+      const map = {};
+      sessions.forEach((s) => { map[s.groupId || s.group?.id] = s; });
+      setSessionsByGroup(map);
+      const mine = assistants.find((a) => a.user?.email === user?.email);
+      setMyAssistantId(mine?.id || null);
+    }).catch(() => {}).finally(() => setLoadingSessions(false));
+  }, [date, user?.email]);
+
+  async function toggleAssist(group) {
+    const session = sessionsByGroup[group.id];
+    if (!session) return;
+    const isMarked = session.assistantId === myAssistantId;
+    setSaving((s) => ({ ...s, [group.id]: true }));
+    setError('');
     try {
-      await api.post(`/sessions/${sessionId}/assist`, {});
-      setMarked((m) => ({ ...m, [groupId]: !m[groupId] }));
-    } catch {
-      // ignore
+      const updated = await api.post(`/sessions/${session.id}/assist`, isMarked ? { remove: true } : {});
+      setSessionsByGroup((m) => ({ ...m, [group.id]: { ...session, assistantId: updated.assistantId } }));
+    } catch (err) {
+      setError(err.message);
     } finally {
-      setSaving((s) => ({ ...s, [groupId]: false }));
+      setSaving((s) => ({ ...s, [group.id]: false }));
     }
   }
 
-  if (loading) return <div className="spinner" />;
+  if (loading || loadingSessions) return <div className="spinner" />;
 
   return (
     <>
       <h2 className="mb-3">Clases que acompañé</h2>
-      {groups.map((g) => (
-        <div key={g.id} className="card mb-3">
-          <div className="flex items-center justify-between">
-            <div>
-              <div className="font-medium">{g.code}</div>
-              <div className="text-sm text-gray">{g.startTime}–{g.endTime}</div>
+      {error && <div className="alert alert-error mb-3">{error}</div>}
+      {groups.length === 0 && <div className="alert alert-info">No hay grupos programados para este día.</div>}
+      {groups.map((g) => {
+        const session = sessionsByGroup[g.id];
+        const isMarked = !!session && !!myAssistantId && session.assistantId === myAssistantId;
+        const markedByOther = !!session?.assistantId && !isMarked;
+        return (
+          <div key={g.id} className="card mb-3">
+            <div className="flex items-center justify-between">
+              <div>
+                <div className="font-medium">{g.code}</div>
+                <div className="text-sm text-gray">{g.startTime}–{g.endTime}</div>
+                {!session && (
+                  <div className="text-xs text-gray">La clase aún no ha sido reportada</div>
+                )}
+                {markedByOther && (
+                  <div className="text-xs text-gray">Acompañada por otro asistente</div>
+                )}
+              </div>
+              <label className="toggle">
+                <input
+                  type="checkbox"
+                  checked={isMarked}
+                  onChange={() => toggleAssist(g)}
+                  disabled={!session || markedByOther || saving[g.id] || !myAssistantId}
+                />
+                <span className="toggle-slider" />
+              </label>
             </div>
-            <label className="toggle">
-              <input
-                type="checkbox"
-                checked={!!marked[g.id]}
-                onChange={() => toggleAssist(g.id, g.sessionId)}
-                disabled={saving[g.id]}
-              />
-              <span className="toggle-slider" />
-            </label>
           </div>
-        </div>
-      ))}
+        );
+      })}
     </>
   );
 }

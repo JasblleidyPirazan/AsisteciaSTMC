@@ -43,7 +43,11 @@ router.get('/check', async (req, res, next) => {
     }
     const session = await prisma.classSession.findUnique({
       where: { groupId_date: { groupId, date: new Date(date) } },
-      include: { attendanceRecords: { include: { student: true } } },
+      include: {
+        attendanceRecords: { include: { student: true } },
+        substituteProfessor: { select: { id: true, name: true } },
+        assistant: { select: { id: true, name: true } },
+      },
     });
     res.json({ success: true, data: { exists: !!session, session } });
   } catch (err) {
@@ -121,7 +125,7 @@ router.post('/', async (req, res, next) => {
 // Finalize session: save attendance + run cost engine
 router.post('/:id/finalize', async (req, res, next) => {
   try {
-    const { attendanceRecords, cancelledHalf } = req.body;
+    const { attendanceRecords, cancelledHalf, substituteProfessorId, assistantId } = req.body;
 
     if (attendanceRecords !== undefined && !Array.isArray(attendanceRecords)) {
       return res.status(400).json({ success: false, error: 'attendanceRecords debe ser una lista' });
@@ -189,9 +193,15 @@ router.post('/:id/finalize', async (req, res, next) => {
       await prisma.attendanceRecord.createMany({ data: newRecords });
     }
 
+    // Persist who actually dictated/accompanied the class. Step 2 of the flow
+    // selects these AFTER the session is created, so finalize must save them.
+    const sessionData = { status, effectiveUnits, reportedById: req.user.id };
+    if (substituteProfessorId !== undefined) sessionData.substituteProfessorId = substituteProfessorId || null;
+    if (assistantId !== undefined) sessionData.assistantId = assistantId || null;
+
     await prisma.classSession.update({
       where: { id: req.params.id },
-      data: { status, effectiveUnits, reportedById: req.user.id },
+      data: sessionData,
     });
 
     if (isEdit) {
@@ -268,6 +278,24 @@ router.post('/:id/assist', async (req, res, next) => {
       : await prisma.assistant.findUnique({ where: { id: req.body.assistantId } });
 
     if (!assistant) return res.status(404).json({ success: false, error: 'Asistente no encontrado' });
+
+    const existing = await prisma.classSession.findUnique({ where: { id: req.params.id } });
+    if (!existing) return res.status(404).json({ success: false, error: 'Sesión no encontrada' });
+
+    // remove: true → unmark (only if the session is marked with this assistant)
+    if (req.body.remove) {
+      if (existing.assistantId !== assistant.id) {
+        return res.status(403).json({ success: false, error: 'La sesión no está marcada con este asistente' });
+      }
+      const session = await prisma.classSession.update({
+        where: { id: req.params.id },
+        data: { assistantId: null },
+      });
+      if (['REALIZADA', 'CANCELADA_MITAD'].includes(session.status)) {
+        await calculateCosts(req.params.id);
+      }
+      return res.json({ success: true, data: session });
+    }
 
     const session = await prisma.classSession.update({
       where: { id: req.params.id },
