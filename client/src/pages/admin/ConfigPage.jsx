@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { api } from '../../api/client';
+import { fmtDate } from '../../utils/dates';
 
 const EMPTY_CONFIG = {
   rate_2_students: '',
@@ -259,9 +260,7 @@ export default function ConfigPage() {
                   )}
                 </div>
                 <div className="text-xs text-gray">
-                  {new Date(sem.startDate + 'T12:00:00').toLocaleDateString('es-CO', { day: '2-digit', month: 'short', year: 'numeric' })}
-                  {' — '}
-                  {new Date(sem.endDate + 'T12:00:00').toLocaleDateString('es-CO', { day: '2-digit', month: 'short', year: 'numeric' })}
+                  {fmtDate(sem.startDate)}{' — '}{fmtDate(sem.endDate)}
                 </div>
                 <div className="text-xs text-gray">{sem.exclusions?.length || 0} fechas excluidas</div>
               </div>
@@ -290,7 +289,7 @@ export default function ConfigPage() {
                 {sem.exclusions?.map((excl) => (
                   <div key={excl.id} className="flex items-center justify-between mb-1">
                     <span className="text-sm">
-                      {new Date(excl.date + 'T12:00:00').toLocaleDateString('es-CO', { day: '2-digit', month: 'short', year: 'numeric' })}
+                      {fmtDate(excl.date)}
                       {excl.reason && <span className="text-gray"> — {excl.reason}</span>}
                     </span>
                     <button className="btn btn-ghost" style={{ minHeight: 24, padding: '0 6px', fontSize: '0.7rem', color: 'var(--red)' }}

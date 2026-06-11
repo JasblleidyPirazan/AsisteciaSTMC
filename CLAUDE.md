@@ -303,13 +303,26 @@ Desde la base de datos o el seed, crear un `User` con `role: 'PHYSICAL_TRAINER'`
 - `helmet` — headers HTTP de seguridad (X-Frame-Options, HSTS, etc.)
 - Rate limiting en auth (20 req/15min) y enrollment (5 req/hora)
 - CORS restringido en producción
-- JWT tokens de 7 días, verificados en cada request
-- Passwords con bcrypt (12 rounds en cambio de contraseña, 10 en creación)
+- JWT tokens de 7 días; **el middleware revalida `user.active` en BD en cada request**, así un usuario desactivado pierde acceso de inmediato (no espera a que expire el token)
+- Passwords con bcrypt (12 rounds en cambio de contraseña, 10 en creación); mínimo 8 caracteres también al crear cuenta de padre en aprobación de inscripción
 - Protección contra timing attacks en login
-- Validación de inputs con longitudes máximas
+- Validación de inputs con longitudes máximas; estados de asistencia validados contra whitelist en `/sessions/:id/finalize`
 - Error handler no expone detalles internos en producción
 - Soft delete (campo `active`) en lugar de borrado permanente
 - `UNIQUE([groupId, date])` en ClassSession previene duplicados a nivel BD
+
+### Autorización por recurso (server-side)
+
+- **Sesiones (crear/finalizar/cancelar):** guard `canReportGroup()` en `sessions.js` — ADMIN/PF cualquier grupo; TEACHER solo grupos donde es titular; PARENT solo grupos con un hijo inscrito; ASSISTANT denegado (usa `/assist`)
+- **Reportes:** grupo/clase → ADMIN, PF, TEACHER; estudiante → + PARENT (solo su hijo); asistente → ASSISTANT solo el propio; profesor → TEACHER solo el propio, PF lo ve **sin montos de pago**
+- **Reporte de clase:** `totalCost` solo para ADMIN o el profesor que dictó (titular o sustituto); para el resto va `null`
+- **Dashboard:** `totalPayableThisMonth` solo se envía a ADMIN (`null` para los demás — no solo oculto en UI)
+- **`GET /config/rates`:** tarifas legibles por ADMIN y TEACHER (para el preview de pago en el flujo de asistencia); `GET/PUT /config` completo sigue siendo solo ADMIN
+- **`GET /groups/:id/students`:** PARENT solo si tiene un hijo inscrito en ese grupo
+
+### Nota sobre `npm audit` (xlsx)
+
+`xlsx` reporta 2 advisories (prototype pollution y ReDoS) que aplican **solo al parsear** archivos xlsx no confiables (`XLSX.read`). Este sistema solo **genera** archivos Excel desde datos de la BD (`XLSX.write`) y nunca parsea archivos subidos, por lo que las rutas vulnerables no son alcanzables. No hay fix disponible upstream.
 
 ---
 

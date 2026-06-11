@@ -4,15 +4,14 @@ import { api } from '../api/client';
 import { useAuth } from '../hooks/useAuth';
 import GroupCard from '../components/GroupCard';
 import OfflineBanner from '../components/OfflineBanner';
+import { fmtDate } from '../utils/dates';
 
 function todayStr() {
   return new Date().toISOString().slice(0, 10);
 }
 
 function formatDate(d) {
-  return new Date(d + 'T12:00:00').toLocaleDateString('es-CO', {
-    weekday: 'long', year: 'numeric', month: 'long', day: 'numeric',
-  });
+  return fmtDate(d, { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' });
 }
 
 export default function DashboardPage() {

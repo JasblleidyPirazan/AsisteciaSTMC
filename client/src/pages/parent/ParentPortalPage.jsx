@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { api } from '../../api/client';
 import { useAuth } from '../../hooks/useAuth';
+import { fmtDate } from '../../utils/dates';
 
 const STATUS_LABELS = { PRESENTE: 'Presente', AUSENTE: 'Ausente', JUSTIFICADA: 'Justificada' };
 const STATUS_BADGE = { PRESENTE: 'badge-green', AUSENTE: 'badge-red', JUSTIFICADA: 'badge-yellow' };
@@ -90,9 +91,7 @@ export default function ParentPortalPage() {
                   <div className="flex items-center justify-between">
                     <div>
                       <div className="text-sm font-medium">
-                        {new Date(r.session.date + 'T12:00:00').toLocaleDateString('es-CO', {
-                          weekday: 'short', month: 'short', day: 'numeric'
-                        })}
+                        {fmtDate(r.session.date, { weekday: 'short', month: 'short', day: 'numeric' })}
                       </div>
                       <div className="text-xs text-gray">{r.session.group.code}</div>
                     </div>

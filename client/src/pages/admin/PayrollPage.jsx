@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { api } from '../../api/client';
+import { fmtDate } from '../../utils/dates';
 
 function fmt(n) {
   return new Intl.NumberFormat('es-CO', { style: 'currency', currency: 'COP', maximumFractionDigits: 0 }).format(n || 0);
@@ -9,7 +10,8 @@ function fmt(n) {
 function buildPeriodOptions() {
   const options = [];
   const now = new Date();
-  for (let i = -1; i <= 3; i++) {
+  // From next month back through the previous 6 months
+  for (let i = -1; i <= 6; i++) {
     const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
     const y = d.getFullYear();
     const m = String(d.getMonth() + 1).padStart(2, '0');
@@ -111,7 +113,7 @@ export default function PayrollPage() {
             {detail.records?.map((r) => (
               <div key={r.id} className="cost-row text-sm">
                 <span>
-                  {new Date(r.session.date + 'T12:00:00').toLocaleDateString('es-CO', { day: 'numeric', month: 'short' })}
+                  {fmtDate(r.session.date, { day: 'numeric', month: 'short' })}
                   {' · '}{r.session.group?.code}
                   {r.presentCount > 0 && <span className="text-gray"> · {r.presentCount} est.</span>}
                 </span>

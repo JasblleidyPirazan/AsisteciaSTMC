@@ -1,9 +1,38 @@
 const express = require('express');
 const prisma = require('../lib/prisma');
 const { calculateCosts } = require('../services/costEngine');
-const { requireRole } = require('../middleware/auth');
 
 const router = express.Router();
+
+const VALID_STATUSES = ['PRESENTE', 'AUSENTE', 'JUSTIFICADA'];
+const VALID_TYPES = ['REGULAR', 'REPOSICION'];
+
+/**
+ * Authorization for reporting attendance on a group:
+ * - ADMIN / PHYSICAL_TRAINER: any group
+ * - TEACHER: only groups where they are the titular professor
+ * - PARENT: only groups where one of their children is enrolled
+ * - ASSISTANT: not allowed (they use /:id/assist)
+ */
+async function canReportGroup(user, groupId) {
+  if (['ADMIN', 'PHYSICAL_TRAINER'].includes(user.role)) return true;
+
+  if (user.role === 'TEACHER') {
+    const professor = await prisma.professor.findUnique({ where: { userId: user.id } });
+    if (!professor) return false;
+    const group = await prisma.group.findUnique({ where: { id: groupId } });
+    return !!group && group.professorId === professor.id;
+  }
+
+  if (user.role === 'PARENT') {
+    const enrollment = await prisma.studentEnrollment.findFirst({
+      where: { groupId, student: { parentUserId: user.id, active: true } },
+    });
+    return !!enrollment;
+  }
+
+  return false;
+}
 
 // Check if session exists for a group on a date
 router.get('/check', async (req, res, next) => {
@@ -54,6 +83,10 @@ router.post('/', async (req, res, next) => {
       return res.status(400).json({ success: false, error: 'groupId y date requeridos' });
     }
 
+    if (!(await canReportGroup(req.user, groupId))) {
+      return res.status(403).json({ success: false, error: 'No tienes permiso para reportar este grupo' });
+    }
+
     const group = await prisma.group.findUnique({ where: { id: groupId } });
     if (!group) return res.status(404).json({ success: false, error: 'Grupo no encontrado' });
 
@@ -90,11 +123,28 @@ router.post('/:id/finalize', async (req, res, next) => {
   try {
     const { attendanceRecords, cancelledHalf } = req.body;
 
+    if (attendanceRecords !== undefined && !Array.isArray(attendanceRecords)) {
+      return res.status(400).json({ success: false, error: 'attendanceRecords debe ser una lista' });
+    }
+    for (const record of attendanceRecords || []) {
+      if (!record.studentId || !VALID_STATUSES.includes(record.status)) {
+        return res.status(400).json({ success: false, error: 'Registro de asistencia inválido' });
+      }
+      if (record.attendanceType && !VALID_TYPES.includes(record.attendanceType)) {
+        return res.status(400).json({ success: false, error: 'Tipo de asistencia inválido' });
+      }
+    }
+
     const session = await prisma.classSession.findUnique({
       where: { id: req.params.id },
       include: { group: true },
     });
     if (!session) return res.status(404).json({ success: false, error: 'Sesión no encontrada' });
+
+    if (!(await canReportGroup(req.user, session.groupId))) {
+      return res.status(403).json({ success: false, error: 'No tienes permiso para reportar este grupo' });
+    }
+
     if (session.status === 'REALIZADA' || session.status === 'CANCELADA_MITAD') {
       return res.status(409).json({ success: false, error: 'Sesión ya finalizada' });
     }
@@ -113,7 +163,7 @@ router.post('/:id/finalize', async (req, res, next) => {
         update: {
           status: record.status,
           attendanceType: record.attendanceType || 'REGULAR',
-          justification: record.justification || null,
+          justification: record.justification?.slice(0, 500) || null,
           reportedById: req.user.id,
         },
         create: {
@@ -121,7 +171,7 @@ router.post('/:id/finalize', async (req, res, next) => {
           studentId: record.studentId,
           status: record.status,
           attendanceType: record.attendanceType || 'REGULAR',
-          justification: record.justification || null,
+          justification: record.justification?.slice(0, 500) || null,
           reportedById: req.user.id,
         },
       });
@@ -156,9 +206,16 @@ router.post('/:id/cancel', async (req, res, next) => {
       return res.status(400).json({ success: false, error: 'Motivo de cancelación requerido' });
     }
 
+    const existing = await prisma.classSession.findUnique({ where: { id: req.params.id } });
+    if (!existing) return res.status(404).json({ success: false, error: 'Sesión no encontrada' });
+
+    if (!(await canReportGroup(req.user, existing.groupId))) {
+      return res.status(403).json({ success: false, error: 'No tienes permiso para reportar este grupo' });
+    }
+
     const session = await prisma.classSession.update({
       where: { id: req.params.id },
-      data: { status: 'CANCELADA', cancellationReason, reportedById: req.user.id },
+      data: { status: 'CANCELADA', cancellationReason: cancellationReason.slice(0, 500), reportedById: req.user.id },
     });
     res.json({ success: true, data: session });
   } catch (err) {

@@ -7,19 +7,21 @@ const STATUS_COLORS = { PRESENTE: 'badge-green', AUSENTE: 'badge-red', JUSTIFICA
 export default function Step4Summary({ group, session, substitute, assistant, records,
   cancelledHalf, onCancelledHalfChange, onSubmit, loading, userRole }) {
 
-  const [config, setConfig] = useState({ rate_per_student: 15000, assistant_fixed_rate: 12000 });
+  const [rates, setRates] = useState({});
   const isDouble = parseFloat(group.classUnits) === 2.0;
   const effectiveUnits = isDouble && cancelledHalf ? 1.0 : parseFloat(group.classUnits);
 
   useEffect(() => {
     if (['ADMIN', 'TEACHER'].includes(userRole)) {
-      api.get('/config').then(setConfig).catch(() => {});
+      api.get('/config/rates').then(setRates).catch(() => {});
     }
   }, [userRole]);
 
   const present = records.filter((r) => r.status === 'PRESENTE').length;
   const absent = records.filter((r) => r.status === 'AUSENTE').length;
   const justified = records.filter((r) => r.status === 'JUSTIFICADA').length;
+  const regularPresent = records.filter((r) => r.status === 'PRESENTE' && r.attendanceType !== 'REPOSICION').length;
+  const repositionPresent = records.filter((r) => r.status === 'PRESENTE' && r.attendanceType === 'REPOSICION').length;
   const showCosts = ['ADMIN', 'TEACHER'].includes(userRole);
   const professorName = (substitute || group.professor)?.name;
 
@@ -79,10 +81,11 @@ export default function Step4Summary({ group, session, substitute, assistant, re
       {/* Cost calculation (only for admin/teacher) */}
       {showCosts && (
         <CostSummary
-          present={present}
+          regularPresent={regularPresent}
+          repositionPresent={repositionPresent}
           effectiveUnits={effectiveUnits}
-          ratePerStudent={parseFloat(config.rate_per_student)}
-          assistantRate={assistant ? parseFloat(config.assistant_fixed_rate) : null}
+          rates={rates}
+          assistantRate={assistant ? parseFloat(rates.assistant_fixed_rate || 12000) : null}
           professorName={professorName}
         />
       )}

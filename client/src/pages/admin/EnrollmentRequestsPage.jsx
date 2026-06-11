@@ -1,10 +1,11 @@
 import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { api } from '../../api/client';
+import { fmtDate as fmtDateUtil } from '../../utils/dates';
 
 function fmtDate(d) {
   if (!d) return '—';
-  return new Date(d + 'T00:00:00').toLocaleDateString('es-CO', { day: '2-digit', month: 'short', year: 'numeric' });
+  return fmtDateUtil(d);
 }
 
 function calculateAge(birthDate) {

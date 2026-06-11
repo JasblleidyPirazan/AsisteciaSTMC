@@ -1,9 +1,10 @@
 const express = require('express');
 const prisma = require('../lib/prisma');
+const { requireRole } = require('../middleware/auth');
 
 const router = express.Router();
 
-router.get('/group/:groupId', async (req, res, next) => {
+router.get('/group/:groupId', requireRole('ADMIN', 'PHYSICAL_TRAINER', 'TEACHER'), async (req, res, next) => {
   try {
     const { from, to } = req.query;
     const where = { groupId: req.params.groupId, status: { not: 'PROGRAMADA' } };
@@ -41,7 +42,7 @@ router.get('/group/:groupId', async (req, res, next) => {
   }
 });
 
-router.get('/student/:studentId', async (req, res, next) => {
+router.get('/student/:studentId', requireRole('ADMIN', 'PHYSICAL_TRAINER', 'TEACHER', 'PARENT'), async (req, res, next) => {
   try {
     if (req.user.role === 'PARENT') {
       const student = await prisma.student.findFirst({
@@ -87,8 +88,16 @@ router.get('/student/:studentId', async (req, res, next) => {
   }
 });
 
-router.get('/assistant/:assistantId', async (req, res, next) => {
+router.get('/assistant/:assistantId', requireRole('ADMIN', 'PHYSICAL_TRAINER', 'ASSISTANT'), async (req, res, next) => {
   try {
+    // Assistants can only see their own report
+    if (req.user.role === 'ASSISTANT') {
+      const own = await prisma.assistant.findUnique({ where: { userId: req.user.id } });
+      if (!own || own.id !== req.params.assistantId) {
+        return res.status(403).json({ success: false, error: 'Acceso no autorizado' });
+      }
+    }
+
     const { from, to } = req.query;
     const where = { assistantId: req.params.assistantId, status: { not: 'PROGRAMADA' } };
     if (from || to) {
@@ -109,8 +118,18 @@ router.get('/assistant/:assistantId', async (req, res, next) => {
   }
 });
 
-router.get('/professor/:professorId', async (req, res, next) => {
+router.get('/professor/:professorId', requireRole('ADMIN', 'PHYSICAL_TRAINER', 'TEACHER'), async (req, res, next) => {
   try {
+    // Teachers can only see their own report
+    if (req.user.role === 'TEACHER') {
+      const own = await prisma.professor.findUnique({ where: { userId: req.user.id } });
+      if (!own || own.id !== req.params.professorId) {
+        return res.status(403).json({ success: false, error: 'Acceso no autorizado' });
+      }
+    }
+    // Physical trainer sees attendance but never pay amounts
+    const includePay = req.user.role !== 'PHYSICAL_TRAINER';
+
     const { from, to } = req.query;
     const dateFilter = {};
     if (from) dateFilter.gte = new Date(from);
@@ -127,25 +146,28 @@ router.get('/professor/:professorId', async (req, res, next) => {
       include: {
         group: { select: { id: true, code: true, name: true } },
         attendanceRecords: { select: { status: true, attendanceType: true } },
-        costRecords: {
-          where: { professorId: req.params.professorId },
-          select: { total: true, rate: true, presentCount: true, effectiveUnits: true },
-        },
+        costRecords: includePay
+          ? {
+              where: { professorId: req.params.professorId },
+              select: { total: true, rate: true, presentCount: true, effectiveUnits: true },
+            }
+          : false,
       },
       orderBy: { date: 'desc' },
     });
 
-    const totalPay = sessions.reduce((sum, s) => {
-      return sum + s.costRecords.reduce((cs, r) => cs + parseFloat(r.total), 0);
-    }, 0);
+    const totalPay = includePay
+      ? sessions.reduce((sum, s) => sum + s.costRecords.reduce((cs, r) => cs + parseFloat(r.total), 0), 0)
+      : null;
 
     const data = sessions.map((s) => {
       const counts = { PRESENTE: 0, AUSENTE: 0, JUSTIFICADA: 0 };
       s.attendanceRecords.forEach((r) => counts[r.status]++);
       const total = s.attendanceRecords.length;
-      const pay = s.costRecords.reduce((cs, r) => cs + parseFloat(r.total), 0);
+      const pay = includePay ? s.costRecords.reduce((cs, r) => cs + parseFloat(r.total), 0) : null;
+      const { costRecords, ...rest } = s;
       return {
-        ...s,
+        ...rest,
         present: counts.PRESENTE,
         absent: counts.AUSENTE,
         justified: counts.JUSTIFICADA,
@@ -165,7 +187,7 @@ router.get('/professor/:professorId', async (req, res, next) => {
   }
 });
 
-router.get('/class/:sessionId', async (req, res, next) => {
+router.get('/class/:sessionId', requireRole('ADMIN', 'PHYSICAL_TRAINER', 'TEACHER'), async (req, res, next) => {
   try {
     const session = await prisma.classSession.findUnique({
       where: { id: req.params.sessionId },
@@ -185,12 +207,24 @@ router.get('/class/:sessionId', async (req, res, next) => {
     const counts = { PRESENTE: 0, AUSENTE: 0, JUSTIFICADA: 0 };
     session.attendanceRecords.forEach((r) => counts[r.status]++);
 
-    const totalCost = session.costRecords.reduce((s, r) => s + parseFloat(r.total), 0);
+    // Cost visible only to ADMIN and to the teacher who dictated the class
+    let showCost = req.user.role === 'ADMIN';
+    if (!showCost && req.user.role === 'TEACHER') {
+      const own = await prisma.professor.findUnique({ where: { userId: req.user.id } });
+      showCost = !!own && (
+        session.group.professorId === own.id || session.substituteProfessorId === own.id
+      );
+    }
+
+    const { costRecords, ...rest } = session;
+    const totalCost = showCost
+      ? costRecords.reduce((s, r) => s + parseFloat(r.total), 0)
+      : null;
 
     res.json({
       success: true,
       data: {
-        ...session,
+        ...rest,
         present: counts.PRESENTE,
         absent: counts.AUSENTE,
         justified: counts.JUSTIFICADA,
@@ -206,6 +240,7 @@ router.get('/dashboard', async (req, res, next) => {
   try {
     const now = new Date();
     const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1);
+    const isAdmin = req.user.role === 'ADMIN';
 
     const [totalStudents, totalGroups, sessionsThisMonth, cancelledThisMonth, costThisMonth] =
       await Promise.all([
@@ -217,10 +252,12 @@ router.get('/dashboard', async (req, res, next) => {
         prisma.classSession.count({
           where: { date: { gte: startOfMonth }, status: 'CANCELADA' },
         }),
-        prisma.costRecord.aggregate({
-          where: { session: { date: { gte: startOfMonth } } },
-          _sum: { total: true },
-        }),
+        isAdmin
+          ? prisma.costRecord.aggregate({
+              where: { session: { date: { gte: startOfMonth } } },
+              _sum: { total: true },
+            })
+          : Promise.resolve(null),
       ]);
 
     const todayAttendance = await prisma.attendanceRecord.groupBy({
@@ -238,7 +275,8 @@ router.get('/dashboard', async (req, res, next) => {
         totalGroups,
         sessionsThisMonth,
         cancelledThisMonth,
-        totalPayableThisMonth: parseFloat(costThisMonth._sum.total || 0),
+        // Economic figure only for ADMIN — never sent to other roles
+        totalPayableThisMonth: isAdmin ? parseFloat(costThisMonth?._sum.total || 0) : null,
         todayPresent: counts.PRESENTE || 0,
         todayAbsent: counts.AUSENTE || 0,
         todayJustified: counts.JUSTIFICADA || 0,

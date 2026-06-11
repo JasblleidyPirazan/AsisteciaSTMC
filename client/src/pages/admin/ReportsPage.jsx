@@ -1,12 +1,9 @@
 import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { api } from '../../api/client';
+import { fmtDate as fmt } from '../../utils/dates';
 
 const TABS = ['Grupo', 'Estudiante', 'Asistente', 'Profesor', 'Clase'];
-
-function fmt(d) {
-  return new Date(d + 'T12:00:00').toLocaleDateString('es-CO', { day: '2-digit', month: 'short', year: 'numeric' });
-}
 function fmtCOP(n) {
   return new Intl.NumberFormat('es-CO', { style: 'currency', currency: 'COP', maximumFractionDigits: 0 }).format(n || 0);
 }
@@ -314,7 +311,9 @@ function ProfessorReport({ data }) {
       <div className="stats-row mb-3">
         <div className="stat-box"><div className="num">{summary.total || 0}</div><div className="lbl">Sesiones</div></div>
         <div className="stat-box"><div className="num">{summary.realized || 0}</div><div className="lbl">Realizadas</div></div>
-        <div className="stat-box"><div className="num">{fmtCOP(summary.totalPay)}</div><div className="lbl">Total pago</div></div>
+        {summary.totalPay != null && (
+          <div className="stat-box"><div className="num">{fmtCOP(summary.totalPay)}</div><div className="lbl">Total pago</div></div>
+        )}
       </div>
       {sessions.map((s) => (
         <div key={s.id} className="card mb-2">

@@ -132,8 +132,9 @@ router.get('/export', requireRole('ADMIN'), async (req, res, next) => {
 
     for (const r of records) {
       const name = r.professor?.name || r.assistant?.name || '';
-      const date = new Date(r.session.date + 'T12:00:00').toLocaleDateString('es-CO', {
-        day: '2-digit', month: '2-digit', year: 'numeric',
+      // r.session.date is a Date at UTC midnight; format in UTC to avoid day shift
+      const date = new Date(r.session.date).toLocaleDateString('es-CO', {
+        day: '2-digit', month: '2-digit', year: 'numeric', timeZone: 'UTC',
       });
       const row = {
         Nombre: name,
@@ -151,12 +152,6 @@ router.get('/export', requireRole('ADMIN'), async (req, res, next) => {
     const wb = XLSX.utils.book_new();
 
     // Professors sheet
-    const wsProfHeader = [
-      ['LIQUIDACIÓN DE PROFESORES', '', '', '', '', '', ''],
-      [`Período: ${period}`, '', '', '', '', '', ''],
-      [],
-    ];
-    const profData = [...wsProfHeader, Object.keys(profRows[0] || { Nombre: '' }), ...profRows.map(Object.values)];
     const wsProf = profRows.length > 0
       ? XLSX.utils.aoa_to_sheet([
           ['LIQUIDACIÓN DE PROFESORES'],

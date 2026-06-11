@@ -22,6 +22,21 @@ const DEFAULTS = {
   reposition_rate: '15000',
 };
 
+// Rates only — readable by teachers so the attendance flow can preview their pay.
+// Full config (GET/PUT below) remains admin-only.
+router.get('/rates', requireRole('ADMIN', 'TEACHER'), async (req, res, next) => {
+  try {
+    const configs = await prisma.systemConfig.findMany({ where: { key: { in: CONFIG_KEYS } } });
+    const data = Object.fromEntries(configs.map((c) => [c.key, c.value]));
+    for (const key of CONFIG_KEYS) {
+      if (!data[key]) data[key] = DEFAULTS[key];
+    }
+    res.json({ success: true, data });
+  } catch (err) {
+    next(err);
+  }
+});
+
 router.get('/', requireRole('ADMIN'), async (req, res, next) => {
   try {
     const configs = await prisma.systemConfig.findMany({ where: { key: { in: CONFIG_KEYS } } });

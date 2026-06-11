@@ -71,8 +71,8 @@ router.get('/requests', requireRole('ADMIN'), async (req, res, next) => {
 router.post('/requests/:id/approve', requireRole('ADMIN'), async (req, res, next) => {
   try {
     const { groupId, enrollmentType, parentPassword } = req.body;
-    if (!parentPassword) {
-      return res.status(400).json({ success: false, error: 'Contraseña inicial para el padre requerida' });
+    if (!parentPassword || typeof parentPassword !== 'string' || parentPassword.length < 8 || parentPassword.length > 128) {
+      return res.status(400).json({ success: false, error: 'La contraseña inicial del padre debe tener entre 8 y 128 caracteres' });
     }
 
     const request = await prisma.enrollmentRequest.findUnique({ where: { id: req.params.id } });

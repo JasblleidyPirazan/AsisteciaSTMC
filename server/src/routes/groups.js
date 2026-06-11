@@ -60,6 +60,16 @@ router.get('/:id', async (req, res, next) => {
 
 router.get('/:id/students', async (req, res, next) => {
   try {
+    // Parents may only list students of groups where one of their children is enrolled
+    if (req.user.role === 'PARENT') {
+      const childEnrollment = await prisma.studentEnrollment.findFirst({
+        where: { groupId: req.params.id, student: { parentUserId: req.user.id, active: true } },
+      });
+      if (!childEnrollment) {
+        return res.status(403).json({ success: false, error: 'Acceso no autorizado' });
+      }
+    }
+
     const enrollments = await prisma.studentEnrollment.findMany({
       where: { groupId: req.params.id, student: { active: true } },
       include: { student: true },

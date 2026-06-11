@@ -11,10 +11,12 @@ async function request(path, options = {}) {
 
   const res = await fetch(`${BASE_URL}${path}`, { ...options, headers });
 
-  if (res.status === 401) {
+  // Expired/invalid session → back to login. Login itself returns 401 on bad
+  // credentials; let that fall through so the form can show the error.
+  if (res.status === 401 && !path.startsWith('/auth/login')) {
     localStorage.removeItem('stmc_token');
     window.location.href = '/login';
-    return;
+    return new Promise(() => {}); // never resolves; page is navigating away
   }
 
   const data = await res.json();

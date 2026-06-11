@@ -1,15 +1,12 @@
 import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { api } from '../../api/client';
+import { fmtDate } from '../../utils/dates';
 
 const EMPTY_FORM = { name: '', date: '', professorId: '', fixedRate: '', description: '' };
 
 function fmt(n) {
   return new Intl.NumberFormat('es-CO', { style: 'currency', currency: 'COP', maximumFractionDigits: 0 }).format(n || 0);
-}
-
-function fmtDate(d) {
-  return new Date(d + 'T00:00:00').toLocaleDateString('es-CO', { day: '2-digit', month: 'short', year: 'numeric' });
 }
 
 export default function EventsPage() {

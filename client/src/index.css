@@ -347,3 +347,21 @@ p { line-height: 1.5; }
   font-weight: 600;
 }
 .mt-3 { margin-top: 12px; }
+
+/* Fluidez e interacción */
+html { scroll-behavior: smooth; }
+.btn { transition: transform 0.1s ease, opacity 0.15s ease, background 0.15s ease; }
+.btn:active:not(:disabled) { transform: scale(0.97); }
+.card-tap { transition: transform 0.1s ease, box-shadow 0.15s ease; }
+.card-tap:active { transform: scale(0.985); }
+input.form-input, select.form-select, textarea.form-input {
+  transition: border-color 0.15s ease, box-shadow 0.15s ease;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  html { scroll-behavior: auto; }
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    transition-duration: 0.01ms !important;
+  }
+}
