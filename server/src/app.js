@@ -1,5 +1,7 @@
 import express from 'express';
 import cors from 'cors';
+import path from 'node:path';
+import fs from 'node:fs';
 
 import authRoutes from './routes/auth.routes.js';
 import enrollmentRoutes from './routes/enrollment.routes.js';
@@ -27,6 +29,18 @@ export function createApp() {
   app.use('/api/admin', adminRoutes);
 
   app.use('/api', notFoundHandler);
+
+  // En producción, sirve el frontend compilado (servicio único en Railway).
+  // CLIENT_DIST por defecto apunta a ../client/dist relativo a /server.
+  const clientDist = process.env.CLIENT_DIST
+    ? path.resolve(process.env.CLIENT_DIST)
+    : path.resolve(process.cwd(), '..', 'client', 'dist');
+
+  if (fs.existsSync(path.join(clientDist, 'index.html'))) {
+    app.use(express.static(clientDist));
+    app.get('*', (_req, res) => res.sendFile(path.join(clientDist, 'index.html')));
+  }
+
   app.use(errorHandler);
 
   return app;

@@ -46,6 +46,13 @@ export async function getSessionContext(req, res) {
     include: { attendance: { include: { student: { select: { id: true, name: true } } } } },
   });
 
+  // Profesores activos disponibles como sustituto (HU-AST-05).
+  const professors = await prisma.user.findMany({
+    where: { role: 'TEACHER', active: true },
+    select: { id: true, name: true },
+    orderBy: { name: 'asc' },
+  });
+
   res.json({
     group: {
       id: group.id,
@@ -54,6 +61,7 @@ export async function getSessionContext(req, res) {
       classUnits: Number(group.classUnits),
       professor: group.professor,
     },
+    professors,
     students: group.enrollments.map((e) => ({
       studentId: e.student.id,
       name: e.student.name,

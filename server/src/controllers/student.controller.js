@@ -89,6 +89,21 @@ export async function getStudentHistory(req, res) {
   });
 }
 
+// Búsqueda de estudiantes activos para agregar reposiciones (HU-AST-02).
+export async function searchStudents(req, res) {
+  const q = (req.query.q ?? '').trim();
+  const students = await prisma.student.findMany({
+    where: {
+      active: true,
+      ...(q ? { name: { contains: q, mode: 'insensitive' } } : {}),
+    },
+    select: { id: true, name: true },
+    orderBy: { name: 'asc' },
+    take: 20,
+  });
+  res.json({ students });
+}
+
 export const enrollSchema = z.object({
   groupId: z.string().uuid(),
   isPrimary: z.boolean().optional(),

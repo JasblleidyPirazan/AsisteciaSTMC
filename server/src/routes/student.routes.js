@@ -9,6 +9,7 @@ import {
   enrollStudent,
   getStudentHistory,
   listStudents,
+  searchStudents,
 } from '../controllers/student.controller.js';
 
 const router = Router();
@@ -16,6 +17,7 @@ const router = Router();
 router.use(authenticate);
 
 router.post('/', authorize('ADMIN'), validateBody(createStudentSchema), asyncHandler(createStudent));
+router.get('/search', authorize('TEACHER', 'ADMIN', 'PARENT'), asyncHandler(searchStudents));
 router.get('/', asyncHandler(listStudents));
 router.get('/:id/history', asyncHandler(getStudentHistory));
 router.post('/:id/enroll', authorize('ADMIN'), validateBody(enrollSchema), asyncHandler(enrollStudent));
