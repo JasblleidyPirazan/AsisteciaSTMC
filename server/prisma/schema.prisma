@@ -1,0 +1,303 @@
+// Esquema de base de datos del Sistema de Asistencia de Tenis (MVP v2)
+// PostgreSQL + Prisma ORM. Gestionado por Railway.
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ---------------------------------------------------------------------------
+// Enums
+// ---------------------------------------------------------------------------
+
+enum Role {
+  ADMIN
+  TEACHER
+  ASSISTANT
+  PARENT
+}
+
+enum BallLevel {
+  VERDE
+  AMARILLA
+  NARANJA
+  ROJA
+}
+
+enum SessionStatus {
+  PROGRAMADA
+  REALIZADA
+  CANCELADA
+  CANCELADA_MITAD
+}
+
+enum AttendanceStatus {
+  PRESENTE
+  AUSENTE
+  JUSTIFICADA
+}
+
+enum AttendanceType {
+  REGULAR
+  REPOSICION
+}
+
+enum PayeeType {
+  PROFESSOR
+  ASSISTANT
+}
+
+enum EnrollmentStatus {
+  PENDIENTE
+  APROBADA
+  RECHAZADA
+}
+
+enum MakeupType {
+  INDIVIDUAL
+  GRUPAL
+}
+
+// ---------------------------------------------------------------------------
+// Cuentas de acceso
+// ---------------------------------------------------------------------------
+
+model User {
+  id           String   @id @default(uuid())
+  email        String   @unique
+  passwordHash String   @map("password_hash")
+  name         String
+  role         Role
+  active       Boolean  @default(true)
+  createdAt    DateTime @default(now()) @map("created_at")
+
+  // Relaciones
+  groupsAsTitular     Group[]            @relation("GroupTitular")
+  sessionsAsSubstitute ClassSession[]    @relation("SessionSubstitute")
+  sessionsAsAssistant  ClassSession[]    @relation("SessionAssistant")
+  sessionsReported     ClassSession[]    @relation("SessionReportedBy")
+  attendanceReported   AttendanceRecord[]
+  costRecords          CostRecord[]      @relation("CostPayee")
+  childrenStudents     Student[]         @relation("StudentParent")
+  makeupClassesCreated MakeupClass[]     @relation("MakeupCreatedBy")
+  eventsAsProfessor    SpecialEvent[]    @relation("EventProfessor")
+
+  @@map("users")
+}
+
+// ---------------------------------------------------------------------------
+// Inscripción
+// ---------------------------------------------------------------------------
+
+model EnrollmentRequest {
+  id              String           @id @default(uuid())
+  studentName     String           @map("student_name")
+  parentName      String           @map("parent_name")
+  email           String
+  phone           String
+  status          EnrollmentStatus @default(PENDIENTE)
+  rejectionReason String?          @map("rejection_reason")
+  createdAt       DateTime         @default(now()) @map("created_at")
+  resolvedAt      DateTime?        @map("resolved_at")
+
+  @@index([status, createdAt])
+  @@map("enrollment_requests")
+}
+
+// ---------------------------------------------------------------------------
+// Estudiantes
+// ---------------------------------------------------------------------------
+
+model Student {
+  id        String   @id @default(uuid())
+  name      String
+  active    Boolean  @default(true)
+  parentId  String?  @map("parent_id")
+  createdAt DateTime @default(now()) @map("created_at")
+
+  parent      User?              @relation("StudentParent", fields: [parentId], references: [id])
+  enrollments StudentEnrollment[]
+  attendance  AttendanceRecord[]
+
+  @@map("students")
+}
+
+model StudentEnrollment {
+  id         String   @id @default(uuid())
+  studentId  String   @map("student_id")
+  groupId    String   @map("group_id")
+  isPrimary  Boolean  @default(true) @map("is_primary")
+  active     Boolean  @default(true)
+  createdAt  DateTime @default(now()) @map("created_at")
+
+  student Student @relation(fields: [studentId], references: [id], onDelete: Cascade)
+  group   Group   @relation(fields: [groupId], references: [id], onDelete: Cascade)
+
+  @@unique([studentId, groupId])
+  @@map("student_enrollments")
+}
+
+// ---------------------------------------------------------------------------
+// Grupos
+// ---------------------------------------------------------------------------
+
+model Group {
+  id              String    @id @default(uuid())
+  code            String    @unique
+  professorId     String    @map("professor_id")
+  // Días de la semana (Lunes a Domingo)
+  monday          Boolean   @default(false)
+  tuesday         Boolean   @default(false)
+  wednesday       Boolean   @default(false)
+  thursday        Boolean   @default(false)
+  friday          Boolean   @default(false)
+  saturday        Boolean   @default(false)
+  sunday          Boolean   @default(false)
+  startTime       String    @map("start_time") // HH:MM
+  endTime         String    @map("end_time")   // HH:MM
+  durationMinutes Int       @map("duration_minutes") // 45 = sencilla, 90 = doble
+  classUnits      Decimal   @map("class_units") @db.Decimal(3, 1) // 1.0 sencilla, 2.0 doble
+  court           Int
+  ballLevel       BallLevel @map("ball_level")
+  active          Boolean   @default(true)
+  createdAt       DateTime  @default(now()) @map("created_at")
+
+  professor   User                @relation("GroupTitular", fields: [professorId], references: [id])
+  enrollments StudentEnrollment[]
+  sessions    ClassSession[]
+
+  @@map("groups")
+}
+
+// ---------------------------------------------------------------------------
+// Sesiones de clase
+// ---------------------------------------------------------------------------
+
+model ClassSession {
+  id                   String        @id @default(uuid())
+  groupId              String        @map("group_id")
+  date                 DateTime      @db.Date
+  status               SessionStatus @default(PROGRAMADA)
+  effectiveUnits       Decimal       @map("effective_units") @db.Decimal(3, 1)
+  cancellationReason   String?       @map("cancellation_reason")
+  substituteProfessorId String?      @map("substitute_professor_id")
+  assistantId          String?       @map("assistant_id")
+  reportedById         String?       @map("reported_by")
+  locked               Boolean       @default(false) // Reporte enviado y bloqueado para edición
+  createdAt            DateTime      @default(now()) @map("created_at")
+
+  group               Group              @relation(fields: [groupId], references: [id], onDelete: Cascade)
+  substituteProfessor User?              @relation("SessionSubstitute", fields: [substituteProfessorId], references: [id])
+  assistant           User?              @relation("SessionAssistant", fields: [assistantId], references: [id])
+  reportedBy          User?              @relation("SessionReportedBy", fields: [reportedById], references: [id])
+  attendance          AttendanceRecord[]
+  costRecords         CostRecord[]
+
+  @@unique([groupId, date])
+  @@index([date])
+  @@map("class_sessions")
+}
+
+// ---------------------------------------------------------------------------
+// Asistencia por estudiante
+// ---------------------------------------------------------------------------
+
+model AttendanceRecord {
+  id             String           @id @default(uuid())
+  sessionId      String           @map("session_id")
+  studentId      String           @map("student_id")
+  status         AttendanceStatus
+  attendanceType AttendanceType   @default(REGULAR) @map("attendance_type")
+  justification  String?
+  reportedById   String?          @map("reported_by")
+  createdAt      DateTime         @default(now()) @map("created_at")
+
+  session    ClassSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  student    Student      @relation(fields: [studentId], references: [id])
+  reportedBy User?        @relation(fields: [reportedById], references: [id])
+
+  @@unique([sessionId, studentId])
+  @@map("attendance_records")
+}
+
+// ---------------------------------------------------------------------------
+// Costos calculados por sesión (insumo de la liquidación)
+// ---------------------------------------------------------------------------
+
+model CostRecord {
+  id             String    @id @default(uuid())
+  sessionId      String?   @map("session_id")
+  makeupClassId  String?   @map("makeup_class_id")
+  eventId        String?   @map("event_id")
+  payeeId        String    @map("payee_id")
+  payeeType      PayeeType @map("payee_type")
+  // Categoría para el desglose de la liquidación:
+  // REGULAR_SENCILLA / REGULAR_DOBLE / DOBLE_MITAD / REPOSICION_GRUPAL / EVENTO / ASISTENTE
+  category       String    @default("REGULAR_SENCILLA")
+  presentCount   Int       @default(0) @map("present_count")
+  effectiveUnits Decimal   @map("effective_units") @db.Decimal(3, 1)
+  rate           Decimal   @db.Decimal(12, 2)
+  total          Decimal   @db.Decimal(12, 2)
+  period         String // Quincena, ej: 2025-06-1
+  createdAt      DateTime  @default(now()) @map("created_at")
+
+  session     ClassSession? @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  payee       User          @relation("CostPayee", fields: [payeeId], references: [id])
+
+  @@index([period, payeeId])
+  @@map("cost_records")
+}
+
+// ---------------------------------------------------------------------------
+// Reposiciones grupales
+// ---------------------------------------------------------------------------
+
+model MakeupClass {
+  id           String     @id @default(uuid())
+  date         DateTime   @db.Date
+  type         MakeupType
+  professorId  String     @map("professor_id")
+  studentCount Int        @map("student_count")
+  createdById  String     @map("created_by")
+  createdAt    DateTime   @default(now()) @map("created_at")
+
+  professor User @relation("MakeupCreatedBy", fields: [createdById], references: [id])
+
+  @@map("makeup_classes")
+}
+
+// ---------------------------------------------------------------------------
+// Eventos especiales
+// ---------------------------------------------------------------------------
+
+model SpecialEvent {
+  id          String   @id @default(uuid())
+  name        String
+  date        DateTime @db.Date
+  professorId String   @map("professor_id")
+  fixedValue  Decimal  @map("fixed_value") @db.Decimal(12, 2)
+  studentCount Int     @default(0) @map("student_count")
+  createdAt   DateTime @default(now()) @map("created_at")
+
+  professor User @relation("EventProfessor", fields: [professorId], references: [id])
+
+  @@map("special_events")
+}
+
+// ---------------------------------------------------------------------------
+// Configuración de tarifas (singleton)
+// ---------------------------------------------------------------------------
+
+model Settings {
+  id                String   @id @default("singleton")
+  studentRate       Decimal  @map("student_rate") @db.Decimal(12, 2)       // Tarifa por estudiante (profesor)
+  assistantFixedRate Decimal @map("assistant_fixed_rate") @db.Decimal(12, 2) // Tarifa fija por clase (asistente)
+  groupMakeupRate   Decimal  @map("group_makeup_rate") @db.Decimal(12, 2)  // Tarifa por estudiante en reposición grupal
+  updatedAt         DateTime @updatedAt @map("updated_at")
+
+  @@map("settings")
+}

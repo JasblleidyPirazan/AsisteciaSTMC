@@ -3,6 +3,17 @@
 
 ---
 
+> **Nota (v2):** La nueva versión del sistema (MVP v2) está implementada en
+> [`server/`](server/) con **Node.js + Express + PostgreSQL + Prisma**, según el
+> documento de especificación e historias de usuario v2. El backend cubre los
+> módulos de Inscripción, Grupos, Asistencia (motor de costos), Liquidación y
+> Administración. Ver [`server/README.md`](server/README.md) para el detalle y
+> el mapa de Historias de Usuario → Endpoints. El frontend (React + Vite) es el
+> siguiente paso. El contenido anterior de este README describe la arquitectura
+> original (Vanilla JS + Google Sheets).
+
+---
+
 ## 🎯 **Estrategia de Desarrollo**
 
 ### **FASE 1: Prototipo Funcional (2-3 semanas)**
