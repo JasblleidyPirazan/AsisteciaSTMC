@@ -8,6 +8,8 @@ import Dashboard from './pages/Dashboard.jsx';
 import AttendanceFlow from './pages/attendance/AttendanceFlow.jsx';
 import AssistantDay from './pages/AssistantDay.jsx';
 import MySettlement from './pages/MySettlement.jsx';
+import Students from './pages/Students.jsx';
+import StudentHistory from './pages/StudentHistory.jsx';
 import AdminHome from './pages/admin/AdminHome.jsx';
 
 function Protected({ children, roles }) {
@@ -31,6 +33,8 @@ export default function App() {
         <Route path="/attendance/:groupId" element={<Protected><AttendanceFlow /></Protected>} />
         <Route path="/assistant" element={<Protected roles={['ASSISTANT', 'ADMIN']}><AssistantDay /></Protected>} />
         <Route path="/my-settlement" element={<Protected><MySettlement /></Protected>} />
+        <Route path="/students" element={<Protected roles={['TEACHER', 'PARENT', 'ADMIN']}><Students /></Protected>} />
+        <Route path="/students/:id" element={<Protected roles={['TEACHER', 'PARENT', 'ADMIN']}><StudentHistory /></Protected>} />
         <Route path="/admin/*" element={<Protected roles={['ADMIN']}><AdminHome /></Protected>} />
 
         <Route path="*" element={<Navigate to="/" replace />} />

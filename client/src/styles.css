@@ -139,3 +139,11 @@ body {
 
 .empty { text-align: center; color: var(--muted); padding: 40px 16px; }
 .list-link { display: block; padding: 14px 0; border-bottom: 1px solid var(--border); text-decoration: none; color: var(--text); font-weight: 600; }
+
+/* Impresión / Guardar como PDF: oculta controles y cabecera. */
+@media print {
+  .app-header, .btn, .field, .back { display: none !important; }
+  #root { max-width: 100%; }
+  .content { padding: 0; padding-bottom: 0; }
+  .card { box-shadow: none; border: 1px solid var(--border); break-inside: avoid; }
+}

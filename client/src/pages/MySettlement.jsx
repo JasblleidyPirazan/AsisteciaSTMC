@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { api } from '../api/client.js';
 import { Banner, Header, Loading, money } from '../components/ui.jsx';
+import { downloadCSV } from '../utils/export.js';
 
 // Quincena actual en formato YYYY-MM-N.
 function currentPeriod() {
@@ -40,6 +41,20 @@ export default function MySettlement() {
             </div>
           ))}
         </div>
+
+        {data.sessions.length > 0 && (
+          <button
+            className="btn btn-outline"
+            onClick={() => downloadCSV(
+              `mi_liquidacion_${period}.csv`,
+              ['Fecha', 'Grupo', 'Categoría', 'Presentes', 'Unidades', 'Tarifa', 'Total'],
+              data.sessions.map((s) => [
+                s.date ? new Date(s.date).toLocaleDateString('es-CO') : '',
+                s.group, s.category, s.presentCount, s.units, s.rate, s.total,
+              ]),
+            )}
+          >⬇️ Exportar a Excel/CSV</button>
+        )}
 
         <h2 style={{ fontSize: '1rem' }}>Sesiones</h2>
         {data.sessions.map((s, i) => (

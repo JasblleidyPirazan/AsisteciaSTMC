@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { api } from '../../api/client.js';
 import { Banner, Empty, Header, Loading, money } from '../../components/ui.jsx';
+import { downloadCSV, printView } from '../../utils/export.js';
 
 function currentPeriod() {
   const d = new Date();
@@ -19,6 +20,15 @@ export default function Settlement() {
     api.get(`/settlements/${period}`).then(setData).catch((e) => setError(e.message));
   }, [period]);
 
+  function exportCSV() {
+    const rows = [];
+    for (const p of data.people) {
+      for (const b of p.breakdown) rows.push([p.name, p.role, b.label, b.count, b.total]);
+      rows.push([p.name, p.role, 'TOTAL', '', p.total]);
+    }
+    downloadCSV(`liquidacion_${period}.csv`, ['Beneficiario', 'Rol', 'Categoría', 'Cantidad', 'Total'], rows);
+  }
+
   return (
     <>
       <Header title="Liquidación" back="/admin" />
@@ -35,6 +45,12 @@ export default function Settlement() {
               <div className="muted">Total a pagar — {period}</div>
               <div className="summary-total" style={{ fontSize: '1.8rem' }}>{money(data.grandTotal)}</div>
             </div>
+            {data.people.length > 0 && (
+              <div className="btn-group" style={{ marginBottom: 14 }}>
+                <button className="btn btn-outline" onClick={exportCSV}>⬇️ Excel/CSV</button>
+                <button className="btn btn-outline" onClick={printView}>🖨️ PDF</button>
+              </div>
+            )}
             {data.people.length === 0 && <Empty>Sin registros en esta quincena.</Empty>}
             {data.people.map((p) => (
               <div className="card" key={p.payeeId}>

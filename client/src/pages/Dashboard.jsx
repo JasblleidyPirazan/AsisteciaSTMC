@@ -63,8 +63,14 @@ export default function Dashboard() {
         ))}
 
         <div className="spacer" />
-        {(user.role === 'TEACHER') && (
-          <button className="btn btn-outline" onClick={() => navigate('/my-settlement')}>💰 Mi liquidación</button>
+        {user.role === 'PARENT' && (
+          <button className="btn btn-outline" onClick={() => navigate('/students')}>👦 Ver asistencia de mi hijo/a</button>
+        )}
+        {user.role === 'TEACHER' && (
+          <div className="stack">
+            <button className="btn btn-outline" onClick={() => navigate('/students')}>👥 Mis estudiantes</button>
+            <button className="btn btn-outline" onClick={() => navigate('/my-settlement')}>💰 Mi liquidación</button>
+          </div>
         )}
         {user.role === 'ADMIN' && (
           <div className="stack">

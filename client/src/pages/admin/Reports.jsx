@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { api } from '../../api/client.js';
 import { Banner, Header, Loading, money } from '../../components/ui.jsx';
+import { downloadCSV, printView } from '../../utils/export.js';
 
 function currentPeriod() {
   const d = new Date();
@@ -37,6 +38,19 @@ export default function Reports() {
               <div className="row" style={{ marginTop: 8 }}>
                 <span>Total a pagar</span><span className="summary-total">{money(data.metrics.totalToPay)}</span>
               </div>
+            </div>
+            <div className="btn-group">
+              <button className="btn btn-outline" onClick={() => downloadCSV(
+                `reporte_${period}.csv`,
+                ['Métrica', 'Valor'],
+                [
+                  ['Clases realizadas', data.metrics.classesRealized],
+                  ['Clases canceladas', data.metrics.classesCancelled],
+                  ['Tasa de asistencia (%)', data.metrics.attendanceRate],
+                  ['Total a pagar', data.metrics.totalToPay],
+                ],
+              )}>⬇️ Excel/CSV</button>
+              <button className="btn btn-outline" onClick={printView}>🖨️ PDF</button>
             </div>
           </>
         )}
