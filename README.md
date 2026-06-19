@@ -3,6 +3,23 @@
 
 ---
 
+> **Nota (v2):** La nueva versión del sistema (MVP v2) está implementada según el
+> documento de especificación e historias de usuario v2:
+> - **Backend:** [`server/`](server/) — **Node.js + Express + PostgreSQL + Prisma**.
+>   Cubre Inscripción, Grupos, Asistencia (motor de costos), Liquidación y
+>   Administración. Ver [`server/README.md`](server/README.md) para el mapa de
+>   Historias de Usuario → Endpoints.
+> - **Frontend:** [`client/`](client/) — **React + Vite mobile-first**. Incluye
+>   inscripción pública, login, grupos del día, el flujo de asistencia de 5
+>   pantallas con cálculo de pago, modo offline, flujo del asistente, liquidación
+>   propia y el panel de administración.
+>
+> Las 16 historias de usuario v2 están cubiertas de punta a punta. El contenido
+> anterior de este README describe la arquitectura original (Vanilla JS + Google
+> Sheets), conservada como referencia histórica.
+
+---
+
 ## 🎯 **Estrategia de Desarrollo**
 
 ### **FASE 1: Prototipo Funcional (2-3 semanas)**

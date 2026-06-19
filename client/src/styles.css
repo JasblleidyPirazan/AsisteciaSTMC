@@ -1,0 +1,149 @@
+/* Estilos mobile-first. Diseñado para pantallas ~380px. */
+:root {
+  --primary: #10b981;
+  --primary-dark: #059669;
+  --secondary: #f59e0b;
+  --danger: #ef4444;
+  --warning: #f59e0b;
+  --neutral: #6b7280;
+  --bg: #f3f4f6;
+  --card: #ffffff;
+  --text: #111827;
+  --muted: #6b7280;
+  --border: #e5e7eb;
+  --radius: 14px;
+}
+
+* { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+
+body {
+  margin: 0;
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  background: var(--bg);
+  color: var(--text);
+}
+
+#root { max-width: 480px; margin: 0 auto; min-height: 100vh; background: var(--bg); }
+
+.app { display: flex; flex-direction: column; min-height: 100vh; }
+
+.app-header {
+  background: var(--primary);
+  color: #fff;
+  padding: 14px 16px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  position: sticky;
+  top: 0;
+  z-index: 10;
+}
+.app-header h1 { font-size: 1.1rem; margin: 0; flex: 1; }
+.app-header .back { background: rgba(255,255,255,.2); border: none; color: #fff; width: 40px; height: 40px; border-radius: 10px; font-size: 1.2rem; }
+
+.content { flex: 1; padding: 16px; padding-bottom: 96px; }
+
+.card {
+  background: var(--card);
+  border-radius: var(--radius);
+  padding: 16px;
+  box-shadow: 0 1px 3px rgba(0,0,0,.08);
+  margin-bottom: 14px;
+}
+.card.tappable { cursor: pointer; transition: transform .1s; }
+.card.tappable:active { transform: scale(.98); }
+
+.row { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.muted { color: var(--muted); font-size: .9rem; }
+.tag { display: inline-block; font-size: .72rem; padding: 2px 8px; border-radius: 999px; background: #e0f2fe; color: #0369a1; font-weight: 600; }
+.tag.doble { background: #ede9fe; color: #6d28d9; }
+.tag.repo { background: #fef3c7; color: #92400e; }
+
+/* Botones touch-friendly: mínimo 48px */
+.btn {
+  min-height: 50px;
+  width: 100%;
+  border: none;
+  border-radius: 12px;
+  font-size: 1.05rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: transform .1s, opacity .1s;
+  display: flex; align-items: center; justify-content: center; gap: 8px;
+}
+.btn:active { transform: scale(.97); }
+.btn:disabled { opacity: .5; }
+.btn-primary { background: var(--primary); color: #fff; }
+.btn-secondary { background: var(--secondary); color: #fff; }
+.btn-neutral { background: var(--neutral); color: #fff; }
+.btn-outline { background: #fff; color: var(--text); border: 2px solid var(--border); }
+.btn-lg { min-height: 64px; font-size: 1.2rem; }
+
+.btn-group { display: flex; gap: 10px; }
+.btn-group .btn { flex: 1; }
+
+/* Estados de asistencia */
+.status-btns { display: flex; gap: 8px; }
+.status-btn {
+  flex: 1; min-height: 48px; min-width: 48px; border-radius: 10px;
+  border: 2px solid var(--border); background: #fff; font-weight: 700; font-size: 1rem;
+}
+.status-btn.P.active { background: #dcfce7; border-color: var(--primary); color: var(--primary-dark); }
+.status-btn.A.active { background: #fef2f2; border-color: var(--danger); color: var(--danger); }
+.status-btn.J.active { background: #fef3c7; border-color: var(--warning); color: #92400e; }
+
+.student-item { padding: 12px 0; border-bottom: 1px solid var(--border); }
+.student-item:last-child { border-bottom: none; }
+.student-name { font-weight: 600; margin-bottom: 8px; }
+
+.field { margin-bottom: 14px; }
+.field label { display: block; font-size: .9rem; font-weight: 600; margin-bottom: 6px; }
+.field input, .field select, .field textarea {
+  width: 100%; min-height: 48px; padding: 10px 12px; font-size: 1rem;
+  border: 2px solid var(--border); border-radius: 10px; background: #fff;
+}
+
+.center { text-align: center; }
+.stack > * + * { margin-top: 12px; }
+.spacer { height: 12px; }
+
+.banner { padding: 10px 14px; border-radius: 10px; font-weight: 600; font-size: .9rem; margin-bottom: 12px; }
+.banner-offline { background: #fef3c7; color: #92400e; }
+.banner-error { background: #fef2f2; color: var(--danger); }
+.banner-success { background: #dcfce7; color: var(--primary-dark); }
+
+.summary-line { display: flex; justify-content: space-between; padding: 8px 0; border-bottom: 1px solid var(--border); }
+.summary-total { font-size: 1.3rem; font-weight: 800; color: var(--primary-dark); }
+
+.toggle { display: flex; align-items: center; justify-content: space-between; padding: 12px 0; }
+.switch { position: relative; width: 56px; height: 32px; }
+.switch input { opacity: 0; width: 0; height: 0; }
+.slider { position: absolute; inset: 0; background: #ccc; border-radius: 999px; transition: .2s; }
+.slider::before { content: ''; position: absolute; height: 26px; width: 26px; left: 3px; top: 3px; background: #fff; border-radius: 50%; transition: .2s; }
+.switch input:checked + .slider { background: var(--primary); }
+.switch input:checked + .slider::before { transform: translateX(24px); }
+
+.loading { display: flex; align-items: center; justify-content: center; min-height: 60vh; }
+.spinner { width: 42px; height: 42px; border: 4px solid var(--border); border-top-color: var(--primary); border-radius: 50%; animation: spin 1s linear infinite; }
+@keyframes spin { to { transform: rotate(360deg); } }
+
+.login-wrap { display: flex; flex-direction: column; justify-content: center; min-height: 100vh; padding: 24px; }
+.brand { text-align: center; margin-bottom: 24px; }
+.brand .logo { font-size: 3rem; }
+.brand h1 { color: var(--primary-dark); }
+
+.fab {
+  position: fixed; bottom: 90px; left: 50%; transform: translateX(-50%);
+  max-width: 448px; width: calc(100% - 32px);
+}
+
+.empty { text-align: center; color: var(--muted); padding: 40px 16px; }
+.list-link { display: block; padding: 14px 0; border-bottom: 1px solid var(--border); text-decoration: none; color: var(--text); font-weight: 600; }
+
+/* Impresión / Guardar como PDF: oculta controles y cabecera. */
+@media print {
+  .app-header, .btn, .field, .back { display: none !important; }
+  #root { max-width: 100%; }
+  .content { padding: 0; padding-bottom: 0; }
+  .card { box-shadow: none; border: 1px solid var(--border); break-inside: avoid; }
+}
