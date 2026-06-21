@@ -59,6 +59,7 @@ app.use('/api/students', authMiddleware, require('./routes/students'));
 app.use('/api/professors', authMiddleware, require('./routes/professors'));
 app.use('/api/assistants', authMiddleware, require('./routes/assistants'));
 app.use('/api/sessions', authMiddleware, require('./routes/sessions'));
+app.use('/api/makeups', authMiddleware, require('./routes/makeups'));
 app.use('/api/events', authMiddleware, require('./routes/events'));
 app.use('/api/payroll', authMiddleware, require('./routes/payroll'));
 app.use('/api/reports', authMiddleware, require('./routes/reports'));

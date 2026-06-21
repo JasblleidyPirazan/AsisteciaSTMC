@@ -98,6 +98,7 @@ export default function DashboardPage() {
           <AssistantView groups={groups} loading={loading} date={date} />
         ) : (
           <>
+            <PendingMakeups />
             <div className="flex items-center justify-between mb-3">
               <h2>Grupos del día</h2>
               <span className="badge badge-blue">{groups.length}</span>
@@ -114,6 +115,42 @@ export default function DashboardPage() {
           </>
         )}
       </div>
+    </div>
+  );
+}
+
+function PendingMakeups() {
+  const navigate = useNavigate();
+  const [makeups, setMakeups] = useState([]);
+
+  useEffect(() => {
+    api.get('/makeups', { status: 'PROGRAMADA' })
+      .then((data) => setMakeups(data || []))
+      .catch(() => {});
+  }, []);
+
+  if (makeups.length === 0) return null;
+
+  return (
+    <div className="mb-4">
+      <div className="flex items-center justify-between mb-3">
+        <h2>Reposiciones pendientes</h2>
+        <span className="badge badge-blue">{makeups.length}</span>
+      </div>
+      {makeups.map((m) => (
+        <div key={m.id} className="card card-tap mb-2" style={{ borderLeft: '3px solid var(--blue)' }}
+          onClick={() => navigate(`/makeups/${m.id}/attendance`)}>
+          <div className="flex items-center justify-between">
+            <div>
+              <div className="font-medium">🔁 {m.title || 'Reposición grupal'}</div>
+              <div className="text-sm text-gray">
+                {fmtDate(m.date)} · {m.makeupProfessor?.name || '—'} · {m.makeupParticipants?.length || 0} est.
+              </div>
+            </div>
+            <span style={{ fontSize: '1.2rem' }}>›</span>
+          </div>
+        </div>
+      ))}
     </div>
   );
 }

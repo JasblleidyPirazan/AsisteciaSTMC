@@ -57,8 +57,9 @@ router.get('/check', async (req, res, next) => {
 
 router.get('/', async (req, res, next) => {
   try {
-    const { groupId, date, status } = req.query;
-    const where = {};
+    const { groupId, date, status, kind } = req.query;
+    // Default to regular sessions only; makeups have their own endpoints/views
+    const where = { kind: kind || 'REGULAR' };
     if (groupId) where.groupId = groupId;
     if (date) where.date = new Date(date);
     if (status) where.status = status;

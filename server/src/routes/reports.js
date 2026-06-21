@@ -1,6 +1,7 @@
 const express = require('express');
 const prisma = require('../lib/prisma');
 const { requireRole } = require('../middleware/auth');
+const { getCurrentPeriod } = require('../services/costEngine');
 
 const router = express.Router();
 
@@ -137,7 +138,12 @@ router.get('/professor/:professorId', requireRole('ADMIN', 'PHYSICAL_TRAINER', '
 
     const where = {
       status: { not: 'PROGRAMADA' },
-      group: { professorId: req.params.professorId },
+      // Regular classes of the professor's groups, plus makeup classes they dictated
+      OR: [
+        { group: { professorId: req.params.professorId } },
+        { makeupProfessorId: req.params.professorId },
+        { substituteProfessorId: req.params.professorId },
+      ],
     };
     if (from || to) where.date = dateFilter;
 
@@ -245,8 +251,9 @@ router.get('/dashboard', async (req, res, next) => {
     const now = new Date();
     const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1);
     const isAdmin = req.user.role === 'ADMIN';
+    const currentPeriod = getCurrentPeriod();
 
-    const [totalStudents, totalGroups, sessionsThisMonth, cancelledThisMonth, costThisMonth] =
+    const [totalStudents, totalGroups, sessionsThisMonth, cancelledThisMonth, costThisPeriod] =
       await Promise.all([
         prisma.student.count({ where: { active: true } }),
         prisma.group.count({ where: { active: true } }),
@@ -256,9 +263,11 @@ router.get('/dashboard', async (req, res, next) => {
         prisma.classSession.count({
           where: { date: { gte: startOfMonth }, status: 'CANCELADA' },
         }),
+        // Payroll is settled by fortnight (quincena), so the dashboard shows the
+        // amount payable for the current period rather than the whole month.
         isAdmin
           ? prisma.costRecord.aggregate({
-              where: { session: { date: { gte: startOfMonth } } },
+              where: { period: currentPeriod },
               _sum: { total: true },
             })
           : Promise.resolve(null),
@@ -279,8 +288,9 @@ router.get('/dashboard', async (req, res, next) => {
         totalGroups,
         sessionsThisMonth,
         cancelledThisMonth,
+        currentPeriod,
         // Economic figure only for ADMIN — never sent to other roles
-        totalPayableThisMonth: isAdmin ? parseFloat(costThisMonth?._sum.total || 0) : null,
+        totalPayableThisPeriod: isAdmin ? parseFloat(costThisPeriod?._sum.total || 0) : null,
         todayPresent: counts.PRESENTE || 0,
         todayAbsent: counts.AUSENTE || 0,
         todayJustified: counts.JUSTIFICADA || 0,

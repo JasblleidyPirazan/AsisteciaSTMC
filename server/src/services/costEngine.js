@@ -31,6 +31,7 @@ async function calculateCosts(sessionId) {
     where: { id: sessionId },
     include: {
       group: { include: { professor: true } },
+      makeupProfessor: true,
       substituteProfessor: true,
       assistant: true,
       attendanceRecords: true,
@@ -70,7 +71,10 @@ async function calculateCosts(sessionId) {
   ).length;
 
   const bracketRate = getBracketRate(regularPresent, cfg);
-  const professor = session.substituteProfessor || session.group.professor;
+  // Regular classes derive the professor from the group; makeup classes have no
+  // group and carry their assigned professor directly in makeupProfessor.
+  const professor =
+    session.substituteProfessor || session.group?.professor || session.makeupProfessor;
   const professorTotal =
     bracketRate * effectiveUnits +
     repositionPresent * repositionRate * effectiveUnits;

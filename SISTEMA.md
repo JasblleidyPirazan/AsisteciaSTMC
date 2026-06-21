@@ -120,6 +120,20 @@ Asistente (si la sesión tiene assistantId):
 
 ---
 
+## 5b. Reposiciones grupales (módulo)
+
+Una reposición es un **`ClassSession` con `kind=MAKEUP` y `groupId=null`** — reutiliza el motor de costos, la liquidación y los reportes sin duplicar lógica.
+
+- **Crear** (`/admin/makeups`, ADMIN/PF → `POST /makeups`): fecha, título, `professorId` (→ `makeupProfessorId`), asistente opcional, **`countsAsUnits`** (→ `effectiveUnits`, "por cuántas asistencias cuenta") y `studentIds[]` (→ `MakeupParticipant`). Status inicial PROGRAMADA.
+- **Reportar** (`MakeupAttendancePage`, `/makeups/:id/attendance` → `POST /makeups/:id/finalize`): igual flujo que clases regulares pero en una sola pantalla. Permite cambiar profesor (sustituto)/asistente y marcar P/A/J de los participantes. ADMIN/PF cualquiera; TEACHER solo si es el profesor asignado o sustituto.
+- **Pago profesor:** `getBracketRate(presentes) × effectiveUnits`. **Todos los participantes cuentan como REGULAR** (no reposición) — el "tramo" se calcula sobre los presentes de la reposición.
+- **Costo:** genera `CostRecord` normal → aparece en liquidación quincenal y en el reporte de profesor (que ahora incluye sesiones con `makeupProfessorId`/`substituteProfessorId`, no solo `group.professorId`).
+- **Asistentes** acompañan reposiciones por el mismo `POST /sessions/:id/assist`.
+- **Visibilidad:** aparecen como "Reposiciones pendientes" en el Dashboard de profesor/PF (status PROGRAMADA). `GET /sessions` normal las **excluye** (`kind=REGULAR` por defecto) para no contaminar vistas existentes.
+- Editar/eliminar reposición: `PUT /makeups/:id` (recalcula costos si ya estaba reportada), `DELETE /makeups/:id`.
+
+---
+
 ## 6. Asistentes — cómo funciona realmente
 
 Hay **dos caminos** para asignar un asistente a una clase:
@@ -172,6 +186,7 @@ Hay **dos caminos** para asignar un asistente a una clase:
   - TEACHER/ASSISTANT → 1 hoja "Mi liquidación" con solo sus registros (scope verificado por userId server-side).
 - **Frontend**: `PayrollPage` (admin, secciones separadas + export), `MyPayrollPage` (`/my-payroll`, TEACHER/ASSISTANT, botón "💰 Mi quincena" en dashboard).
 - Descarga Excel: `fetch` raw con `Authorization` header (no `api.get`), blob → `URL.createObjectURL`.
+- **Dashboard admin**: muestra `totalPayableThisPeriod` = pago de la **quincena actual** (agregado por `period`), no mensual.
 
 ---
 

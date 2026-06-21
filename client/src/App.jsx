@@ -5,6 +5,7 @@ import { AuthProvider, useAuth } from './hooks/useAuth';
 import LoginPage from './pages/LoginPage';
 import DashboardPage from './pages/DashboardPage';
 import AttendanceFlow from './pages/AttendanceFlow/index';
+import MakeupAttendancePage from './pages/MakeupAttendancePage';
 import EnrollmentPage from './pages/EnrollmentPage';
 import ParentPortalPage from './pages/parent/ParentPortalPage';
 import MyPayrollPage from './pages/MyPayrollPage';
@@ -18,6 +19,7 @@ import ReportsPage from './pages/admin/ReportsPage';
 import PayrollPage from './pages/admin/PayrollPage';
 import ConfigPage from './pages/admin/ConfigPage';
 import EnrollmentRequestsPage from './pages/admin/EnrollmentRequestsPage';
+import MakeupsPage from './pages/admin/MakeupsPage';
 
 class ErrorBoundary extends Component {
   constructor(props) {
@@ -77,6 +79,12 @@ function AppRoutes() {
         </RequireAuth>
       } />
 
+      <Route path="/makeups/:id/attendance" element={
+        <RequireAuth roles={['ADMIN', 'TEACHER', 'PHYSICAL_TRAINER']}>
+          <MakeupAttendancePage />
+        </RequireAuth>
+      } />
+
       <Route path="/parent" element={
         <RequireAuth roles={['PARENT', 'ADMIN']}>
           <ParentPortalPage />
@@ -102,6 +110,11 @@ function AppRoutes() {
       <Route path="/admin/groups" element={
         <RequireAuth roles={['ADMIN', 'PHYSICAL_TRAINER']}>
           <GroupsPage />
+        </RequireAuth>
+      } />
+      <Route path="/admin/makeups" element={
+        <RequireAuth roles={['ADMIN', 'PHYSICAL_TRAINER']}>
+          <MakeupsPage />
         </RequireAuth>
       } />
       <Route path="/admin/events" element={

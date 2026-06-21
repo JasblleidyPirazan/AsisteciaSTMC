@@ -10,6 +10,7 @@ function fmt(n) {
 const ALL_SECTIONS = [
   { label: 'Estudiantes', path: '/admin/students', icon: '👤', roles: ['ADMIN', 'PHYSICAL_TRAINER'] },
   { label: 'Grupos', path: '/admin/groups', icon: '🎾', roles: ['ADMIN', 'PHYSICAL_TRAINER'] },
+  { label: 'Reposiciones', path: '/admin/makeups', icon: '🔁', roles: ['ADMIN', 'PHYSICAL_TRAINER'] },
   { label: 'Eventos', path: '/admin/events', icon: '🏆', roles: ['ADMIN', 'PHYSICAL_TRAINER'] },
   { label: 'Reportes', path: '/admin/reports', icon: '📊', roles: ['ADMIN', 'PHYSICAL_TRAINER'] },
   { label: 'Profesores', path: '/admin/professors', icon: '🏫', roles: ['ADMIN'] },
@@ -59,8 +60,13 @@ export default function AdminDashboard() {
             {isAdmin && (
               <div className="card mb-4">
                 <div className="cost-row">
-                  <span>Total a pagar (mes)</span>
-                  <span className="cost-total">{fmt(stats.totalPayableThisMonth)}</span>
+                  <div>
+                    <span>Pago de la quincena</span>
+                    {stats.currentPeriod && (
+                      <div className="text-xs text-gray">Periodo {stats.currentPeriod}</div>
+                    )}
+                  </div>
+                  <span className="cost-total">{fmt(stats.totalPayableThisPeriod)}</span>
                 </div>
               </div>
             )}

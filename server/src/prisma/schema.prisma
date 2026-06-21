@@ -44,6 +44,7 @@ model Professor {
   user                User?          @relation(fields: [userId], references: [id])
   groups              Group[]
   substitutedSessions ClassSession[] @relation("SubstituteProfessor")
+  makeupSessions      ClassSession[] @relation("MakeupProfessor")
   costRecords         CostRecord[]   @relation("ProfessorCosts")
   makeupClasses       MakeupClass[]
   events              Event[]
@@ -76,11 +77,12 @@ model Student {
   deactivatedAt      DateTime? @map("deactivated_at")
   createdAt          DateTime  @default(now()) @map("created_at")
 
-  parentUser        User?                 @relation("ParentUser", fields: [parentUserId], references: [id])
-  enrollments       StudentEnrollment[]
-  attendanceRecords AttendanceRecord[]
-  makeupEnrollments MakeupEnrollment[]
-  groupHistory      StudentGroupHistory[]
+  parentUser           User?                 @relation("ParentUser", fields: [parentUserId], references: [id])
+  enrollments          StudentEnrollment[]
+  attendanceRecords    AttendanceRecord[]
+  makeupEnrollments    MakeupEnrollment[]
+  makeupParticipations MakeupParticipant[]
+  groupHistory         StudentGroupHistory[]
 
   @@map("students")
 }
@@ -137,7 +139,10 @@ enum EnrollmentType {
 
 model ClassSession {
   id                    String        @id @default(cuid())
-  groupId               String        @map("group_id")
+  groupId               String?       @map("group_id")
+  kind                  SessionKind   @default(REGULAR)
+  title                 String?
+  makeupProfessorId     String?       @map("makeup_professor_id")
   date                  DateTime      @db.Date
   status                SessionStatus @default(PROGRAMADA)
   effectiveUnits        Decimal       @map("effective_units") @db.Decimal(3, 1)
@@ -147,16 +152,34 @@ model ClassSession {
   reportedById          String?       @map("reported_by_id")
   createdAt             DateTime      @default(now()) @map("created_at")
 
-  group               Group              @relation(fields: [groupId], references: [id])
-  substituteProfessor Professor?         @relation("SubstituteProfessor", fields: [substituteProfessorId], references: [id])
-  assistant           Assistant?         @relation(fields: [assistantId], references: [id])
-  reportedBy          User?              @relation("SessionReporter", fields: [reportedById], references: [id])
+  group               Group?              @relation(fields: [groupId], references: [id])
+  makeupProfessor     Professor?          @relation("MakeupProfessor", fields: [makeupProfessorId], references: [id])
+  substituteProfessor Professor?          @relation("SubstituteProfessor", fields: [substituteProfessorId], references: [id])
+  assistant           Assistant?          @relation(fields: [assistantId], references: [id])
+  reportedBy          User?               @relation("SessionReporter", fields: [reportedById], references: [id])
   attendanceRecords   AttendanceRecord[]
+  makeupParticipants  MakeupParticipant[]
   costRecords         CostRecord[]
   editLogs            SessionEditLog[]
 
   @@unique([groupId, date])
   @@map("class_sessions")
+}
+
+enum SessionKind {
+  REGULAR
+  MAKEUP
+}
+
+model MakeupParticipant {
+  sessionId String @map("session_id")
+  studentId String @map("student_id")
+
+  session ClassSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  student Student      @relation(fields: [studentId], references: [id])
+
+  @@id([sessionId, studentId])
+  @@map("makeup_participants")
 }
 
 model SessionEditLog {

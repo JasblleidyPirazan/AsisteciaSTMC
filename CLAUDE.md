@@ -123,10 +123,11 @@ CORS_ORIGIN        # URL del dominio en Railway (ej: https://asisteciastmc.up.ra
 | `Student` | Estudiantes, vinculados a un padre (parentUserId) |
 | `Group` | Grupos de clase: días, horario, cancha, nivel de bola, tipo sencilla/doble |
 | `StudentEnrollment` | Relación estudiante↔grupo (PRIMARY o SECONDARY) |
-| `ClassSession` | Sesión de clase: PROGRAMADA/REALIZADA/CANCELADA/CANCELADA_MITAD |
+| `ClassSession` | Sesión de clase: PROGRAMADA/REALIZADA/CANCELADA/CANCELADA_MITAD. `kind` REGULAR/MAKEUP; las reposiciones grupales tienen `groupId` null, `makeupProfessorId`, `title` y `effectiveUnits` = "por cuántas asistencias cuenta" |
+| `MakeupParticipant` | Estudiantes asignados a una reposición grupal (sessionId + studentId) |
 | `AttendanceRecord` | Asistencia por estudiante: PRESENTE/AUSENTE/JUSTIFICADA + tipo REGULAR/REPOSICION |
 | `CostRecord` | Costos calculados por sesión (professorId XOR assistantId, payeeType) |
-| `MakeupClass` | Reposiciones grupales |
+| `MakeupClass` | (Legacy, sin uso) — las reposiciones grupales ahora viven en `ClassSession` con `kind=MAKEUP` |
 | `Event` | Torneos/clínicas con pago fijo |
 | `EnrollmentRequest` | Solicitudes de inscripción (estado PENDING/APPROVED/REJECTED) |
 | `SystemConfig` | Tarifas configurables: rate_2_students, rate_3_students, rate_4_students, rate_5plus_students, assistant_fixed_rate, reposition_rate |
@@ -232,6 +233,17 @@ Desde la base de datos o el seed, crear un `User` con `role: 'PHYSICAL_TRAINER'`
 - `POST /api/sessions/:id/finalize` — guardar asistencia + calcular costos. **Si la sesión ya estaba finalizada, se trata como edición:** guarda `SessionEditLog` con el estado anterior, reemplaza todos los registros (el último reporte manda) y recalcula costos
 - `POST /api/sessions/:id/cancel` — cancelar con motivo (elimina cost records si existían)
 - `POST /api/sessions/:id/assist` — asistente marca que acompañó
+- `GET /api/sessions` excluye reposiciones por defecto (`kind=REGULAR`); pasar `?kind=MAKEUP` para incluirlas
+
+### Reposiciones grupales
+- `GET /api/makeups` — lista reposiciones (TEACHER solo las propias). Filtros: `status`, `date`, `from`, `to`
+- `GET /api/makeups/:id` — detalle con participantes y asistencia
+- `POST /api/makeups` (ADMIN, PHYSICAL_TRAINER) — crear: `{ date, title?, professorId, assistantId?, countsAsUnits, studentIds[] }`. Crea un `ClassSession` `kind=MAKEUP` con `effectiveUnits=countsAsUnits`
+- `PUT /api/makeups/:id` (ADMIN, PF) — editar meta/participantes (recalcula costos si ya estaba reportada)
+- `DELETE /api/makeups/:id` (ADMIN, PF) — eliminar (borra asistencia, costos, participantes)
+- `POST /api/makeups/:id/finalize` — reportar asistencia (ADMIN/PF cualquiera, TEACHER solo si es el profesor asignado/sustituto). Reemplaza registros, recalcula costos, guarda `SessionEditLog` en ediciones
+- `POST /api/makeups/:id/cancel` — cancelar con motivo
+- Los asistentes acompañan reposiciones vía el mismo `POST /api/sessions/:id/assist`
 
 ### Estudiantes — gestión de grupos
 - `POST /api/students/:id/transfer` — cambiar grupo (registra historial). Body: `{ fromGroupId?, toGroupId, reason? }`
@@ -290,6 +302,8 @@ Desde la base de datos o el seed, crear un `User` con `role: 'PHYSICAL_TRAINER'`
 | `/enrollment` | EnrollmentPage | Público |
 | `/` | DashboardPage | ADMIN, TEACHER, ASSISTANT |
 | `/attendance/:groupId` | AttendanceFlow | ADMIN, TEACHER, PARENT |
+| `/makeups/:id/attendance` | MakeupAttendancePage | ADMIN, TEACHER, PHYSICAL_TRAINER |
+| `/admin/makeups` | MakeupsPage | ADMIN, PHYSICAL_TRAINER |
 | `/parent` | ParentPortalPage | PARENT, ADMIN |
 | `/admin` | AdminDashboard | ADMIN |
 | `/admin/students` | StudentsPage | ADMIN |
@@ -318,7 +332,7 @@ Desde la base de datos o el seed, crear un `User` con `role: 'PHYSICAL_TRAINER'`
 - **Sesiones (crear/finalizar/cancelar):** guard `canReportGroup()` en `sessions.js` — ADMIN/PF cualquier grupo; TEACHER solo grupos donde es titular; PARENT solo grupos con un hijo inscrito; ASSISTANT denegado (usa `/assist`)
 - **Reportes:** grupo/clase → ADMIN, PF, TEACHER; estudiante → + PARENT (solo su hijo); asistente → ASSISTANT solo el propio; profesor → TEACHER solo el propio, PF lo ve **sin montos de pago**
 - **Reporte de clase:** `totalCost` solo para ADMIN o el profesor que dictó (titular o sustituto); para el resto va `null`
-- **Dashboard:** `totalPayableThisMonth` solo se envía a ADMIN (`null` para los demás — no solo oculto en UI)
+- **Dashboard:** `totalPayableThisPeriod` (pago de la quincena actual, agregado por `period`) solo se envía a ADMIN (`null` para los demás — no solo oculto en UI). Reemplazó al total mensual
 - **`GET /config/rates`:** tarifas legibles por ADMIN y TEACHER (para el preview de pago en el flujo de asistencia); `GET/PUT /config` completo sigue siendo solo ADMIN
 - **`GET /groups/:id/students`:** PARENT solo si tiene un hijo inscrito en ese grupo
 
@@ -386,3 +400,7 @@ cd client && npm run build
 13. **Edición de reportes de asistencia:** Re-finalizar una sesión REALIZADA/CANCELADA_MITAD es una edición. El flujo de asistencia detecta la sesión existente (vía `/sessions/check`), precarga el reporte y salta al paso 3 con banner "Editando reporte". El backend reemplaza **todos** los AttendanceRecord (deleteMany + createMany) para que el último reporte sea la única fuente de verdad, guarda `SessionEditLog` y recalcula costos. El historial de ediciones se ve en Reportes → Clase.
 
 14. **Botones P/A/J:** las clases CSS de estado son en inglés (`.present/.absent/.justified`) — el mapeo está en `STATUS_CLASS` de Step3Students.jsx. La opción seleccionada lleva además `.selected` (escala + sombra) y las no seleccionadas `.dim`.
+
+15. **Reposiciones grupales (módulo):** Una reposición es un `ClassSession` con `kind=MAKEUP` y `groupId=null`. El admin o PF la crea en `/admin/makeups` asignando fecha, profesor, asistente (opcional), estudiantes (`MakeupParticipant`) y **"por cuántas asistencias cuenta"** (`effectiveUnits`). Luego se reporta su asistencia con el mismo motor de costos (`MakeupAttendancePage` → `POST /makeups/:id/finalize`). El pago al profesor = `getBracketRate(presentes) × effectiveUnits` (todos los participantes cuentan como REGULAR, no reposición). Como genera `CostRecord`, aparece automáticamente en liquidación quincenal y en el reporte de profesor (que ahora incluye sesiones con `makeupProfessorId`/`substituteProfessorId`). Aparecen en el Dashboard de profesor/PF como "Reposiciones pendientes". El `GET /sessions` normal las **excluye** (filtra `kind=REGULAR`).
+
+16. **Pago en Dashboard admin:** muestra el **pago de la quincena actual** (`totalPayableThisPeriod`, agregado por `period` = `getCurrentPeriod()`), no el total mensual. La liquidación es quincenal en todo el sistema.
