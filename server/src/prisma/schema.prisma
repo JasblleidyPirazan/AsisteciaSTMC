@@ -1,0 +1,377 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id           String   @id @default(cuid())
+  email        String   @unique
+  passwordHash String   @map("password_hash")
+  role         Role     @default(TEACHER)
+  active       Boolean  @default(true)
+  createdAt    DateTime @default(now()) @map("created_at")
+  updatedAt    DateTime @updatedAt @map("updated_at")
+
+  professor          Professor?
+  assistant          Assistant?
+  parentOf           Student[]          @relation("ParentUser")
+  reportedSessions   ClassSession[]     @relation("SessionReporter")
+  reportedAttendance AttendanceRecord[] @relation("AttendanceReporter")
+  sessionEdits       SessionEditLog[]   @relation("SessionEditor")
+
+  @@map("users")
+}
+
+enum Role {
+  ADMIN
+  TEACHER
+  ASSISTANT
+  PARENT
+  PHYSICAL_TRAINER
+}
+
+model Professor {
+  id        String   @id @default(cuid())
+  userId    String?  @unique @map("user_id")
+  name      String
+  active    Boolean  @default(true)
+  createdAt DateTime @default(now()) @map("created_at")
+
+  user                User?          @relation(fields: [userId], references: [id])
+  groups              Group[]
+  substitutedSessions ClassSession[] @relation("SubstituteProfessor")
+  makeupSessions      ClassSession[] @relation("MakeupProfessor")
+  costRecords         CostRecord[]   @relation("ProfessorCosts")
+  makeupClasses       MakeupClass[]
+  events              Event[]
+
+  @@map("professors")
+}
+
+model Assistant {
+  id        String   @id @default(cuid())
+  userId    String?  @unique @map("user_id")
+  name      String
+  active    Boolean  @default(true)
+  createdAt DateTime @default(now()) @map("created_at")
+
+  user          User?          @relation(fields: [userId], references: [id])
+  sessions      ClassSession[]
+  costRecords   CostRecord[]   @relation("AssistantCosts")
+  makeupClasses MakeupClass[]
+
+  @@map("assistants")
+}
+
+model Student {
+  id                 String    @id @default(cuid())
+  name               String
+  email              String?
+  parentUserId       String?   @map("parent_user_id")
+  active             Boolean   @default(true)
+  deactivationReason String?   @map("deactivation_reason")
+  deactivatedAt      DateTime? @map("deactivated_at")
+  createdAt          DateTime  @default(now()) @map("created_at")
+
+  parentUser           User?                 @relation("ParentUser", fields: [parentUserId], references: [id])
+  enrollments          StudentEnrollment[]
+  attendanceRecords    AttendanceRecord[]
+  makeupEnrollments    MakeupEnrollment[]
+  makeupParticipations MakeupParticipant[]
+  groupHistory         StudentGroupHistory[]
+
+  @@map("students")
+}
+
+model Group {
+  id                 String    @id @default(cuid())
+  code               String    @unique
+  name               String?
+  professorId        String    @map("professor_id")
+  lunes              Boolean   @default(false)
+  martes             Boolean   @default(false)
+  miercoles          Boolean   @default(false)
+  jueves             Boolean   @default(false)
+  viernes            Boolean   @default(false)
+  sabado             Boolean   @default(false)
+  domingo            Boolean   @default(false)
+  startTime          String    @map("start_time")
+  endTime            String    @map("end_time")
+  durationMinutes    Int       @map("duration_minutes")
+  classUnits         Decimal   @map("class_units") @db.Decimal(3, 1)
+  court              Int?
+  ballLevel          String?   @map("ball_level")
+  active             Boolean   @default(true)
+  deactivationReason String?   @map("deactivation_reason")
+  deactivatedAt      DateTime? @map("deactivated_at")
+  createdAt          DateTime  @default(now()) @map("created_at")
+
+  professor   Professor             @relation(fields: [professorId], references: [id])
+  enrollments StudentEnrollment[]
+  sessions    ClassSession[]
+  historyFrom StudentGroupHistory[] @relation("FromGroup")
+  historyTo   StudentGroupHistory[] @relation("ToGroup")
+
+  @@map("groups")
+}
+
+model StudentEnrollment {
+  studentId      String         @map("student_id")
+  groupId        String         @map("group_id")
+  enrollmentType EnrollmentType @default(PRIMARY) @map("enrollment_type")
+  enrolledAt     DateTime       @default(now()) @map("enrolled_at")
+
+  student Student @relation(fields: [studentId], references: [id])
+  group   Group   @relation(fields: [groupId], references: [id])
+
+  @@id([studentId, groupId])
+  @@map("student_enrollments")
+}
+
+enum EnrollmentType {
+  PRIMARY
+  SECONDARY
+}
+
+model ClassSession {
+  id                    String        @id @default(cuid())
+  groupId               String?       @map("group_id")
+  kind                  SessionKind   @default(REGULAR)
+  title                 String?
+  makeupProfessorId     String?       @map("makeup_professor_id")
+  date                  DateTime      @db.Date
+  status                SessionStatus @default(PROGRAMADA)
+  effectiveUnits        Decimal       @map("effective_units") @db.Decimal(3, 1)
+  cancellationReason    String?       @map("cancellation_reason")
+  substituteProfessorId String?       @map("substitute_professor_id")
+  assistantId           String?       @map("assistant_id")
+  reportedById          String?       @map("reported_by_id")
+  createdAt             DateTime      @default(now()) @map("created_at")
+
+  group               Group?              @relation(fields: [groupId], references: [id])
+  makeupProfessor     Professor?          @relation("MakeupProfessor", fields: [makeupProfessorId], references: [id])
+  substituteProfessor Professor?          @relation("SubstituteProfessor", fields: [substituteProfessorId], references: [id])
+  assistant           Assistant?          @relation(fields: [assistantId], references: [id])
+  reportedBy          User?               @relation("SessionReporter", fields: [reportedById], references: [id])
+  attendanceRecords   AttendanceRecord[]
+  makeupParticipants  MakeupParticipant[]
+  costRecords         CostRecord[]
+  editLogs            SessionEditLog[]
+
+  @@unique([groupId, date])
+  @@map("class_sessions")
+}
+
+enum SessionKind {
+  REGULAR
+  MAKEUP
+}
+
+model MakeupParticipant {
+  sessionId String @map("session_id")
+  studentId String @map("student_id")
+
+  session ClassSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  student Student      @relation(fields: [studentId], references: [id])
+
+  @@id([sessionId, studentId])
+  @@map("makeup_participants")
+}
+
+model SessionEditLog {
+  id            String   @id @default(cuid())
+  sessionId     String   @map("session_id")
+  editedById    String?  @map("edited_by_id")
+  editedAt      DateTime @default(now()) @map("edited_at")
+  previousState Json?    @map("previous_state")
+  newState      Json?    @map("new_state")
+
+  session  ClassSession @relation(fields: [sessionId], references: [id])
+  editedBy User?        @relation("SessionEditor", fields: [editedById], references: [id])
+
+  @@map("session_edit_logs")
+}
+
+enum SessionStatus {
+  PROGRAMADA
+  REALIZADA
+  CANCELADA
+  CANCELADA_MITAD
+}
+
+model AttendanceRecord {
+  id             String           @id @default(cuid())
+  sessionId      String           @map("session_id")
+  studentId      String           @map("student_id")
+  status         AttendanceStatus
+  attendanceType AttendanceType   @default(REGULAR) @map("attendance_type")
+  justification  String?
+  reportedById   String?          @map("reported_by_id")
+  createdAt      DateTime         @default(now()) @map("created_at")
+
+  session    ClassSession @relation(fields: [sessionId], references: [id])
+  student    Student      @relation(fields: [studentId], references: [id])
+  reportedBy User?        @relation("AttendanceReporter", fields: [reportedById], references: [id])
+
+  @@unique([sessionId, studentId])
+  @@map("attendance_records")
+}
+
+enum AttendanceStatus {
+  PRESENTE
+  AUSENTE
+  JUSTIFICADA
+}
+
+enum AttendanceType {
+  REGULAR
+  REPOSICION
+}
+
+model CostRecord {
+  id             String    @id @default(cuid())
+  sessionId      String    @map("session_id")
+  professorId    String?   @map("professor_id")
+  assistantId    String?   @map("assistant_id")
+  payeeType      PayeeType @map("payee_type")
+  presentCount   Int       @default(0) @map("present_count")
+  effectiveUnits Decimal   @map("effective_units") @db.Decimal(3, 1)
+  rate           Decimal   @db.Decimal(12, 2)
+  total          Decimal   @db.Decimal(12, 2)
+  period         String
+  createdAt      DateTime  @default(now()) @map("created_at")
+
+  session   ClassSession @relation(fields: [sessionId], references: [id])
+  professor Professor?   @relation("ProfessorCosts", fields: [professorId], references: [id])
+  assistant Assistant?   @relation("AssistantCosts", fields: [assistantId], references: [id])
+
+  @@map("cost_records")
+}
+
+enum PayeeType {
+  PROFESSOR
+  ASSISTANT
+}
+
+model MakeupClass {
+  id           String     @id @default(cuid())
+  date         DateTime   @db.Date
+  type         MakeupType
+  professorId  String?    @map("professor_id")
+  assistantId  String?    @map("assistant_id")
+  studentCount Int        @default(0) @map("student_count")
+  description  String?
+  createdBy    String?    @map("created_by")
+  createdAt    DateTime   @default(now()) @map("created_at")
+
+  professor   Professor?         @relation(fields: [professorId], references: [id])
+  assistant   Assistant?         @relation(fields: [assistantId], references: [id])
+  enrollments MakeupEnrollment[]
+
+  @@map("makeup_classes")
+}
+
+enum MakeupType {
+  INDIVIDUAL
+  GRUPAL
+}
+
+model MakeupEnrollment {
+  makeupClassId String @map("makeup_class_id")
+  studentId     String @map("student_id")
+
+  makeupClass MakeupClass @relation(fields: [makeupClassId], references: [id])
+  student     Student     @relation(fields: [studentId], references: [id])
+
+  @@id([makeupClassId, studentId])
+  @@map("makeup_enrollments")
+}
+
+model Event {
+  id          String   @id @default(cuid())
+  name        String
+  date        DateTime @db.Date
+  professorId String   @map("professor_id")
+  fixedRate   Decimal  @map("fixed_rate") @db.Decimal(12, 2)
+  description String?
+  active      Boolean  @default(true)
+  createdAt   DateTime @default(now()) @map("created_at")
+
+  professor Professor @relation(fields: [professorId], references: [id])
+
+  @@map("events")
+}
+
+model EnrollmentRequest {
+  id                        String    @id @default(cuid())
+  studentName               String    @map("student_name")
+  birthDate                 DateTime? @map("birth_date") @db.Date
+  parentName                String?   @map("parent_name")
+  email                     String
+  phone                     String?
+  eps                       String?
+  paymentDate               DateTime? @map("payment_date") @db.Date
+  paymentProof              String?   @map("payment_proof") @db.Text
+  notes                     String?
+  preferredGroupId          String?   @map("preferred_group_id")
+  preferredSecondaryGroupId String?   @map("preferred_secondary_group_id")
+  status                    String    @default("PENDING")
+  submittedAt               DateTime  @default(now()) @map("submitted_at")
+
+  @@map("enrollment_requests")
+}
+
+model SystemConfig {
+  key       String   @id
+  value     String
+  updatedAt DateTime @updatedAt @map("updated_at")
+  updatedBy String?  @map("updated_by")
+
+  @@map("system_config")
+}
+
+model StudentGroupHistory {
+  id          String   @id @default(cuid())
+  studentId   String   @map("student_id")
+  fromGroupId String?  @map("from_group_id")
+  toGroupId   String?  @map("to_group_id")
+  actionType  String   @map("action_type") // TRANSFER | ADD_GROUP | REMOVE_GROUP
+  reason      String?
+  changedById String?  @map("changed_by_id")
+  changedAt   DateTime @default(now()) @map("changed_at")
+
+  student   Student @relation(fields: [studentId], references: [id])
+  fromGroup Group?  @relation("FromGroup", fields: [fromGroupId], references: [id])
+  toGroup   Group?  @relation("ToGroup", fields: [toGroupId], references: [id])
+
+  @@map("student_group_history")
+}
+
+model Semester {
+  id        String   @id @default(cuid())
+  name      String
+  startDate DateTime @map("start_date") @db.Date
+  endDate   DateTime @map("end_date") @db.Date
+  active    Boolean  @default(false)
+  createdAt DateTime @default(now()) @map("created_at")
+
+  exclusions SemesterExclusion[]
+
+  @@map("semesters")
+}
+
+model SemesterExclusion {
+  id         String   @id @default(cuid())
+  semesterId String   @map("semester_id")
+  date       DateTime @db.Date
+  reason     String?
+  createdAt  DateTime @default(now()) @map("created_at")
+
+  semester Semester @relation(fields: [semesterId], references: [id])
+
+  @@map("semester_exclusions")
+}
