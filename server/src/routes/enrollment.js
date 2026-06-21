@@ -67,7 +67,7 @@ router.post('/', enrollmentLimiter, async (req, res, next) => {
     const {
       studentName, birthDate, parentName, email, phone, eps,
       paymentDate, paymentProof, notes,
-      preferredGroupId, preferredSecondaryGroupId,
+      preferredGroupId, preferredSecondaryGroupId, requestedClasses,
     } = req.body;
 
     if (!studentName || typeof studentName !== 'string' || studentName.trim().length < 2) {
@@ -117,6 +117,7 @@ router.post('/', enrollmentLimiter, async (req, res, next) => {
         notes: notes?.slice(0, 1000) || null,
         preferredGroupId: preferredGroupId || null,
         preferredSecondaryGroupId: preferredSecondaryGroupId || null,
+        requestedClasses: requestedClasses ? parseInt(requestedClasses) : null,
       },
     });
     res.status(201).json({
@@ -162,7 +163,7 @@ router.get('/requests', authMiddleware, requireRole('ADMIN'), async (req, res, n
 // Admin: approve enrollment → creates student + parent user
 router.post('/requests/:id/approve', authMiddleware, requireRole('ADMIN'), async (req, res, next) => {
   try {
-    const { groupId, enrollmentType, parentPassword } = req.body;
+    const { groupId, enrollmentType, parentPassword, contractedClasses } = req.body;
     if (!parentPassword || typeof parentPassword !== 'string' || parentPassword.length < 8 || parentPassword.length > 128) {
       return res.status(400).json({ success: false, error: 'La contraseña inicial del padre debe tener entre 8 y 128 caracteres' });
     }
@@ -184,11 +185,16 @@ router.post('/requests/:id/approve', authMiddleware, requireRole('ADMIN'), async
       });
     }
 
+    const finalContractedClasses = contractedClasses != null
+      ? parseInt(contractedClasses)
+      : request.requestedClasses;
+
     const student = await prisma.student.create({
       data: {
         name: request.studentName,
         email: request.email,
         parentUserId: parentUser.id,
+        contractedClasses: finalContractedClasses || null,
         enrollments: groupId
           ? { create: [{ groupId, enrollmentType: enrollmentType || 'PRIMARY' }] }
           : undefined,

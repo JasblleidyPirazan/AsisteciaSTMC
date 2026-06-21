@@ -95,6 +95,7 @@ const EMPTY_FORM = {
   notes: '',
   primaryGroupId: '',
   secondaryGroupId: '',
+  requestedClasses: 40,
   acceptedPolicies: false,
 };
 
@@ -216,6 +217,7 @@ export default function EnrollmentPage() {
         notes: form.notes || undefined,
         preferredGroupId: form.primaryGroupId || undefined,
         preferredSecondaryGroupId: form.secondaryGroupId || undefined,
+        requestedClasses: form.requestedClasses || undefined,
       };
       await api.post('/enrollment', payload);
       setSubmitted(true);
@@ -451,6 +453,17 @@ export default function EnrollmentPage() {
               );
             })
           )}
+
+          {/* ── Plan de clases ── */}
+          <div className="divider" />
+          <div style={sectionLabel}>Plan de Clases</div>
+          <div className="form-group">
+            <label className="form-label" htmlFor="requestedClasses">Clases del semestre</label>
+            <input id="requestedClasses" type="number" className="form-input" min={1} max={40}
+              value={form.requestedClasses}
+              onChange={(e) => update('requestedClasses', e.target.value)} />
+            <span className="text-xs text-gray">El semestre completo son 40 clases. Puedes inscribir menos.</span>
+          </div>
 
           {/* ── Contacto y Salud ── */}
           <div className="divider" />

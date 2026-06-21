@@ -11,6 +11,7 @@ import ParentPortalPage from './pages/parent/ParentPortalPage';
 import MyPayrollPage from './pages/MyPayrollPage';
 import AdminDashboard from './pages/admin/AdminDashboard';
 import StudentsPage from './pages/admin/StudentsPage';
+import StudentDetailPage from './pages/admin/StudentDetailPage';
 import GroupsPage from './pages/admin/GroupsPage';
 import ProfessorsPage from './pages/admin/ProfessorsPage';
 import AssistantsPage from './pages/admin/AssistantsPage';
@@ -117,6 +118,11 @@ function AppRoutes() {
       <Route path="/admin/students" element={
         <RequireAuth roles={['ADMIN', 'PHYSICAL_TRAINER']}>
           <StudentsPage />
+        </RequireAuth>
+      } />
+      <Route path="/admin/students/:id" element={
+        <RequireAuth roles={['ADMIN', 'PHYSICAL_TRAINER']}>
+          <StudentDetailPage />
         </RequireAuth>
       } />
       <Route path="/admin/groups" element={

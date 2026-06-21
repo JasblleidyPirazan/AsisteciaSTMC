@@ -8,7 +8,7 @@ export default function StudentsPage() {
   const [groups, setGroups] = useState([]);
   const [loading, setLoading] = useState(true);
   const [showForm, setShowForm] = useState(false);
-  const [form, setForm] = useState({ name: '', email: '', primaryGroupId: '', secondaryGroupId: '' });
+  const [form, setForm] = useState({ name: '', email: '', primaryGroupId: '', secondaryGroupId: '', contractedClasses: 40 });
   const [error, setError] = useState('');
   const [saving, setSaving] = useState(false);
 
@@ -59,7 +59,7 @@ export default function StudentsPage() {
       const s = await api.post('/students', form);
       setStudents([...students, s]);
       setShowForm(false);
-      setForm({ name: '', email: '', primaryGroupId: '', secondaryGroupId: '' });
+      setForm({ name: '', email: '', primaryGroupId: '', secondaryGroupId: '', contractedClasses: 40 });
     } catch (err) {
       setError(err.message);
     } finally {
@@ -200,6 +200,13 @@ export default function StudentsPage() {
                   {groups.map((g) => <option key={g.id} value={g.id}>{g.code}</option>)}
                 </select>
               </div>
+              <div className="form-group">
+                <label className="form-label">Clases del semestre</label>
+                <input type="number" className="form-input" min={1} max={40}
+                  value={form.contractedClasses}
+                  onChange={(e) => setForm({ ...form, contractedClasses: e.target.value })} />
+                <span className="text-xs text-gray">Total del semestre: 40. Puede ser menos.</span>
+              </div>
               <div className="flex gap-2">
                 <button type="button" className="btn btn-outline" style={{ flex: 1 }} onClick={() => setShowForm(false)}>
                   Cancelar
@@ -216,7 +223,8 @@ export default function StudentsPage() {
           <div className="alert alert-info">No hay estudiantes activos.</div>
         ) : (
           sorted.map((s) => (
-            <div key={s.id} className="card mb-2">
+            <div key={s.id} className="card card-tap mb-2"
+              onClick={() => navigate(`/admin/students/${s.id}`)}>
               <div className="flex items-center justify-between">
                 <div style={{ flex: 1, minWidth: 0 }}>
                   <div className="font-medium">{s.name}</div>
@@ -230,14 +238,14 @@ export default function StudentsPage() {
                   <button
                     className="btn btn-ghost"
                     style={{ minHeight: 32, padding: '0 8px', fontSize: '0.75rem', color: 'var(--primary)' }}
-                    onClick={() => openManageGroups(s)}
+                    onClick={(e) => { e.stopPropagation(); openManageGroups(s); }}
                   >
                     Grupos
                   </button>
                   <button
                     className="btn btn-ghost"
                     style={{ minHeight: 32, padding: '0 8px', fontSize: '0.75rem', color: 'var(--red)' }}
-                    onClick={() => openDeactivate(s)}
+                    onClick={(e) => { e.stopPropagation(); openDeactivate(s); }}
                   >
                     Desactivar
                   </button>

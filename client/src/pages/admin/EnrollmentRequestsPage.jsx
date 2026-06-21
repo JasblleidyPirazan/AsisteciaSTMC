@@ -25,7 +25,7 @@ export default function EnrollmentRequestsPage() {
   const [loading, setLoading] = useState(true);
   const [approving, setApproving] = useState(null);
   const [viewing, setViewing] = useState(null);
-  const [form, setForm] = useState({ groupId: '', parentPassword: '' });
+  const [form, setForm] = useState({ groupId: '', parentPassword: '', contractedClasses: '' });
 
   useEffect(() => {
     Promise.all([
@@ -40,10 +40,11 @@ export default function EnrollmentRequestsPage() {
       await api.post(`/enrollment/requests/${req.id}/approve`, {
         groupId: form.groupId || undefined,
         parentPassword: form.parentPassword,
+        contractedClasses: form.contractedClasses || undefined,
       });
       setRequests(requests.filter((r) => r.id !== req.id));
       setApproving(null);
-      setForm({ groupId: '', parentPassword: '' });
+      setForm({ groupId: '', parentPassword: '', contractedClasses: '' });
     } catch (err) {
       alert(err.message);
     }
@@ -155,6 +156,11 @@ export default function EnrollmentRequestsPage() {
                   </div>
                 )}
 
+                {/* Requested classes */}
+                {r.requestedClasses != null && (
+                  <div className="text-sm text-gray mb-1">📋 Clases del semestre: {r.requestedClasses}</div>
+                )}
+
                 {/* Notes */}
                 {r.notes && (
                   <div className="text-sm text-gray mb-2"
@@ -177,6 +183,16 @@ export default function EnrollmentRequestsPage() {
                       {r.preferredGroup && (
                         <span className="text-xs text-gray">Grupo solicitado: {r.preferredGroup.code}</span>
                       )}
+                    </div>
+                    <div className="form-group">
+                      <label className="form-label">Clases del semestre</label>
+                      <input type="number" className="form-input" min={1} max={40}
+                        value={form.contractedClasses}
+                        onChange={(e) => setForm({ ...form, contractedClasses: e.target.value })}
+                        placeholder={r.requestedClasses != null ? String(r.requestedClasses) : '40'} />
+                      <span className="text-xs text-gray">
+                        {r.requestedClasses != null ? `Solicitó ${r.requestedClasses}. ` : ''}Déjalo vacío para usar lo solicitado.
+                      </span>
                     </div>
                     <div className="form-group">
                       <label className="form-label">Contraseña inicial para el padre *</label>
@@ -203,7 +219,7 @@ export default function EnrollmentRequestsPage() {
                     <button className="btn btn-success" style={{ flex: 2, minHeight: 40 }}
                       onClick={() => {
                         setApproving(r.id);
-                        setForm({ groupId: r.preferredGroup?.id || '', parentPassword: '' });
+                        setForm({ groupId: r.preferredGroup?.id || '', parentPassword: '', contractedClasses: '' });
                       }}>
                       Aprobar
                     </button>

@@ -349,11 +349,16 @@ router.post('/:id/finalize', async (req, res, next) => {
 });
 
 // Cancel a makeup
+const VALID_CANCEL_TYPES = ['LLUVIA', 'FESTIVO', 'MANTENIMIENTO', 'EMERGENCIA', 'OTRO'];
+
 router.post('/:id/cancel', async (req, res, next) => {
   try {
-    const { cancellationReason } = req.body;
-    if (!cancellationReason) {
+    const { cancellationReason, cancellationType } = req.body;
+    if (!cancellationReason && !cancellationType) {
       return res.status(400).json({ success: false, error: 'Motivo de cancelación requerido' });
+    }
+    if (cancellationType && !VALID_CANCEL_TYPES.includes(cancellationType)) {
+      return res.status(400).json({ success: false, error: 'Tipo de cancelación inválido' });
     }
     const session = await prisma.classSession.findUnique({ where: { id: req.params.id } });
     if (!session || session.kind !== 'MAKEUP') {
@@ -365,7 +370,12 @@ router.post('/:id/cancel', async (req, res, next) => {
 
     const updated = await prisma.classSession.update({
       where: { id: req.params.id },
-      data: { status: 'CANCELADA', cancellationReason: cancellationReason.slice(0, 500), reportedById: req.user.id },
+      data: {
+        status: 'CANCELADA',
+        cancellationReason: cancellationReason?.slice(0, 500) || null,
+        cancellationType: cancellationType || null,
+        reportedById: req.user.id,
+      },
     });
     await prisma.costRecord.deleteMany({ where: { sessionId: req.params.id } });
     res.json({ success: true, data: updated });

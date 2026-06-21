@@ -86,11 +86,11 @@ export default function AttendanceFlow() {
     }
   }
 
-  async function handleCancel(reason) {
+  async function handleCancel({ cancellationType, cancellationReason }) {
     setLoading(true);
     try {
       const sess = await api.post('/sessions', { groupId, date });
-      await api.post(`/sessions/${sess.id}/cancel`, { cancellationReason: reason });
+      await api.post(`/sessions/${sess.id}/cancel`, { cancellationType, cancellationReason });
       navigate('/', { replace: true });
     } catch (err) {
       setError(err.message);

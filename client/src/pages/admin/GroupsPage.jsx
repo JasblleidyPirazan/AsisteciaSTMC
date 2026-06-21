@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { api } from '../../api/client';
+import { buildGroupCode } from '../../utils/groupCode';
 
 const DAYS = [
   { key: 'lunes', label: 'L' },
@@ -15,8 +16,8 @@ const DAYS = [
 const BALL_LEVELS = ['Verde', 'Amarilla', 'Naranja', 'Roja'];
 
 const EMPTY_FORM = {
-  code: '', professorId: '', startTime: '15:00', endTime: '15:45',
-  court: '', ballLevel: '',
+  professorId: '', startTime: '15:00', endTime: '15:45',
+  court: '', ballLevel: '', subLevel: '', minAge: '', maxAge: '',
   lunes: false, martes: false, miercoles: false, jueves: false,
   viernes: false, sabado: false, domingo: false,
 };
@@ -115,9 +116,14 @@ export default function GroupsPage() {
             {error && <div className="alert alert-error">{error}</div>}
             <form onSubmit={handleCreate}>
               <div className="form-group">
-                <label className="form-label">Código *</label>
-                <input type="text" className="form-input" required placeholder="Ej: LM-15:45-Brayan-Verde"
-                  value={form.code} onChange={(e) => setField('code', e.target.value)} maxLength={100} />
+                <label className="form-label">Código (automático)</label>
+                <div className="form-input" style={{
+                  display: 'flex', alignItems: 'center', background: 'var(--gray-50)',
+                  fontWeight: 700, letterSpacing: '0.05em', color: 'var(--blue)',
+                }}>
+                  {buildGroupCode(form) || '—'}
+                </div>
+                <span className="text-xs text-gray">Días + hora + cancha + nivel. Se genera solo.</span>
               </div>
               <div className="form-group">
                 <label className="form-label">Profesor *</label>
@@ -178,6 +184,23 @@ export default function GroupsPage() {
                   </select>
                 </div>
               </div>
+              <div className="form-group">
+                <label className="form-label">Subnivel</label>
+                <input type="text" className="form-input" placeholder="Ej: Verde alto, iniciación..."
+                  value={form.subLevel} onChange={(e) => setField('subLevel', e.target.value)} maxLength={60} />
+              </div>
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+                <div className="form-group">
+                  <label className="form-label">Edad mín.</label>
+                  <input type="number" className="form-input" min={2} max={99}
+                    value={form.minAge} onChange={(e) => setField('minAge', e.target.value)} />
+                </div>
+                <div className="form-group">
+                  <label className="form-label">Edad máx.</label>
+                  <input type="number" className="form-input" min={2} max={99}
+                    value={form.maxAge} onChange={(e) => setField('maxAge', e.target.value)} />
+                </div>
+              </div>
               <div className="flex gap-2 mt-2">
                 <button type="button" className="btn btn-outline" style={{ flex: 1 }}
                   onClick={() => setShowForm(false)}>
@@ -203,6 +226,8 @@ export default function GroupsPage() {
                     {g.professor?.name} · {g.startTime}–{g.endTime}
                     {g.court ? ` · Cancha ${g.court}` : ''}
                     {g.ballLevel ? ` · ${g.ballLevel}` : ''}
+                    {g.subLevel ? ` · ${g.subLevel}` : ''}
+                    {(g.minAge || g.maxAge) ? ` · ${g.minAge || '?'}–${g.maxAge || '?'} años` : ''}
                   </div>
                   {daysLabel(g) && (
                     <div className="text-xs" style={{ color: 'var(--primary)', marginTop: 2 }}>

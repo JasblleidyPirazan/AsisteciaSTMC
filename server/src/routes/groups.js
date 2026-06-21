@@ -1,6 +1,7 @@
 const express = require('express');
 const prisma = require('../lib/prisma');
 const { requireRole } = require('../middleware/auth');
+const { generateUniqueGroupCode } = require('../utils/groupCode');
 
 const router = express.Router();
 
@@ -83,11 +84,11 @@ router.get('/:id/students', async (req, res, next) => {
 
 router.post('/', requireRole('ADMIN', 'PHYSICAL_TRAINER'), async (req, res, next) => {
   try {
-    const { code, name, professorId, lunes, martes, miercoles, jueves, viernes, sabado, domingo,
-      startTime, endTime, court, ballLevel } = req.body;
+    const { name, professorId, lunes, martes, miercoles, jueves, viernes, sabado, domingo,
+      startTime, endTime, court, ballLevel, subLevel, minAge, maxAge } = req.body;
 
-    if (!code || !professorId || !startTime || !endTime) {
-      return res.status(400).json({ success: false, error: 'Código, profesor y horario requeridos' });
+    if (!professorId || !startTime || !endTime) {
+      return res.status(400).json({ success: false, error: 'Profesor y horario requeridos' });
     }
 
     const [sh, sm] = startTime.split(':').map(Number);
@@ -95,10 +96,19 @@ router.post('/', requireRole('ADMIN', 'PHYSICAL_TRAINER'), async (req, res, next
     const durationMinutes = (eh * 60 + em) - (sh * 60 + sm);
     const classUnits = durationMinutes >= 80 ? 2.0 : 1.0;
 
+    // Code is auto-generated (días + hora + cancha + nivel), guaranteed unique
+    const code = await generateUniqueGroupCode(prisma, {
+      lunes, martes, miercoles, jueves, viernes, sabado, domingo,
+      startTime, court: court ? parseInt(court) : null, ballLevel,
+    });
+
     const group = await prisma.group.create({
       data: {
         code, name, professorId, startTime, endTime, durationMinutes, classUnits,
         court: court ? parseInt(court) : null, ballLevel,
+        subLevel: subLevel?.trim() || null,
+        minAge: minAge ? parseInt(minAge) : null,
+        maxAge: maxAge ? parseInt(maxAge) : null,
         lunes: !!lunes, martes: !!martes, miercoles: !!miercoles, jueves: !!jueves,
         viernes: !!viernes, sabado: !!sabado, domingo: !!domingo,
       },
@@ -112,15 +122,20 @@ router.post('/', requireRole('ADMIN', 'PHYSICAL_TRAINER'), async (req, res, next
 
 router.put('/:id', requireRole('ADMIN', 'PHYSICAL_TRAINER'), async (req, res, next) => {
   try {
-    const { code, name, professorId, lunes, martes, miercoles, jueves, viernes, sabado, domingo,
-      startTime, endTime, court, ballLevel, active } = req.body;
+    const { name, professorId, lunes, martes, miercoles, jueves, viernes, sabado, domingo,
+      startTime, endTime, court, ballLevel, subLevel, minAge, maxAge, active } = req.body;
+
+    const existing = await prisma.group.findUnique({ where: { id: req.params.id } });
+    if (!existing) return res.status(404).json({ success: false, error: 'Grupo no encontrado' });
 
     const data = {};
-    if (code !== undefined) data.code = code;
     if (name !== undefined) data.name = name;
     if (professorId !== undefined) data.professorId = professorId;
     if (ballLevel !== undefined) data.ballLevel = ballLevel;
     if (court !== undefined) data.court = court ? parseInt(court) : null;
+    if (subLevel !== undefined) data.subLevel = subLevel?.trim() || null;
+    if (minAge !== undefined) data.minAge = minAge ? parseInt(minAge) : null;
+    if (maxAge !== undefined) data.maxAge = maxAge ? parseInt(maxAge) : null;
     if (active !== undefined) data.active = active;
     if (lunes !== undefined) data.lunes = !!lunes;
     if (martes !== undefined) data.martes = !!martes;
@@ -131,7 +146,6 @@ router.put('/:id', requireRole('ADMIN', 'PHYSICAL_TRAINER'), async (req, res, ne
     if (domingo !== undefined) data.domingo = !!domingo;
 
     if (startTime !== undefined || endTime !== undefined) {
-      const existing = await prisma.group.findUnique({ where: { id: req.params.id } });
       const st = startTime || existing.startTime;
       const et = endTime || existing.endTime;
       const [sh, sm] = st.split(':').map(Number);
@@ -140,6 +154,25 @@ router.put('/:id', requireRole('ADMIN', 'PHYSICAL_TRAINER'), async (req, res, ne
       data.endTime = et;
       data.durationMinutes = (eh * 60 + em) - (sh * 60 + sm);
       data.classUnits = data.durationMinutes >= 80 ? 2.0 : 1.0;
+    }
+
+    // Regenerate the code if any of its inputs (days, hour, court, level) changed
+    const codeInputsTouched = [lunes, martes, miercoles, jueves, viernes, sabado, domingo,
+      startTime, court, ballLevel].some((v) => v !== undefined);
+    if (codeInputsTouched) {
+      const merged = {
+        lunes: data.lunes ?? existing.lunes,
+        martes: data.martes ?? existing.martes,
+        miercoles: data.miercoles ?? existing.miercoles,
+        jueves: data.jueves ?? existing.jueves,
+        viernes: data.viernes ?? existing.viernes,
+        sabado: data.sabado ?? existing.sabado,
+        domingo: data.domingo ?? existing.domingo,
+        startTime: data.startTime ?? existing.startTime,
+        court: data.court !== undefined ? data.court : existing.court,
+        ballLevel: data.ballLevel !== undefined ? data.ballLevel : existing.ballLevel,
+      };
+      data.code = await generateUniqueGroupCode(prisma, merged, req.params.id);
     }
 
     const group = await prisma.group.update({

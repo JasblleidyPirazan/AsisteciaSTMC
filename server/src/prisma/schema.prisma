@@ -75,6 +75,7 @@ model Student {
   name               String
   email              String?
   parentUserId       String?   @map("parent_user_id")
+  contractedClasses  Int?      @map("contracted_classes")
   active             Boolean   @default(true)
   deactivationReason String?   @map("deactivation_reason")
   deactivatedAt      DateTime? @map("deactivated_at")
@@ -108,6 +109,9 @@ model Group {
   classUnits         Decimal   @map("class_units") @db.Decimal(3, 1)
   court              Int?
   ballLevel          String?   @map("ball_level")
+  subLevel           String?   @map("sub_level")
+  minAge             Int?      @map("min_age")
+  maxAge             Int?      @map("max_age")
   active             Boolean   @default(true)
   deactivationReason String?   @map("deactivation_reason")
   deactivatedAt      DateTime? @map("deactivated_at")
@@ -141,19 +145,20 @@ enum EnrollmentType {
 }
 
 model ClassSession {
-  id                    String        @id @default(cuid())
-  groupId               String?       @map("group_id")
-  kind                  SessionKind   @default(REGULAR)
+  id                    String            @id @default(cuid())
+  groupId               String?           @map("group_id")
+  kind                  SessionKind       @default(REGULAR)
   title                 String?
-  makeupProfessorId     String?       @map("makeup_professor_id")
-  date                  DateTime      @db.Date
-  status                SessionStatus @default(PROGRAMADA)
-  effectiveUnits        Decimal       @map("effective_units") @db.Decimal(3, 1)
-  cancellationReason    String?       @map("cancellation_reason")
-  substituteProfessorId String?       @map("substitute_professor_id")
-  assistantId           String?       @map("assistant_id")
-  reportedById          String?       @map("reported_by_id")
-  createdAt             DateTime      @default(now()) @map("created_at")
+  makeupProfessorId     String?           @map("makeup_professor_id")
+  date                  DateTime          @db.Date
+  status                SessionStatus     @default(PROGRAMADA)
+  effectiveUnits        Decimal           @map("effective_units") @db.Decimal(3, 1)
+  cancellationReason    String?           @map("cancellation_reason")
+  cancellationType      CancellationType? @map("cancellation_type")
+  substituteProfessorId String?           @map("substitute_professor_id")
+  assistantId           String?           @map("assistant_id")
+  reportedById          String?           @map("reported_by_id")
+  createdAt             DateTime          @default(now()) @map("created_at")
 
   group               Group?              @relation(fields: [groupId], references: [id])
   makeupProfessor     Professor?          @relation("MakeupProfessor", fields: [makeupProfessorId], references: [id])
@@ -206,6 +211,14 @@ enum SessionStatus {
   CANCELADA
   CANCELADA_MITAD
   EN_REVISION
+}
+
+enum CancellationType {
+  LLUVIA
+  FESTIVO
+  MANTENIMIENTO
+  EMERGENCIA
+  OTRO
 }
 
 model AttendanceRecord {
@@ -324,6 +337,7 @@ model EnrollmentRequest {
   notes                     String?
   preferredGroupId          String?   @map("preferred_group_id")
   preferredSecondaryGroupId String?   @map("preferred_secondary_group_id")
+  requestedClasses          Int?      @map("requested_classes")
   status                    String    @default("PENDING")
   submittedAt               DateTime  @default(now()) @map("submitted_at")
 

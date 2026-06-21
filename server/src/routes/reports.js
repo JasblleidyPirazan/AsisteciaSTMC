@@ -54,32 +54,87 @@ router.get('/student/:studentId', requireRole('ADMIN', 'PHYSICAL_TRAINER', 'TEAC
 
     const { from, to } = req.query;
     const where = { studentId: req.params.studentId };
-    if (from || to) {
-      where.session = { date: {} };
-      if (from) where.session.date.gte = new Date(from);
-      if (to) where.session.date.lte = new Date(to);
-    }
+    const dateRange = {};
+    if (from) dateRange.gte = new Date(from);
+    if (to) dateRange.lte = new Date(to);
+    if (from || to) where.session = { date: dateRange };
 
-    const records = await prisma.attendanceRecord.findMany({
-      where,
-      include: {
-        session: { include: { group: { select: { id: true, code: true, name: true } } } },
-      },
-      orderBy: { session: { date: 'desc' } },
-    });
+    const [records, student] = await Promise.all([
+      prisma.attendanceRecord.findMany({
+        where,
+        include: {
+          session: { include: { group: { select: { id: true, code: true, name: true } } } },
+        },
+        orderBy: { session: { date: 'desc' } },
+      }),
+      prisma.student.findUnique({
+        where: { id: req.params.studentId },
+        include: {
+          enrollments: {
+            include: { group: { select: { id: true, code: true, name: true } } },
+          },
+        },
+      }),
+    ]);
 
     const total = records.length;
     const present = records.filter((r) => r.status === 'PRESENTE').length;
+    const absent = records.filter((r) => r.status === 'AUSENTE').length;
+    const justified = records.filter((r) => r.status === 'JUSTIFICADA').length;
+
+    // "Clases efectivas" = presentes + ausentes (justificadas no consumen cupo)
+    const effective = present + absent;
+    const contractedClasses = student?.contractedClasses ?? null;
+    const avance = contractedClasses ? Math.round((effective / contractedClasses) * 100) : null;
+
+    // Canceladas por lluvia: las sesiones CANCELADA no generan AttendanceRecord,
+    // así que se cuentan aparte sobre los grupos del estudiante.
+    const groupIds = (student?.enrollments || []).map((e) => e.groupId);
+    let rainCancelled = 0;
+    if (groupIds.length > 0) {
+      const rainWhere = {
+        groupId: { in: groupIds },
+        status: 'CANCELADA',
+        cancellationType: 'LLUVIA',
+      };
+      if (from || to) rainWhere.date = dateRange;
+      rainCancelled = await prisma.classSession.count({ where: rainWhere });
+    }
+
+    // Matrícula primaria → grupo actual + fecha de inscripción
+    const primary = (student?.enrollments || []).find((e) => e.enrollmentType === 'PRIMARY')
+      || (student?.enrollments || [])[0]
+      || null;
 
     res.json({
       success: true,
       data: {
         records,
+        student: student
+          ? {
+              id: student.id,
+              name: student.name,
+              email: student.email,
+              contractedClasses,
+              createdAt: student.createdAt,
+              enrolledAt: primary?.enrolledAt || student.createdAt,
+              currentGroup: primary?.group || null,
+              groups: (student.enrollments || []).map((e) => ({
+                ...e.group,
+                enrollmentType: e.enrollmentType,
+                enrolledAt: e.enrolledAt,
+              })),
+            }
+          : null,
         summary: {
           total,
           present,
-          absent: records.filter((r) => r.status === 'AUSENTE').length,
-          justified: records.filter((r) => r.status === 'JUSTIFICADA').length,
+          absent,
+          justified,
+          effective,
+          rainCancelled,
+          contractedClasses,
+          avance,
           attendanceRate: total > 0 ? Math.round((present / total) * 100) : 0,
         },
       },

@@ -1,10 +1,18 @@
 import { useState } from 'react';
 
-const CANCEL_REASONS = ['Lluvia', 'Festivo', 'Mantenimiento', 'Emergencia', 'Otro'];
+// label → enum CancellationType
+const CANCEL_REASONS = [
+  { label: 'Lluvia', type: 'LLUVIA' },
+  { label: 'Festivo', type: 'FESTIVO' },
+  { label: 'Mantenimiento', type: 'MANTENIMIENTO' },
+  { label: 'Emergencia', type: 'EMERGENCIA' },
+  { label: 'Otro', type: 'OTRO' },
+];
 
 export default function Step1ClassStatus({ group, onHeld, onCancel, loading }) {
   const [showCancel, setShowCancel] = useState(false);
-  const [reason, setReason] = useState('');
+  const [selected, setSelected] = useState(null);
+  const [note, setNote] = useState('');
 
   return (
     <div>
@@ -34,15 +42,30 @@ export default function Step1ClassStatus({ group, onHeld, onCancel, loading }) {
           <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
             {CANCEL_REASONS.map((r) => (
               <button
-                key={r}
-                className={`btn btn-full ${reason === r ? 'btn-primary' : 'btn-outline'}`}
-                onClick={() => setReason(r)}
+                key={r.type}
+                className={`btn btn-full ${selected?.type === r.type ? 'btn-primary' : 'btn-outline'}`}
+                onClick={() => setSelected(r)}
                 style={{ justifyContent: 'flex-start', paddingLeft: 20 }}
               >
-                {reason === r ? '✓ ' : ''}{r}
+                {selected?.type === r.type ? '✓ ' : ''}{r.label}
               </button>
             ))}
           </div>
+
+          {selected?.type === 'OTRO' && (
+            <div className="form-group mt-3">
+              <label className="form-label">Especifica el motivo</label>
+              <textarea
+                className="form-input"
+                rows={2}
+                value={note}
+                onChange={(e) => setNote(e.target.value)}
+                placeholder="Describe el motivo..."
+                style={{ resize: 'vertical' }}
+              />
+            </div>
+          )}
+
           <div className="action-bar">
             <button className="btn btn-outline" style={{ flex: 1 }} onClick={() => setShowCancel(false)}>
               Volver
@@ -50,8 +73,11 @@ export default function Step1ClassStatus({ group, onHeld, onCancel, loading }) {
             <button
               className="btn btn-danger"
               style={{ flex: 2 }}
-              onClick={() => onCancel(reason)}
-              disabled={!reason || loading}
+              onClick={() => onCancel({
+                cancellationType: selected.type,
+                cancellationReason: selected.type === 'OTRO' ? note.trim() : selected.label,
+              })}
+              disabled={!selected || (selected?.type === 'OTRO' && !note.trim()) || loading}
             >
               Confirmar cancelación
             </button>
