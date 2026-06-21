@@ -268,28 +268,35 @@ const DashboardView = {
      */
     renderQuickActions() {
         return `
-            <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+            <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-6">
+                <!-- Inscripción -->
+                <button onclick="InscriptionController.show()" class="btn btn-primary p-6 h-auto flex-col text-center hover:shadow-md transition-shadow">
+                    <span class="text-4xl mb-3 block">📝</span>
+                    <span class="font-semibold text-lg">Inscripción</span>
+                    <span class="text-sm opacity-75 mt-1">Inscribir estudiante</span>
+                </button>
+
                 <!-- Ver todos los grupos -->
                 <button onclick="GroupController.showAll()" class="btn btn-outline p-6 h-auto flex-col text-center hover:shadow-md transition-shadow">
                     <span class="text-4xl mb-3 block">🗓️</span>
                     <span class="font-semibold text-lg">Todos los Grupos</span>
                     <span class="text-sm opacity-75 mt-1">Ver todos los horarios</span>
                 </button>
-                
+
                 <!-- Reportes -->
                 <button onclick="ReportsController.show()" class="btn btn-secondary p-6 h-auto flex-col text-center hover:shadow-md transition-shadow">
                     <span class="text-4xl mb-3 block">📊</span>
                     <span class="font-semibold text-lg">Reportes</span>
                     <span class="text-sm opacity-75 mt-1">Ver estadísticas</span>
                 </button>
-                
+
                 <!-- Crear reposición GRUPAL -->
                 <button onclick="GroupRepositionController.show()" class="btn btn-primary p-6 h-auto flex-col text-center hover:shadow-md transition-shadow">
                     <span class="text-4xl mb-3 block">👥</span>
                     <span class="font-semibold text-lg">Reposición Grupal</span>
                     <span class="text-sm opacity-75 mt-1">Clase especial</span>
                 </button>
-                
+
                 <!-- Pendientes de sincronización -->
                 <button onclick="SyncController.showPending()" class="btn btn-neutral p-6 h-auto flex-col text-center hover:shadow-md transition-shadow">
                     <span class="text-4xl mb-3 block">⏳</span>

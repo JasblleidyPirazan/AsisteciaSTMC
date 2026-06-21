@@ -112,6 +112,7 @@ const GroupService = {
             hora: String(hora).trim(),
             profe: String(profe).trim(),
             cancha: findField(rawGroup, ['cancha', 'court']) || '',
+            cupo_maximo: parseInt(findField(rawGroup, ['cupo_maximo', 'cupomaximo', 'cupo', 'cupos', 'capacidad', 'capacity'])) || 0,
             frecuencia_semanal: parseInt(findField(rawGroup, ['frecuencia_semanal', 'frecuenciasemanal', 'weekly_frequency'])) || 0,
             bola: findField(rawGroup, ['bola', 'ball', 'nivel', 'level']) || 'Verde',
             descriptor: findField(rawGroup, ['descriptor', 'descripcion', 'description']) || '',

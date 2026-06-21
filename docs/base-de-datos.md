@@ -19,6 +19,7 @@ Almacenar información de todos los grupos de tenis con sus horarios, profesores
 | **Hora** | Texto | Rango horario en formato HH:MM-HH:MM | `15:45-16:30` |
 | **Profe** | Texto | Nombre del profesor asignado | `Brayan` |
 | **Cancha** | Número | Número de cancha asignada | `2` |
+| **Cupo_Maximo** | Número | Cupo máximo de estudiantes del grupo (opcional; si está vacío se usa el valor por defecto de 8) | `8` |
 | **Frecuencia_Semanal** | Número | Clases por semana | `2` |
 | **Bola** | Texto | Nivel/tipo de pelota | `Verde` |
 | **Descriptor** | Texto | Descripción completa del grupo | `Lunes,Miércoles-15:45-16:30-Brayan-Verde` |
@@ -161,6 +162,50 @@ Registro de clases de reposición creadas manualmente.
 REP001 | 2025-06-28 | EST001,EST002 | Individual | Brayan | Clase individual de técnica | user123 | 2025-06-27 15:00:00
 REP002 | 2025-06-29 | EST003,EST004,EST005 | Grupal | Ricardo | Reposición por festivo | user123 | 2025-06-27 16:30:00
 ```
+
+---
+
+## 📝 Inscripción de Estudiantes (Frontend)
+
+La función de **Inscripción** permite a los acudientes:
+
+1. Leer y **aceptar las políticas de la Escuela** (definidas en `js/services/inscription-service.js`).
+2. Ver los **grupos disponibles con sus cupos disponibles**, calculados como
+   `Cupo_Maximo - (estudiantes activos con el grupo como principal o secundario)`.
+3. **Buscar grupos por días o por horas** (además de búsqueda libre por profesor/nivel).
+4. **Inscribirse a un grupo principal** y, de forma opcional, a un **grupo secundario**.
+
+### Endpoint backend esperado: `saveInscription` (POST)
+
+El frontend envía al proxy/Apps Script la acción `saveInscription` con la estructura:
+
+```json
+{
+  "action": "saveInscription",
+  "studentRecord": {
+    "ID": "EST...",
+    "Nombre": "Juan Pérez",
+    "Grupo_Principal": "LM-15:45-Brayan-Verde",
+    "Grupo_Secundario": "MJ-16:30-Ricardo-Amarilla",
+    "Max_Clases": 40,
+    "Activo": true
+  },
+  "inscriptionMeta": {
+    "acudiente": "María Martínez",
+    "telefono": "3001234567",
+    "email": "correo@ejemplo.com",
+    "politicas_aceptadas": true,
+    "fecha_inscripcion": "2026-06-21",
+    "enviado_por": "inscripcion-web",
+    "timestamp": "2026-06-21 10:30:00"
+  }
+}
+```
+
+El handler de Apps Script debe agregar una fila a la hoja **Estudiantes** con los campos de `studentRecord`.
+Los campos de `inscriptionMeta` pueden almacenarse en columnas adicionales o en una hoja `Inscripciones`.
+Mientras el backend no implemente este endpoint, las inscripciones se guardan localmente
+(`tennis_pending_inscriptions` en `localStorage`) para no perder la información.
 
 ---
 

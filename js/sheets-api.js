@@ -423,6 +423,31 @@ const SheetsAPI = {
     },
     
     /**
+     * Guarda una inscripción (nuevo estudiante + datos del acudiente)
+     */
+    async saveInscription(inscriptionData) {
+        debugLog('Guardando inscripción:', inscriptionData);
+
+        try {
+            if (!inscriptionData || !inscriptionData.studentRecord) {
+                throw new Error('Datos de inscripción inválidos');
+            }
+
+            const result = await this.makePostRequest('saveInscription', {
+                studentRecord: inscriptionData.studentRecord,
+                inscriptionMeta: inscriptionData.inscriptionMeta || {}
+            });
+
+            debugLog('Inscripción guardada correctamente:', result);
+            return result;
+
+        } catch (error) {
+            console.error('Error al guardar inscripción:', error);
+            throw error;
+        }
+    },
+
+    /**
      * Obtiene asistencias por rango de fechas
      */
     async getAttendanceByDateRange(startDate, endDate) {
@@ -751,7 +776,8 @@ const SheetsAPI = {
     _isValidPostEndpoint(action) {
         const validPostEndpoints = [
             'saveAttendance', 'createClassRecord', 'createScheduledClass',
-            'createRepositionClass', 'saveScheduledClass', 'saveGroupReposition'
+            'createRepositionClass', 'saveScheduledClass', 'saveGroupReposition',
+            'saveInscription'
         ];
         
         return validPostEndpoints.includes(action);
