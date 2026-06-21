@@ -3,6 +3,9 @@
   "version": "2.0.0",
   "description": "Sistema de Asistencia Academia de Tenis STMC",
   "private": true,
+  "engines": {
+    "node": ">=20"
+  },
   "scripts": {
     "build": "cd client && npm install && npm run build && cd ../server && npm install && npm run build",
     "start": "node server/src/index.js",
