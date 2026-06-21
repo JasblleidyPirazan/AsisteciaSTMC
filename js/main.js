@@ -53,24 +53,33 @@ function checkDependencies() {
         
         // 🆕 NUEVO: Servicio de Reposición Grupal
         'GroupRepositionService',
-        
+
+        // 🆕 NUEVO: Servicio de Inscripción
+        'InscriptionService',
+
         // Componentes de UI
         'DateSelectorView', 'DashboardView', 'AttendanceFormView', 'ModalsView',
-        
+
         // 🆕 NUEVO: Componente de Reposición Individual
         'RepositionModal',
-        
+
         // 🆕 NUEVO: Componente de Reposición Grupal
         'GroupRepositionFormView',
-        
+
+        // 🆕 NUEVO: Componente de Inscripción
+        'InscriptionFormView',
+
         // Controladores
         'AppController', 'DateController', 'AttendanceController', 'GroupController',
 
-        // 🆕 NUEVO: Controlador de Reposición Individual  
+        // 🆕 NUEVO: Controlador de Reposición Individual
         'RepositionController',
-        
+
         // 🆕 NUEVO: Controlador de Reposición Grupal
-        'GroupRepositionController'
+        'GroupRepositionController',
+
+        // 🆕 NUEVO: Controlador de Inscripción
+        'InscriptionController'
     ];
     
     const missing = requiredObjects.filter(obj => typeof window[obj] === 'undefined');
@@ -187,6 +196,11 @@ const AppRouter = {
                 // 🆕 NUEVO: Navegación para reposición grupal
                 case 'group-reposition':
                     await GroupRepositionController.show();
+                    break;
+
+                // 🆕 NUEVO: Navegación para inscripción
+                case 'inscription':
+                    await InscriptionController.show();
                     break;
                     
                 case 'reports':

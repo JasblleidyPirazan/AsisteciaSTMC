@@ -23,6 +23,11 @@ const DateSelectorView = {
                     <div class="text-center">
                         <h1 class="text-3xl font-bold text-gray-900 mb-2">Sistema de Asistencia Tenis</h1>
                         <p class="text-gray-600">Selecciona la fecha para reportar asistencias</p>
+                        <div class="mt-4">
+                            <button onclick="InscriptionController.show()" class="btn btn-primary">
+                                📝 Inscripción de Estudiantes
+                            </button>
+                        </div>
                     </div>
                 </header>
 
