@@ -16,12 +16,15 @@ model User {
   createdAt    DateTime @default(now()) @map("created_at")
   updatedAt    DateTime @updatedAt @map("updated_at")
 
-  professor          Professor?
-  assistant          Assistant?
-  parentOf           Student[]          @relation("ParentUser")
-  reportedSessions   ClassSession[]     @relation("SessionReporter")
-  reportedAttendance AttendanceRecord[] @relation("AttendanceReporter")
-  sessionEdits       SessionEditLog[]   @relation("SessionEditor")
+  professor             Professor?
+  assistant             Assistant?
+  parentOf              Student[]            @relation("ParentUser")
+  reportedSessions      ClassSession[]       @relation("SessionReporter")
+  reportedAttendance    AttendanceRecord[]   @relation("AttendanceReporter")
+  sessionEdits          SessionEditLog[]     @relation("SessionEditor")
+  conflictsAsCanonical  AttendanceConflict[] @relation("ConflictCanonical")
+  conflictsAsChallenger AttendanceConflict[] @relation("ConflictChallenger")
+  conflictsResolved     AttendanceConflict[] @relation("ConflictResolver")
 
   @@map("users")
 }
@@ -161,6 +164,7 @@ model ClassSession {
   makeupParticipants  MakeupParticipant[]
   costRecords         CostRecord[]
   editLogs            SessionEditLog[]
+  conflict            AttendanceConflict?
 
   @@unique([groupId, date])
   @@map("class_sessions")
@@ -201,6 +205,7 @@ enum SessionStatus {
   REALIZADA
   CANCELADA
   CANCELADA_MITAD
+  EN_REVISION
 }
 
 model AttendanceRecord {
@@ -374,4 +379,24 @@ model SemesterExclusion {
   semester Semester @relation(fields: [semesterId], references: [id])
 
   @@map("semester_exclusions")
+}
+
+model AttendanceConflict {
+  id                String    @id @default(cuid())
+  sessionId         String    @unique @map("session_id")
+  canonicalById     String?   @map("canonical_by_id")
+  challengerById    String?   @map("challenger_by_id")
+  canonicalRecords  Json      @map("canonical_records")
+  challengerRecords Json      @map("challenger_records")
+  diffSummary       Json?     @map("diff_summary")
+  resolvedById      String?   @map("resolved_by_id")
+  resolvedAt        DateTime? @map("resolved_at")
+  createdAt         DateTime  @default(now()) @map("created_at")
+
+  session      ClassSession @relation(fields: [sessionId], references: [id])
+  canonicalBy  User?        @relation("ConflictCanonical", fields: [canonicalById], references: [id])
+  challengerBy User?        @relation("ConflictChallenger", fields: [challengerById], references: [id])
+  resolvedBy   User?        @relation("ConflictResolver", fields: [resolvedById], references: [id])
+
+  @@map("attendance_conflicts")
 }

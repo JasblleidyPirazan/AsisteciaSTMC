@@ -37,7 +37,8 @@ export default function AttendanceFlow() {
     if (!group) return;
     api.get('/sessions/check', { groupId, date })
       .then(({ exists, session: existing }) => {
-        if (exists && ['REALIZADA', 'CANCELADA_MITAD'].includes(existing.status)) {
+        if (!exists) return;
+        if (['REALIZADA', 'CANCELADA_MITAD'].includes(existing.status)) {
           setEditing(true);
           setSession(existing);
           setSubstitute(existing.substituteProfessor || null);
@@ -53,6 +54,9 @@ export default function AttendanceFlow() {
             }))
           );
           setStep(3);
+        } else if (existing.status === 'EN_REVISION') {
+          // Session has a pending conflict — go to the resolution page
+          navigate(`/sessions/${existing.id}/conflict`, { replace: true });
         }
       })
       .catch(() => {})
@@ -115,6 +119,10 @@ export default function AttendanceFlow() {
       setCosts(result.costs);
       setDone(true);
     } catch (err) {
+      if (err.isConflict) {
+        navigate(`/sessions/${session.id}/conflict`);
+        return;
+      }
       setError(err.message);
     } finally {
       setLoading(false);

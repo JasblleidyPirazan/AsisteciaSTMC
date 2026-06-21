@@ -1,6 +1,7 @@
 const express = require('express');
 const prisma = require('../lib/prisma');
 const { calculateCosts } = require('../services/costEngine');
+const { computeDiff, hasConflict } = require('../utils/conflictUtils');
 
 const router = express.Router();
 
@@ -58,11 +59,24 @@ router.get('/check', async (req, res, next) => {
 router.get('/', async (req, res, next) => {
   try {
     const { groupId, date, status, kind } = req.query;
-    // Default to regular sessions only; makeups have their own endpoints/views
     const where = { kind: kind || 'REGULAR' };
     if (groupId) where.groupId = groupId;
     if (date) where.date = new Date(date);
     if (status) where.status = status;
+
+    // TEACHER: only show sessions from their own groups
+    if (req.user.role === 'TEACHER') {
+      const professor = await prisma.professor.findUnique({ where: { userId: req.user.id } });
+      if (professor) {
+        const groups = await prisma.group.findMany({
+          where: { professorId: professor.id, active: true },
+          select: { id: true },
+        });
+        where.groupId = { in: groups.map((g) => g.id) };
+      } else {
+        where.groupId = '__none__';
+      }
+    }
 
     const sessions = await prisma.classSession.findMany({
       where,
@@ -150,12 +164,22 @@ router.post('/:id/finalize', async (req, res, next) => {
       return res.status(403).json({ success: false, error: 'No tienes permiso para reportar este grupo' });
     }
 
+    // Block finalization when a conflict is pending — must resolve first
+    if (session.status === 'EN_REVISION') {
+      return res.status(409).json({
+        success: false,
+        conflict: true,
+        error: 'La clase tiene un conflicto de reportes pendiente. Resuélvelo antes de continuar.',
+      });
+    }
+
     // Re-finalizing an already-finalized session is an EDIT: we snapshot the
-    // previous state into an edit log and the new report becomes authoritative.
+    // previous state and the new report becomes authoritative.
     const isEdit = ['REALIZADA', 'CANCELADA_MITAD'].includes(session.status);
     let previousState = null;
+    let prevRecords = [];
     if (isEdit) {
-      const prevRecords = await prisma.attendanceRecord.findMany({
+      prevRecords = await prisma.attendanceRecord.findMany({
         where: { sessionId: req.params.id },
         include: { student: { select: { name: true } } },
       });
@@ -179,8 +203,6 @@ router.post('/:id/finalize', async (req, res, next) => {
       status = 'CANCELADA_MITAD';
     }
 
-    // Replace all attendance records so the latest report is the single source
-    // of truth (an edit can also remove a reposition student, for example)
     const newRecords = (attendanceRecords || []).map((record) => ({
       sessionId: req.params.id,
       studentId: record.studentId,
@@ -189,13 +211,70 @@ router.post('/:id/finalize', async (req, res, next) => {
       justification: record.justification?.slice(0, 500) || null,
       reportedById: req.user.id,
     }));
+
+    // Conflict detection: a different user re-finalizing with different data
+    const isDifferentReporter = isEdit && session.reportedById && session.reportedById !== req.user.id;
+    if (isDifferentReporter) {
+      // Build a name map so the challenger snapshot is human-readable
+      const nameMap = new Map(prevRecords.map((r) => [r.studentId, r.student?.name]));
+      const unknownIds = newRecords.map((r) => r.studentId).filter((id) => !nameMap.has(id));
+      if (unknownIds.length > 0) {
+        const extras = await prisma.student.findMany({
+          where: { id: { in: unknownIds } },
+          select: { id: true, name: true },
+        });
+        extras.forEach((s) => nameMap.set(s.id, s.name));
+      }
+
+      const challengerSnap = newRecords.map((r) => ({
+        studentId: r.studentId,
+        name: nameMap.get(r.studentId) || r.studentId,
+        status: r.status,
+        attendanceType: r.attendanceType || 'REGULAR',
+        justification: r.justification || null,
+      }));
+
+      const diff = computeDiff(previousState.records, challengerSnap);
+
+      if (hasConflict(diff)) {
+        await prisma.attendanceConflict.upsert({
+          where: { sessionId: req.params.id },
+          create: {
+            sessionId: req.params.id,
+            canonicalById: session.reportedById,
+            challengerById: req.user.id,
+            canonicalRecords: previousState.records,
+            challengerRecords: challengerSnap,
+            diffSummary: diff,
+          },
+          update: {
+            challengerById: req.user.id,
+            canonicalRecords: previousState.records,
+            challengerRecords: challengerSnap,
+            diffSummary: diff,
+            resolvedById: null,
+            resolvedAt: null,
+          },
+        });
+        await prisma.classSession.update({
+          where: { id: req.params.id },
+          data: { status: 'EN_REVISION' },
+        });
+        return res.status(409).json({
+          success: false,
+          conflict: true,
+          error: 'Reporte con diferencias detectadas. La clase queda en revisión.',
+          data: { sessionId: req.params.id, diff },
+        });
+      }
+      // Different reporter but data matches → proceed as normal edit (no conflict)
+    }
+
     await prisma.attendanceRecord.deleteMany({ where: { sessionId: req.params.id } });
     if (newRecords.length > 0) {
       await prisma.attendanceRecord.createMany({ data: newRecords });
     }
 
-    // Persist who actually dictated/accompanied the class. Step 2 of the flow
-    // selects these AFTER the session is created, so finalize must save them.
     const sessionData = { status, effectiveUnits, reportedById: req.user.id };
     if (substituteProfessorId !== undefined) sessionData.substituteProfessorId = substituteProfessorId || null;
     if (assistantId !== undefined) sessionData.assistantId = assistantId || null;
@@ -238,6 +317,168 @@ router.post('/:id/finalize', async (req, res, next) => {
   }
 });
 
+// View the active conflict for a session
+router.get('/:id/conflict', async (req, res, next) => {
+  try {
+    const { role } = req.user;
+    if (!['ADMIN', 'PHYSICAL_TRAINER', 'TEACHER'].includes(role)) {
+      return res.status(403).json({ success: false, error: 'No tienes permiso para ver este conflicto' });
+    }
+
+    const session = await prisma.classSession.findUnique({
+      where: { id: req.params.id },
+      include: {
+        group: { include: { professor: { select: { id: true, name: true } } } },
+        substituteProfessor: { select: { id: true, name: true } },
+        assistant: { select: { id: true, name: true } },
+        conflict: {
+          include: {
+            canonicalBy:  { select: { id: true, email: true, role: true } },
+            challengerBy: { select: { id: true, email: true, role: true } },
+            resolvedBy:   { select: { id: true, email: true } },
+          },
+        },
+      },
+    });
+
+    if (!session) return res.status(404).json({ success: false, error: 'Sesión no encontrada' });
+    if (session.status !== 'EN_REVISION' || !session.conflict) {
+      return res.status(404).json({ success: false, error: 'No hay conflicto activo para esta sesión' });
+    }
+
+    if (role === 'TEACHER' && !(await canReportGroup(req.user, session.groupId))) {
+      return res.status(403).json({ success: false, error: 'No tienes permiso para ver este conflicto' });
+    }
+
+    res.json({ success: true, data: { session, conflict: session.conflict } });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// Resolve an active conflict — ADMIN, PHYSICAL_TRAINER, or TEACHER (own group)
+router.post('/:id/resolve', async (req, res, next) => {
+  try {
+    const { accept, records: customRecords } = req.body;
+
+    if (!['canonical', 'challenger', 'custom'].includes(accept)) {
+      return res.status(400).json({ success: false, error: 'accept debe ser canonical, challenger o custom' });
+    }
+    if (accept === 'custom' && (!Array.isArray(customRecords) || customRecords.length === 0)) {
+      return res.status(400).json({ success: false, error: 'records requeridos para resolución custom' });
+    }
+
+    const session = await prisma.classSession.findUnique({
+      where: { id: req.params.id },
+      include: { conflict: true, group: true },
+    });
+
+    if (!session) return res.status(404).json({ success: false, error: 'Sesión no encontrada' });
+    if (session.status !== 'EN_REVISION' || !session.conflict) {
+      return res.status(400).json({ success: false, error: 'La sesión no tiene un conflicto pendiente' });
+    }
+
+    const { role } = req.user;
+    if (!['ADMIN', 'PHYSICAL_TRAINER', 'TEACHER'].includes(role)) {
+      return res.status(403).json({ success: false, error: 'No tienes permiso para resolver este conflicto' });
+    }
+    if (role === 'TEACHER' && !(await canReportGroup(req.user, session.groupId))) {
+      return res.status(403).json({ success: false, error: 'No tienes permiso para resolver este conflicto' });
+    }
+
+    // Choose which records to apply
+    let sourceRecords;
+    if (accept === 'canonical') {
+      sourceRecords = session.conflict.canonicalRecords;
+    } else if (accept === 'challenger') {
+      sourceRecords = session.conflict.challengerRecords;
+    } else {
+      for (const r of customRecords) {
+        if (!r.studentId || !VALID_STATUSES.includes(r.status)) {
+          return res.status(400).json({ success: false, error: 'Registro de resolución inválido' });
+        }
+      }
+      sourceRecords = customRecords;
+    }
+
+    // Snapshot current state for the edit log
+    const currentRecords = await prisma.attendanceRecord.findMany({
+      where: { sessionId: req.params.id },
+      include: { student: { select: { name: true } } },
+    });
+    const previousStateForLog = {
+      status: 'EN_REVISION',
+      effectiveUnits: parseFloat(session.effectiveUnits),
+      records: currentRecords.map((r) => ({
+        studentId: r.studentId,
+        name: r.student?.name,
+        status: r.status,
+        attendanceType: r.attendanceType,
+        justification: r.justification,
+      })),
+    };
+
+    // Apply the chosen records
+    const finalRows = sourceRecords.map((r) => ({
+      sessionId: req.params.id,
+      studentId: r.studentId,
+      status: r.status,
+      attendanceType: r.attendanceType || 'REGULAR',
+      justification: r.justification || null,
+      reportedById: req.user.id,
+    }));
+
+    await prisma.attendanceRecord.deleteMany({ where: { sessionId: req.params.id } });
+    if (finalRows.length > 0) {
+      await prisma.attendanceRecord.createMany({ data: finalRows });
+    }
+
+    // Mark conflict resolved (keep record for history)
+    await prisma.attendanceConflict.update({
+      where: { sessionId: req.params.id },
+      data: { resolvedById: req.user.id, resolvedAt: new Date() },
+    });
+
+    // Restore session to REALIZADA
+    await prisma.classSession.update({
+      where: { id: req.params.id },
+      data: { status: 'REALIZADA', reportedById: req.user.id },
+    });
+
+    // Audit log
+    await prisma.sessionEditLog.create({
+      data: {
+        sessionId: req.params.id,
+        editedById: req.user.id,
+        previousState: previousStateForLog,
+        newState: {
+          status: 'REALIZADA',
+          effectiveUnits: parseFloat(session.effectiveUnits),
+          resolvedConflict: accept,
+          records: finalRows.map(({ studentId, status, attendanceType, justification }) => ({
+            studentId, status, attendanceType, justification,
+          })),
+        },
+      },
+    });
+
+    const costs = await calculateCosts(req.params.id);
+
+    const updated = await prisma.classSession.findUnique({
+      where: { id: req.params.id },
+      include: {
+        attendanceRecords: { include: { student: { select: { id: true, name: true } } } },
+        costRecords: true,
+        conflict: true,
+      },
+    });
+
+    res.json({ success: true, data: { session: updated, costs } });
+  } catch (err) {
+    next(err);
+  }
+});
+
 // Cancel a session
 router.post('/:id/cancel', async (req, res, next) => {
   try {
@@ -258,7 +499,6 @@ router.post('/:id/cancel', async (req, res, next) => {
       data: { status: 'CANCELADA', cancellationReason: cancellationReason.slice(0, 500), reportedById: req.user.id },
     });
 
-    // If the session had been finalized before, its cost records no longer apply
     await prisma.costRecord.deleteMany({ where: { sessionId: req.params.id } });
 
     res.json({ success: true, data: session });
@@ -283,7 +523,6 @@ router.post('/:id/assist', async (req, res, next) => {
     const existing = await prisma.classSession.findUnique({ where: { id: req.params.id } });
     if (!existing) return res.status(404).json({ success: false, error: 'Sesión no encontrada' });
 
-    // remove: true → unmark (only if the session is marked with this assistant)
     if (req.body.remove) {
       if (existing.assistantId !== assistant.id) {
         return res.status(403).json({ success: false, error: 'La sesión no está marcada con este asistente' });

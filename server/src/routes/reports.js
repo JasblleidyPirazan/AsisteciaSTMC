@@ -210,6 +210,13 @@ router.get('/class/:sessionId', requireRole('ADMIN', 'PHYSICAL_TRAINER', 'TEACHE
           include: { editedBy: { select: { email: true } } },
           orderBy: { editedAt: 'desc' },
         },
+        conflict: {
+          include: {
+            canonicalBy:  { select: { id: true, email: true, role: true } },
+            challengerBy: { select: { id: true, email: true, role: true } },
+            resolvedBy:   { select: { id: true, email: true } },
+          },
+        },
       },
     });
     if (!session) return res.status(404).json({ success: false, error: 'Sesión no encontrada' });

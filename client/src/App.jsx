@@ -20,6 +20,7 @@ import PayrollPage from './pages/admin/PayrollPage';
 import ConfigPage from './pages/admin/ConfigPage';
 import EnrollmentRequestsPage from './pages/admin/EnrollmentRequestsPage';
 import MakeupsPage from './pages/admin/MakeupsPage';
+import ConflictResolutionPage from './pages/ConflictResolutionPage';
 
 class ErrorBoundary extends Component {
   constructor(props) {
@@ -82,6 +83,17 @@ function AppRoutes() {
       <Route path="/makeups/:id/attendance" element={
         <RequireAuth roles={['ADMIN', 'TEACHER', 'PHYSICAL_TRAINER']}>
           <MakeupAttendancePage />
+        </RequireAuth>
+      } />
+
+      <Route path="/sessions/:id/conflict" element={
+        <RequireAuth roles={['ADMIN', 'TEACHER', 'PHYSICAL_TRAINER']}>
+          <ConflictResolutionPage type="session" />
+        </RequireAuth>
+      } />
+      <Route path="/makeups/:id/conflict" element={
+        <RequireAuth roles={['ADMIN', 'TEACHER', 'PHYSICAL_TRAINER']}>
+          <ConflictResolutionPage type="makeup" />
         </RequireAuth>
       } />
 

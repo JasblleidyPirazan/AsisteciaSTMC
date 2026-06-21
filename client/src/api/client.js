@@ -20,7 +20,14 @@ async function request(path, options = {}) {
   }
 
   const data = await res.json();
-  if (!data.success) throw new Error(data.error || 'Error del servidor');
+  if (!data.success) {
+    const err = new Error(data.error || 'Error del servidor');
+    if (data.conflict) {
+      err.isConflict = true;
+      err.conflictData = data.data;
+    }
+    throw err;
+  }
   return data.data;
 }
 
