@@ -284,18 +284,20 @@ model Event {
 }
 
 model EnrollmentRequest {
-  id           String    @id @default(cuid())
-  studentName  String    @map("student_name")
-  birthDate    DateTime? @map("birth_date") @db.Date
-  parentName   String?   @map("parent_name")
-  email        String
-  phone        String?
-  eps          String?
-  paymentDate  DateTime? @map("payment_date") @db.Date
-  paymentProof String?   @map("payment_proof") @db.Text
-  notes        String?
-  status       String    @default("PENDING")
-  submittedAt  DateTime  @default(now()) @map("submitted_at")
+  id                        String    @id @default(cuid())
+  studentName               String    @map("student_name")
+  birthDate                 DateTime? @map("birth_date") @db.Date
+  parentName                String?   @map("parent_name")
+  email                     String
+  phone                     String?
+  eps                       String?
+  paymentDate               DateTime? @map("payment_date") @db.Date
+  paymentProof              String?   @map("payment_proof") @db.Text
+  notes                     String?
+  preferredGroupId          String?   @map("preferred_group_id")
+  preferredSecondaryGroupId String?   @map("preferred_secondary_group_id")
+  status                    String    @default("PENDING")
+  submittedAt               DateTime  @default(now()) @map("submitted_at")
 
   @@map("enrollment_requests")
 }

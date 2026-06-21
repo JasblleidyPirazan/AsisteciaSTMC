@@ -135,6 +135,26 @@ export default function EnrollmentRequestsPage() {
                   </div>
                 )}
 
+                {/* Preferred groups */}
+                {(r.preferredGroup || r.preferredSecondaryGroup) && (
+                  <div style={{ background: 'var(--gray-50)', borderRadius: 6, padding: '6px 10px', marginBottom: 6 }}>
+                    {r.preferredGroup && (
+                      <div className="text-sm">
+                        <span style={{ background: 'var(--green)', color: '#fff', borderRadius: 3, padding: '1px 5px', fontSize: '0.68rem', marginRight: 5 }}>PRINCIPAL</span>
+                        {r.preferredGroup.code} · {r.preferredGroup.startTime}–{r.preferredGroup.endTime}
+                        {r.preferredGroup.ballLevel && ` · ${r.preferredGroup.ballLevel}`}
+                      </div>
+                    )}
+                    {r.preferredSecondaryGroup && (
+                      <div className="text-sm mt-1">
+                        <span style={{ background: 'var(--blue)', color: '#fff', borderRadius: 3, padding: '1px 5px', fontSize: '0.68rem', marginRight: 5 }}>SECUNDARIO</span>
+                        {r.preferredSecondaryGroup.code} · {r.preferredSecondaryGroup.startTime}–{r.preferredSecondaryGroup.endTime}
+                        {r.preferredSecondaryGroup.ballLevel && ` · ${r.preferredSecondaryGroup.ballLevel}`}
+                      </div>
+                    )}
+                  </div>
+                )}
+
                 {/* Notes */}
                 {r.notes && (
                   <div className="text-sm text-gray mb-2"
@@ -154,6 +174,9 @@ export default function EnrollmentRequestsPage() {
                         <option value="">Sin grupo por ahora</option>
                         {groups.map((g) => <option key={g.id} value={g.id}>{g.code}</option>)}
                       </select>
+                      {r.preferredGroup && (
+                        <span className="text-xs text-gray">Grupo solicitado: {r.preferredGroup.code}</span>
+                      )}
                     </div>
                     <div className="form-group">
                       <label className="form-label">Contraseña inicial para el padre *</label>
@@ -178,7 +201,10 @@ export default function EnrollmentRequestsPage() {
                       Rechazar
                     </button>
                     <button className="btn btn-success" style={{ flex: 2, minHeight: 40 }}
-                      onClick={() => setApproving(r.id)}>
+                      onClick={() => {
+                        setApproving(r.id);
+                        setForm({ groupId: r.preferredGroup?.id || '', parentPassword: '' });
+                      }}>
                       Aprobar
                     </button>
                   </div>

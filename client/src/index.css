@@ -372,3 +372,25 @@ input.form-input, select.form-select, textarea.form-input {
   box-shadow: var(--shadow);
 }
 .att-btn.dim { opacity: 0.35; }
+
+/* Filter chips (used in enrollment group browser) */
+.chip {
+  display: inline-flex;
+  align-items: center;
+  padding: 4px 12px;
+  border-radius: 20px;
+  border: 1px solid var(--gray-300);
+  background: #fff;
+  color: var(--gray-700);
+  font-size: 0.78rem;
+  font-weight: 500;
+  cursor: pointer;
+  transition: background 0.15s, color 0.15s, border-color 0.15s;
+  white-space: nowrap;
+}
+.chip:hover { border-color: var(--blue); color: var(--blue); }
+.chip-active {
+  background: var(--blue);
+  color: #fff;
+  border-color: var(--blue);
+}

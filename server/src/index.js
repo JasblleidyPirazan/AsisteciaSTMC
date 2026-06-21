@@ -42,20 +42,13 @@ const authLimiter = rateLimit({
   legacyHeaders: false,
 });
 
-// Rate limiting on public enrollment endpoint
-const enrollmentLimiter = rateLimit({
-  windowMs: 60 * 60 * 1000, // 1 hour
-  max: 5,
-  message: { success: false, error: 'Demasiadas solicitudes. Intenta en 1 hora.' },
-});
-
 // Health check (no auth)
 app.get('/api/health', (req, res) => {
   res.json({ success: true, message: 'Sistema de Asistencia STMC activo', version: '2.0.0' });
 });
 
-// Public enrollment (rate-limited)
-app.use('/api/enrollment', enrollmentLimiter, require('./routes/enrollment'));
+// Public enrollment routes (rate limiting applied per-route inside the router)
+app.use('/api/enrollment', require('./routes/enrollment'));
 
 // Auth (rate-limited on login)
 app.use('/api/auth', authLimiter, require('./routes/auth'));
