@@ -11,7 +11,8 @@
     "db:push": "prisma db push",
     "db:migrate": "prisma migrate deploy",
     "db:seed": "node src/scripts/seed.js",
-    "db:seed-demo": "node src/scripts/seed-demo.js"
+    "db:seed-demo": "node src/scripts/seed-demo.js",
+    "db:create-test-admin": "node src/scripts/createTestAdmin.js"
   },
   "dependencies": {
     "@prisma/client": "^5.22.0",
