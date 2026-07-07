@@ -130,7 +130,7 @@ CORS_ORIGIN        # URL del dominio en Railway (ej: https://asisteciastmc.up.ra
 | `MakeupClass` | (Legacy, sin uso) — las reposiciones grupales ahora viven en `ClassSession` con `kind=MAKEUP` |
 | `Event` | Torneos/clínicas con pago fijo |
 | `EnrollmentRequest` | Solicitudes de inscripción (estado PENDING/APPROVED/REJECTED) |
-| `SystemConfig` | Tarifas configurables: rate_2_students, rate_3_students, rate_4_students, rate_5plus_students, assistant_fixed_rate, reposition_rate |
+| `SystemConfig` | Tarifas configurables: rate_2_students, rate_3_students, rate_4_students, rate_5plus_students, assistant_fixed_rate |
 | `StudentGroupHistory` | Historial de cambios de grupo: TRANSFER, ADD_GROUP, REMOVE_GROUP |
 | `Semester` | Semestres: nombre, fechas inicio/fin, activo (solo uno activo a la vez) |
 | `SemesterExclusion` | Fechas excluidas de un semestre (festivos, vacaciones) |
@@ -146,7 +146,8 @@ Archivo: `server/src/services/costEngine.js`
 - Clases sencillas (45 min): `effectiveUnits = 1.0`
 - Clases dobles (90 min): `effectiveUnits = 2.0`
 - Cancelada a la mitad: `effectiveUnits = 1.0` (toggle en el resumen)
-- **Profesor (tarifa por tramo)**: `tramo(presentes_regulares) × units + presentes_reposicion × tarifa_repo × units`
+- **Profesor (tarifa por tramo)**: `tramo(presentes_totales) × units`
+  - `presentes_totales` = todos los estudiantes presentes (regulares + reposición). La reposición **ya no tiene tarifa aparte**: cada estudiante en reposición cuenta como un presente más para el tramo
   - Tramos: 1-2 → `rate_2_students`, 3 → `rate_3_students`, 4 → `rate_4_students`, 5+ → `rate_5plus_students`
   - La tarifa de tramo es un monto fijo por sesión (no por estudiante), multiplicado por effectiveUnits
 - **Asistente**: `tarifa_fija × units`

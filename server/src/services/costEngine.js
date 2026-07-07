@@ -16,13 +16,13 @@ function getPeriodForDate(date) {
   return `${year}-${month}-${half}`;
 }
 
-// Returns the flat bracket rate for the given number of regular students present.
+// Returns the flat bracket rate for the given number of students present.
 // The rate is a fixed amount per session (not per student).
-function getBracketRate(regularPresent, cfg) {
-  if (regularPresent <= 0) return 0;
-  if (regularPresent <= 2) return parseFloat(cfg.rate_2_students || 30000);
-  if (regularPresent === 3) return parseFloat(cfg.rate_3_students || 45000);
-  if (regularPresent === 4) return parseFloat(cfg.rate_4_students || 60000);
+function getBracketRate(presentCount, cfg) {
+  if (presentCount <= 0) return 0;
+  if (presentCount <= 2) return parseFloat(cfg.rate_2_students || 30000);
+  if (presentCount === 3) return parseFloat(cfg.rate_3_students || 45000);
+  if (presentCount === 4) return parseFloat(cfg.rate_4_students || 60000);
   return parseFloat(cfg.rate_5plus_students || 75000);
 }
 
@@ -50,7 +50,6 @@ async function calculateCosts(sessionId) {
           'rate_4_students',
           'rate_5plus_students',
           'assistant_fixed_rate',
-          'reposition_rate',
         ],
       },
     },
@@ -58,39 +57,35 @@ async function calculateCosts(sessionId) {
   const cfg = Object.fromEntries(configs.map((c) => [c.key, c.value]));
 
   const assistantFixedRate = parseFloat(cfg.assistant_fixed_rate || 12000);
-  const repositionRate = parseFloat(cfg.reposition_rate || 15000);
 
   const effectiveUnits = parseFloat(session.effectiveUnits);
   const period = getPeriodForDate(session.date);
 
-  const regularPresent = session.attendanceRecords.filter(
-    (r) => r.attendanceType === 'REGULAR' && r.status === 'PRESENTE'
-  ).length;
-  const repositionPresent = session.attendanceRecords.filter(
-    (r) => r.attendanceType === 'REPOSICION' && r.status === 'PRESENTE'
+  // Payment is based solely on the number of students present, regardless of
+  // whether they attend as a regular class or as a make-up (reposición).
+  const presentCount = session.attendanceRecords.filter(
+    (r) => r.status === 'PRESENTE'
   ).length;
 
-  const bracketRate = getBracketRate(regularPresent, cfg);
+  const bracketRate = getBracketRate(presentCount, cfg);
   // Regular classes derive the professor from the group; makeup classes have no
   // group and carry their assigned professor directly in makeupProfessor.
   const professor =
     session.substituteProfessor || session.group?.professor || session.makeupProfessor;
-  const professorTotal =
-    bracketRate * effectiveUnits +
-    repositionPresent * repositionRate * effectiveUnits;
+  const professorTotal = bracketRate * effectiveUnits;
 
   // Delete previous cost records for this session before recalculating
   await prisma.costRecord.deleteMany({ where: { sessionId } });
 
   const records = [];
 
-  if (professor && (bracketRate > 0 || repositionPresent > 0)) {
+  if (professor && bracketRate > 0) {
     records.push({
       sessionId,
       professorId: professor.id,
       assistantId: null,
       payeeType: 'PROFESSOR',
-      presentCount: regularPresent,
+      presentCount,
       effectiveUnits: session.effectiveUnits,
       rate: bracketRate,
       total: professorTotal,

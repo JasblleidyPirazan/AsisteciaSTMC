@@ -64,8 +64,8 @@ Modelos: `User`, `Professor`, `Assistant`, `Student`, `Group`, `StudentEnrollmen
 - **`StudentEnrollment`**: PK compuesta `[studentId, groupId]`. `enrollmentType: PRIMARY | SECONDARY`. Un estudiante puede estar en varios grupos (multigrupo).
 - **`ClassSession`**: `UNIQUE([groupId, date])`. `status: PROGRAMADA | REALIZADA | CANCELADA | CANCELADA_MITAD`. `effectiveUnits` (Decimal). `substituteProfessorId?`, `assistantId?`, `reportedById?`.
 - **`AttendanceRecord`**: `UNIQUE([sessionId, studentId])`. `status: PRESENTE | AUSENTE | JUSTIFICADA`. `attendanceType: REGULAR | REPOSICION`.
-- **`CostRecord`**: `professorId?` **XOR** `assistantId?` (solo uno con valor según `payeeType`). `rate` = tarifa de tramo (NO por estudiante). `presentCount` = regulares presentes. `period` formato `"YYYY-MM-N"`.
-- **`SystemConfig`**: tabla key/value. Claves: `rate_2_students`, `rate_3_students`, `rate_4_students`, `rate_5plus_students`, `assistant_fixed_rate`, `reposition_rate`. (La vieja `rate_per_student` quedó obsoleta — ver §9.)
+- **`CostRecord`**: `professorId?` **XOR** `assistantId?` (solo uno con valor según `payeeType`). `rate` = tarifa de tramo (NO por estudiante). `presentCount` = total de estudiantes presentes (regulares + reposición). `period` formato `"YYYY-MM-N"`.
+- **`SystemConfig`**: tabla key/value. Claves: `rate_2_students`, `rate_3_students`, `rate_4_students`, `rate_5plus_students`, `assistant_fixed_rate`. (Las viejas `rate_per_student` y `reposition_rate` quedaron obsoletas — ver §9.)
 - **`SessionEditLog`**: `previousState`/`newState` en `Json`. Se crea solo cuando se re-finaliza una sesión ya finalizada.
 - **`Semester`**: solo uno con `active: true` a la vez (al activar uno, los demás se desactivan). `SemesterExclusion` = fechas no lectivas.
 
@@ -80,9 +80,11 @@ effectiveUnits: sencilla=1.0, doble=2.0, doble cancelada a la mitad=1.0
 Solo sesiones REALIZADA o CANCELADA_MITAD generan costo.
 
 Profesor (titular o sustituto, según corresponda):
-   bracketRate(regularPresent) × effectiveUnits
- + repositionPresent × reposition_rate × effectiveUnits
+   bracketRate(presentCount) × effectiveUnits
 
+   presentCount = total de estudiantes presentes (regulares + reposición;
+                  la reposición NO tiene tarifa aparte, cuenta como un
+                  estudiante más para el tramo)
    bracketRate: 1-2 → rate_2_students
                 3   → rate_3_students
                 4   → rate_4_students
