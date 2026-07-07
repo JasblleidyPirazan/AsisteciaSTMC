@@ -14,9 +14,9 @@ const DAYS = [
 const POLICIES_TEXT = `REGLAMENTO ESCUELA DE TENIS SANTA MARÍA — 2026
 
 I. Definiciones
-1. Semestre: ciclo de 40 clases de 45 minutos cada una (o su equivalente en clases dobles).
+1. Semestre: ciclo de 40 clases de 45 minutos cada una.
 2. Clase regular: sesión de 45 minutos. Cuenta como 1 clase en el conteo del semestre.
-3. Clase doble: sesión de 90 minutos. Equivale a 2 clases de 45 minutos en el conteo.
+3. Cada sesión programada cuenta como 1 clase; las clases no se acumulan ni se fraccionan.
 4. Clase de reposición: sesión adicional para recuperar una clase a la que el alumno tenía derecho y que no se realizó por causa no atribuible a él. Las reposiciones son grupales y sus horarios los asigna el Club.
 5. Estados de asistencia:
    • Asiste: el alumno asistió. Cuenta como clase recibida.

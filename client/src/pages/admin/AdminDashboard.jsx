@@ -74,7 +74,7 @@ export default function AdminDashboard() {
         )}
 
         <h2 className="mb-3">Módulos</h2>
-        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+        <div className="module-grid">
           {sections.map((s) => (
             <button
               key={s.path}

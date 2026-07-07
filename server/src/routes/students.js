@@ -72,7 +72,7 @@ router.get('/:id', async (req, res, next) => {
 
 router.post('/', requireRole('ADMIN', 'PHYSICAL_TRAINER'), async (req, res, next) => {
   try {
-    const { name, email, parentUserId, primaryGroupId, secondaryGroupId } = req.body;
+    const { name, email, parentUserId, primaryGroupId, secondaryGroupId, classesAcquired } = req.body;
     if (!name) return res.status(400).json({ success: false, error: 'Nombre requerido' });
 
     const student = await prisma.student.create({
@@ -80,6 +80,7 @@ router.post('/', requireRole('ADMIN', 'PHYSICAL_TRAINER'), async (req, res, next
         name,
         email: email || null,
         parentUserId: parentUserId || null,
+        classesAcquired: Number.isFinite(+classesAcquired) ? Math.max(0, parseInt(classesAcquired)) : 0,
         enrollments: {
           create: [
             ...(primaryGroupId ? [{ groupId: primaryGroupId, enrollmentType: 'PRIMARY' }] : []),
@@ -112,11 +113,12 @@ router.post('/', requireRole('ADMIN', 'PHYSICAL_TRAINER'), async (req, res, next
 
 router.put('/:id', requireRole('ADMIN', 'PHYSICAL_TRAINER'), async (req, res, next) => {
   try {
-    const { name, email, parentUserId, active, deactivationReason } = req.body;
+    const { name, email, parentUserId, active, deactivationReason, classesAcquired } = req.body;
     const data = {};
     if (name !== undefined) data.name = name;
     if (email !== undefined) data.email = email;
     if (parentUserId !== undefined) data.parentUserId = parentUserId;
+    if (classesAcquired !== undefined) data.classesAcquired = Math.max(0, parseInt(classesAcquired) || 0);
     if (active !== undefined) {
       data.active = active;
       if (!active) {

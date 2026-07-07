@@ -120,7 +120,7 @@ CORS_ORIGIN        # URL del dominio en Railway (ej: https://asisteciastmc.up.ra
 | `User` | Cuentas de acceso. Roles: ADMIN, TEACHER, ASSISTANT, PARENT |
 | `Professor` | Profesores (puede tener User vinculado) |
 | `Assistant` | Asistentes (puede tener User vinculado) |
-| `Student` | Estudiantes, vinculados a un padre (parentUserId) |
+| `Student` | Estudiantes, vinculados a un padre (parentUserId). `classesAcquired` = total de clases compradas para el semestre (lo fija el admin) |
 | `Group` | Grupos de clase: días, horario, cancha, nivel de bola, tipo sencilla/doble |
 | `StudentEnrollment` | Relación estudiante↔grupo (PRIMARY o SECONDARY) |
 | `ClassSession` | Sesión de clase: PROGRAMADA/REALIZADA/CANCELADA/CANCELADA_MITAD. `kind` REGULAR/MAKEUP; las reposiciones grupales tienen `groupId` null, `makeupProfessorId`, `title` y `effectiveUnits` = "por cuántas asistencias cuenta" |
@@ -143,9 +143,7 @@ CORS_ORIGIN        # URL del dominio en Railway (ej: https://asisteciastmc.up.ra
 Archivo: `server/src/services/costEngine.js`
 
 - Se ejecuta al hacer `POST /api/sessions/:id/finalize`
-- Clases sencillas (45 min): `effectiveUnits = 1.0`
-- Clases dobles (90 min): `effectiveUnits = 2.0`
-- Cancelada a la mitad: `effectiveUnits = 1.0` (toggle en el resumen)
+- Todas las clases regulares valen `effectiveUnits = 1.0` (los grupos dobles fueron eliminados del sistema). Las reposiciones grupales sí pueden definir `effectiveUnits` = "por cuántas asistencias cuenta"
 - **Profesor (tarifa por tramo)**: `tramo(presentes_totales) × units`
   - `presentes_totales` = todos los estudiantes presentes (regulares + reposición). La reposición **ya no tiene tarifa aparte**: cada estudiante en reposición cuenta como un presente más para el tramo
   - Tramos: 1-2 → `rate_2_students`, 3 → `rate_3_students`, 4 → `rate_4_students`, 5+ → `rate_5plus_students`
@@ -161,7 +159,7 @@ Archivo: `server/src/services/costEngine.js`
 1. Dashboard → seleccionar grupo del día
 2. Step1: ¿La clase se realizó? SI → sigue / NO → motivo → guarda CANCELADA → fin
 3. Step2: ¿Quién dictó? (titular por defecto, selector de sustituto, selector de asistente)
-4. Step3: Lista de estudiantes con botones P/A/J (44×44px), agregar reposición, toggle mitad
+4. Step3: Lista de estudiantes con botones P/A/J (44×44px); al lado de cada estudiante se muestran las **clases vistas / adquiridas** del semestre activo; agregar reposición
 5. Step4: Resumen con cálculo de pago (solo visible para ADMIN y TEACHER)
 
 ---
@@ -376,7 +374,7 @@ cd client && npm run build
 
 1. **CostRecord FK:** `professorId` y `assistantId` son ambos nullable. Solo uno tiene valor según `payeeType`. No usar `payeeId` genérico (causaba error en PostgreSQL).
 
-2. **classUnits:** Se calcula automáticamente al crear/editar grupo: `durationMinutes >= 80 → 2.0, else 1.0`.
+2. **classUnits:** Los grupos dobles fueron eliminados. Todo grupo se crea con `classUnits = 1.0` y toda sesión regular finaliza con `effectiveUnits = 1.0`. La columna `classUnits`/`effectiveUnits` y el estado `CANCELADA_MITAD` se conservan en el schema solo por compatibilidad con datos históricos; ya no se generan. Las reposiciones grupales siguen usando `effectiveUnits` como "por cuántas asistencias cuenta".
 
 3. **Quincenas:** `period` se almacena como `"2025-06-1"` (primera) o `"2025-06-2"` (segunda). Función `getPeriodForDate()` en costEngine.js.
 
@@ -405,3 +403,11 @@ cd client && npm run build
 15. **Reposiciones grupales (módulo):** Una reposición es un `ClassSession` con `kind=MAKEUP` y `groupId=null`. El admin o PF la crea en `/admin/makeups` asignando fecha, profesor, asistente (opcional), estudiantes (`MakeupParticipant`) y **"por cuántas asistencias cuenta"** (`effectiveUnits`). Luego se reporta su asistencia con el mismo motor de costos (`MakeupAttendancePage` → `POST /makeups/:id/finalize`). El pago al profesor = `getBracketRate(presentes) × effectiveUnits` (todos los participantes cuentan como REGULAR, no reposición). Como genera `CostRecord`, aparece automáticamente en liquidación quincenal y en el reporte de profesor (que ahora incluye sesiones con `makeupProfessorId`/`substituteProfessorId`). Aparecen en el Dashboard de profesor/PF como "Reposiciones pendientes". El `GET /sessions` normal las **excluye** (filtra `kind=REGULAR`).
 
 16. **Pago en Dashboard admin:** muestra el **pago de la quincena actual** (`totalPayableThisPeriod`, agregado por `period` = `getCurrentPeriod()`), no el total mensual. La liquidación es quincenal en todo el sistema.
+
+17. **Gestión de profesores (`ProfessorsPage`):** además de crear/desactivar, el admin puede **editar** el nombre y **gestionar la cuenta de acceso** de un profesor existente. `PUT /api/professors/:id` acepta `{ name?, active?, email?, password? }`: si el profesor no tiene `User`, crea uno (`role: TEACHER`); si ya lo tiene, actualiza email y/o contraseña (bcrypt 10 rounds, mín. 8 caracteres, valida email único). `GET /api/professors` incluye `user.email` para mostrar el estado de la cuenta.
+
+18. **Clases vistas / adquiridas:** `Student.classesAcquired` (Int, lo fija el admin en `StudentsPage`) = clases compradas. En el flujo de asistencia (Step3), `GET /groups/:id/students` devuelve además `classesSeen` (asistencias `PRESENTE` del estudiante dentro del **semestre activo**, o histórico total si no hay semestre activo) y `classesAcquired`, y se muestran como `vistas/adquiridas` al lado de cada estudiante.
+
+19. **Sin grupos dobles:** El sistema ya no maneja clases dobles. Grupos se crean con `classUnits = 1.0`, las sesiones regulares finalizan con `effectiveUnits = 1.0` y ya no se genera el estado `CANCELADA_MITAD` ni el toggle "¿se canceló a la mitad?". Las columnas/enum se conservan solo para datos históricos.
+
+20. **Responsive:** El layout es mobile-first pero la columna de contenido (`--page-max` en `index.css`) se ensancha por breakpoints: 480px (móvil) → 680px (≥768px) → 820px (≥1024px). `.action-bar` y `.modal-content` usan la misma variable. `.module-grid` (dashboard admin) y `.card-grid` (grupos del día) aumentan columnas en pantallas anchas.

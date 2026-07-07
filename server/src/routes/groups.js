@@ -75,7 +75,36 @@ router.get('/:id/students', async (req, res, next) => {
       include: { student: true },
       orderBy: { student: { name: 'asc' } },
     });
-    res.json({ success: true, data: enrollments.map((e) => e.student) });
+    const students = enrollments.map((e) => e.student);
+
+    // Attach "classes seen / acquired": seen = PRESENTE attendance records within
+    // the active semester (falls back to all-time if no semester is active).
+    const studentIds = students.map((s) => s.id);
+    const seenById = {};
+    if (studentIds.length > 0) {
+      const activeSemester = await prisma.semester.findFirst({ where: { active: true } });
+      const dateFilter = activeSemester
+        ? { gte: activeSemester.startDate, lte: activeSemester.endDate }
+        : undefined;
+      const present = await prisma.attendanceRecord.findMany({
+        where: {
+          studentId: { in: studentIds },
+          status: 'PRESENTE',
+          ...(dateFilter ? { session: { date: dateFilter } } : {}),
+        },
+        select: { studentId: true },
+      });
+      for (const r of present) seenById[r.studentId] = (seenById[r.studentId] || 0) + 1;
+    }
+
+    res.json({
+      success: true,
+      data: students.map((s) => ({
+        ...s,
+        classesSeen: seenById[s.id] || 0,
+        classesAcquired: s.classesAcquired,
+      })),
+    });
   } catch (err) {
     next(err);
   }
@@ -93,11 +122,10 @@ router.post('/', requireRole('ADMIN', 'PHYSICAL_TRAINER'), async (req, res, next
     const [sh, sm] = startTime.split(':').map(Number);
     const [eh, em] = endTime.split(':').map(Number);
     const durationMinutes = (eh * 60 + em) - (sh * 60 + sm);
-    const classUnits = durationMinutes >= 80 ? 2.0 : 1.0;
 
     const group = await prisma.group.create({
       data: {
-        code, name, professorId, startTime, endTime, durationMinutes, classUnits,
+        code, name, professorId, startTime, endTime, durationMinutes, classUnits: 1.0,
         court: court ? parseInt(court) : null, ballLevel,
         lunes: !!lunes, martes: !!martes, miercoles: !!miercoles, jueves: !!jueves,
         viernes: !!viernes, sabado: !!sabado, domingo: !!domingo,
@@ -139,7 +167,6 @@ router.put('/:id', requireRole('ADMIN', 'PHYSICAL_TRAINER'), async (req, res, ne
       data.startTime = st;
       data.endTime = et;
       data.durationMinutes = (eh * 60 + em) - (sh * 60 + sm);
-      data.classUnits = data.durationMinutes >= 80 ? 2.0 : 1.0;
     }
 
     const group = await prisma.group.update({

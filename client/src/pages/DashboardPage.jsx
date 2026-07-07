@@ -108,9 +108,11 @@ export default function DashboardPage() {
             ) : groups.length === 0 ? (
               <div className="alert alert-info">No hay grupos programados para este día.</div>
             ) : (
-              groups.map((g) => (
-                <GroupCard key={g.id} group={g} onClick={() => handleGroupClick(g)} />
-              ))
+              <div className="card-grid">
+                {groups.map((g) => (
+                  <GroupCard key={g.id} group={g} onClick={() => handleGroupClick(g)} />
+                ))}
+              </div>
             )}
           </>
         )}

@@ -13,6 +13,12 @@ export default function ProfessorsPage() {
   const [error, setError] = useState('');
   const [saving, setSaving] = useState(false);
 
+  // Edit modal
+  const [editTarget, setEditTarget] = useState(null); // professor object
+  const [editForm, setEditForm] = useState({ name: '', email: '', password: '' });
+  const [editError, setEditError] = useState('');
+  const [editSaving, setEditSaving] = useState(false);
+
   useEffect(() => {
     api.get('/professors', { active: 'true' })
       .then(setProfessors)
@@ -41,6 +47,33 @@ export default function ProfessorsPage() {
       setError(err.message);
     } finally {
       setSaving(false);
+    }
+  }
+
+  function openEdit(p) {
+    setEditTarget(p);
+    setEditForm({ name: p.name, email: p.user?.email || '', password: '' });
+    setEditError('');
+  }
+
+  async function handleEdit(e) {
+    e.preventDefault();
+    setEditSaving(true);
+    setEditError('');
+    try {
+      const payload = { name: editForm.name };
+      // Only send account fields when the admin actually changed them
+      if (editForm.email && editForm.email !== (editTarget.user?.email || '')) {
+        payload.email = editForm.email;
+      }
+      if (editForm.password) payload.password = editForm.password;
+      const updated = await api.put(`/professors/${editTarget.id}`, payload);
+      setProfessors(professors.map((p) => (p.id === editTarget.id ? { ...p, ...updated } : p)));
+      setEditTarget(null);
+    } catch (err) {
+      setEditError(err.message);
+    } finally {
+      setEditSaving(false);
     }
   }
 
@@ -118,10 +151,12 @@ export default function ProfessorsPage() {
           professors.map((p) => (
             <div key={p.id} className="card mb-2">
               <div className="flex items-center justify-between">
-                <div>
+                <div style={{ flex: 1, minWidth: 0 }}>
                   <div className="font-medium">{p.name}</div>
-                  {p.user?.email && (
+                  {p.user?.email ? (
                     <div className="text-xs text-gray">{p.user.email}</div>
+                  ) : (
+                    <div className="text-xs" style={{ color: 'var(--yellow)' }}>Sin cuenta de acceso</div>
                   )}
                   {p.groups?.length > 0 && (
                     <div className="text-xs text-gray">
@@ -129,18 +164,79 @@ export default function ProfessorsPage() {
                     </div>
                   )}
                 </div>
-                <button
-                  className="btn btn-ghost"
-                  style={{ minHeight: 32, padding: '0 8px', fontSize: '0.8rem', color: 'var(--red)' }}
-                  onClick={() => handleDeactivate(p.id)}
-                >
-                  Desactivar
-                </button>
+                <div style={{ display: 'flex', gap: 6, flexShrink: 0 }}>
+                  <button
+                    className="btn btn-ghost"
+                    style={{ minHeight: 32, padding: '0 8px', fontSize: '0.8rem' }}
+                    onClick={() => openEdit(p)}
+                  >
+                    Editar
+                  </button>
+                  <button
+                    className="btn btn-ghost"
+                    style={{ minHeight: 32, padding: '0 8px', fontSize: '0.8rem', color: 'var(--red)' }}
+                    onClick={() => handleDeactivate(p.id)}
+                  >
+                    Desactivar
+                  </button>
+                </div>
               </div>
             </div>
           ))
         )}
       </div>
+
+      {/* Edit modal */}
+      {editTarget && (
+        <div className="modal-overlay" onClick={() => setEditTarget(null)}>
+          <div className="modal-content" onClick={(e) => e.stopPropagation()}>
+            <h3 className="mb-3">Editar profesor</h3>
+            {editError && <div className="alert alert-error">{editError}</div>}
+            <form onSubmit={handleEdit}>
+              <div className="form-group">
+                <label className="form-label">Nombre *</label>
+                <input type="text" className="form-input" required maxLength={200}
+                  value={editForm.name} onChange={(e) => setEditForm({ ...editForm, name: e.target.value })} />
+              </div>
+
+              <div className="divider" />
+              <div className="text-sm font-medium mb-2">
+                {editTarget.user?.email ? 'Cuenta de acceso' : 'Crear cuenta de acceso'}
+              </div>
+
+              <div className="form-group">
+                <label className="form-label">Correo electrónico</label>
+                <input type="email" className="form-input" maxLength={254}
+                  placeholder="profesor@correo.com"
+                  value={editForm.email} onChange={(e) => setEditForm({ ...editForm, email: e.target.value })} />
+              </div>
+              <div className="form-group">
+                <label className="form-label">
+                  {editTarget.user?.email ? 'Nueva contraseña (opcional)' : 'Contraseña inicial'}
+                </label>
+                <input type="password" className="form-input" minLength={8} maxLength={128}
+                  placeholder={editTarget.user?.email ? 'Dejar vacío para no cambiar' : 'Mín. 8 caracteres'}
+                  value={editForm.password} onChange={(e) => setEditForm({ ...editForm, password: e.target.value })} />
+                <span className="text-xs text-gray">
+                  {editTarget.user?.email
+                    ? 'Solo cámbiala si quieres restablecer el acceso.'
+                    : 'Escribe correo y contraseña para habilitar el acceso del profesor.'}
+                </span>
+              </div>
+
+              <div className="flex gap-2 mt-2">
+                <button type="button" className="btn btn-outline" style={{ flex: 1 }}
+                  onClick={() => setEditTarget(null)}>
+                  Cancelar
+                </button>
+                <button type="submit" className="btn btn-primary" style={{ flex: 2 }} disabled={editSaving}>
+                  {editSaving ? 'Guardando...' : 'Guardar cambios'}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

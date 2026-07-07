@@ -23,7 +23,6 @@ export default function AttendanceFlow() {
   const [substitute, setSubstitute] = useState(null);
   const [assistant, setAssistant] = useState(null);
   const [attendanceRecords, setAttendanceRecords] = useState([]);
-  const [cancelledHalf, setCancelledHalf] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [done, setDone] = useState(false);
@@ -42,7 +41,6 @@ export default function AttendanceFlow() {
           setSession(existing);
           setSubstitute(existing.substituteProfessor || null);
           setAssistant(existing.assistant || null);
-          setCancelledHalf(existing.status === 'CANCELADA_MITAD');
           setAttendanceRecords(
             (existing.attendanceRecords || []).map((r) => ({
               studentId: r.studentId,
@@ -101,7 +99,6 @@ export default function AttendanceFlow() {
     try {
       const payload = {
         attendanceRecords,
-        cancelledHalf,
         substituteProfessorId: substitute?.id || null,
         assistantId: assistant?.id || null,
       };
@@ -200,8 +197,6 @@ export default function AttendanceFlow() {
             substitute={substitute}
             assistant={assistant}
             records={attendanceRecords}
-            cancelledHalf={cancelledHalf}
-            onCancelledHalfChange={setCancelledHalf}
             onSubmit={handleFinalize}
             loading={loading}
             userRole={user?.role}

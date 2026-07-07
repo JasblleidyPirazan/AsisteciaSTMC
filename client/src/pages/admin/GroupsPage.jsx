@@ -55,13 +55,6 @@ export default function GroupsPage() {
     setForm((f) => ({ ...f, [key]: val }));
   }
 
-  function derivedUnits() {
-    const [sh, sm] = form.startTime.split(':').map(Number);
-    const [eh, em] = form.endTime.split(':').map(Number);
-    const mins = (eh * 60 + em) - (sh * 60 + sm);
-    return mins >= 80 ? 'Doble (2 unidades)' : 'Sencilla (1 unidad)';
-  }
-
   async function handleCreate(e) {
     e.preventDefault();
     setSaving(true);
@@ -160,9 +153,6 @@ export default function GroupsPage() {
                     onChange={(e) => setField('endTime', e.target.value)} />
                 </div>
               </div>
-              {form.startTime && form.endTime && (
-                <div className="text-xs text-gray mb-3">Tipo: {derivedUnits()}</div>
-              )}
               <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
                 <div className="form-group">
                   <label className="form-label">Cancha</label>

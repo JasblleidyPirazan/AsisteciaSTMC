@@ -72,6 +72,7 @@ model Student {
   name               String
   email              String?
   parentUserId       String?   @map("parent_user_id")
+  classesAcquired    Int       @default(0) @map("classes_acquired")
   active             Boolean   @default(true)
   deactivationReason String?   @map("deactivation_reason")
   deactivatedAt      DateTime? @map("deactivated_at")

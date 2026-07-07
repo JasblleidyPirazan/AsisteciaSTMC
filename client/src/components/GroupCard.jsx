@@ -7,7 +7,6 @@ const BALL_COLORS = {
 
 export default function GroupCard({ group, onClick }) {
   const ballClass = BALL_COLORS[group.ballLevel] || 'badge-gray';
-  const isDouble = parseFloat(group.classUnits) === 2.0;
 
   return (
     <div className="card card-tap mb-3" onClick={onClick}>
@@ -19,7 +18,6 @@ export default function GroupCard({ group, onClick }) {
         <span>🕐 {group.startTime}–{group.endTime}</span>
         {group.court && <span>🎾 Cancha {group.court}</span>}
         {group.professor && <span>👤 {group.professor.name}</span>}
-        {isDouble && <span className="badge badge-blue">Clase doble</span>}
       </div>
     </div>
   );

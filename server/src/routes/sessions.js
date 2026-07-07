@@ -106,7 +106,7 @@ router.post('/', async (req, res, next) => {
         groupId,
         date: new Date(date),
         status: 'PROGRAMADA',
-        effectiveUnits: group.classUnits,
+        effectiveUnits: 1.0,
         substituteProfessorId: substituteProfessorId || null,
         assistantId: assistantId || null,
         reportedById: req.user.id,
@@ -126,7 +126,7 @@ router.post('/', async (req, res, next) => {
 // Finalize session: save attendance + run cost engine
 router.post('/:id/finalize', async (req, res, next) => {
   try {
-    const { attendanceRecords, cancelledHalf, substituteProfessorId, assistantId } = req.body;
+    const { attendanceRecords, substituteProfessorId, assistantId } = req.body;
 
     if (attendanceRecords !== undefined && !Array.isArray(attendanceRecords)) {
       return res.status(400).json({ success: false, error: 'attendanceRecords debe ser una lista' });
@@ -172,12 +172,9 @@ router.post('/:id/finalize', async (req, res, next) => {
       };
     }
 
-    let effectiveUnits = parseFloat(session.group.classUnits);
-    let status = 'REALIZADA';
-    if (cancelledHalf && effectiveUnits === 2.0) {
-      effectiveUnits = 1.0;
-      status = 'CANCELADA_MITAD';
-    }
+    // Every class counts as a single unit (double groups were removed).
+    const effectiveUnits = 1.0;
+    const status = 'REALIZADA';
 
     // Replace all attendance records so the latest report is the single source
     // of truth (an edit can also remove a reposition student, for example)

@@ -160,9 +160,9 @@ export default function ConfigPage() {
               </div>
             ))}
             <div className="card mb-2" style={{ background: 'var(--blue-light)', marginTop: 8 }}>
-              <div className="text-xs text-gray mb-1">Ejemplo · 3 presentes, clase doble:</div>
+              <div className="text-xs text-gray mb-1">Ejemplo · 3 estudiantes presentes:</div>
               <div className="text-sm font-medium">
-                Profesor: {fmt(config.rate_3_students)} × 2 = {fmt(Number(config.rate_3_students || 0) * 2)}
+                Profesor: {fmt(config.rate_3_students)} por la sesión
               </div>
             </div>
           </div>

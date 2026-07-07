@@ -8,9 +8,15 @@ export default function StudentsPage() {
   const [groups, setGroups] = useState([]);
   const [loading, setLoading] = useState(true);
   const [showForm, setShowForm] = useState(false);
-  const [form, setForm] = useState({ name: '', email: '', primaryGroupId: '', secondaryGroupId: '' });
+  const [form, setForm] = useState({ name: '', email: '', primaryGroupId: '', secondaryGroupId: '', classesAcquired: '' });
   const [error, setError] = useState('');
   const [saving, setSaving] = useState(false);
+
+  // Edit modal
+  const [editTarget, setEditTarget] = useState(null); // student object
+  const [editForm, setEditForm] = useState({ name: '', email: '', classesAcquired: '' });
+  const [editError, setEditError] = useState('');
+  const [editSaving, setEditSaving] = useState(false);
 
   // Sort: 'name' or 'group'
   const [sortBy, setSortBy] = useState('name');
@@ -59,11 +65,40 @@ export default function StudentsPage() {
       const s = await api.post('/students', form);
       setStudents([...students, s]);
       setShowForm(false);
-      setForm({ name: '', email: '', primaryGroupId: '', secondaryGroupId: '' });
+      setForm({ name: '', email: '', primaryGroupId: '', secondaryGroupId: '', classesAcquired: '' });
     } catch (err) {
       setError(err.message);
     } finally {
       setSaving(false);
+    }
+  }
+
+  function openEdit(student) {
+    setEditTarget(student);
+    setEditForm({
+      name: student.name,
+      email: student.email || '',
+      classesAcquired: student.classesAcquired != null ? String(student.classesAcquired) : '',
+    });
+    setEditError('');
+  }
+
+  async function handleEdit(e) {
+    e.preventDefault();
+    setEditSaving(true);
+    setEditError('');
+    try {
+      const updated = await api.put(`/students/${editTarget.id}`, {
+        name: editForm.name,
+        email: editForm.email || null,
+        classesAcquired: parseInt(editForm.classesAcquired) || 0,
+      });
+      setStudents(students.map((s) => (s.id === editTarget.id ? { ...s, ...updated } : s)));
+      setEditTarget(null);
+    } catch (err) {
+      setEditError(err.message);
+    } finally {
+      setEditSaving(false);
     }
   }
 
@@ -200,6 +235,13 @@ export default function StudentsPage() {
                   {groups.map((g) => <option key={g.id} value={g.id}>{g.code}</option>)}
                 </select>
               </div>
+              <div className="form-group">
+                <label className="form-label">Clases adquiridas</label>
+                <input type="number" className="form-input" min={0} placeholder="Ej: 40"
+                  value={form.classesAcquired}
+                  onChange={(e) => setForm({ ...form, classesAcquired: e.target.value })} />
+                <span className="text-xs text-gray">Total de clases que el estudiante compró para el semestre.</span>
+              </div>
               <div className="flex gap-2">
                 <button type="button" className="btn btn-outline" style={{ flex: 1 }} onClick={() => setShowForm(false)}>
                   Cancelar
@@ -225,8 +267,16 @@ export default function StudentsPage() {
                       {s.enrollments.map((e) => e.group?.code).join(' · ')}
                     </div>
                   )}
+                  <div className="text-xs text-gray">Clases adquiridas: {s.classesAcquired ?? 0}</div>
                 </div>
                 <div style={{ display: 'flex', gap: 6, flexShrink: 0 }}>
+                  <button
+                    className="btn btn-ghost"
+                    style={{ minHeight: 32, padding: '0 8px', fontSize: '0.75rem' }}
+                    onClick={() => openEdit(s)}
+                  >
+                    Editar
+                  </button>
                   <button
                     className="btn btn-ghost"
                     style={{ minHeight: 32, padding: '0 8px', fontSize: '0.75rem', color: 'var(--primary)' }}
@@ -247,6 +297,44 @@ export default function StudentsPage() {
           ))
         )}
       </div>
+
+      {/* Edit modal */}
+      {editTarget && (
+        <div className="modal-overlay" onClick={() => setEditTarget(null)}>
+          <div className="modal-content" onClick={(e) => e.stopPropagation()}>
+            <h3 className="mb-3">Editar estudiante</h3>
+            {editError && <div className="alert alert-error">{editError}</div>}
+            <form onSubmit={handleEdit}>
+              <div className="form-group">
+                <label className="form-label">Nombre *</label>
+                <input type="text" className="form-input" required maxLength={200}
+                  value={editForm.name} onChange={(e) => setEditForm({ ...editForm, name: e.target.value })} />
+              </div>
+              <div className="form-group">
+                <label className="form-label">Email</label>
+                <input type="email" className="form-input" maxLength={254}
+                  value={editForm.email} onChange={(e) => setEditForm({ ...editForm, email: e.target.value })} />
+              </div>
+              <div className="form-group">
+                <label className="form-label">Clases adquiridas</label>
+                <input type="number" className="form-input" min={0}
+                  value={editForm.classesAcquired}
+                  onChange={(e) => setEditForm({ ...editForm, classesAcquired: e.target.value })} />
+                <span className="text-xs text-gray">Total de clases que el estudiante compró para el semestre.</span>
+              </div>
+              <div className="flex gap-2 mt-2">
+                <button type="button" className="btn btn-outline" style={{ flex: 1 }}
+                  onClick={() => setEditTarget(null)}>
+                  Cancelar
+                </button>
+                <button type="submit" className="btn btn-primary" style={{ flex: 2 }} disabled={editSaving}>
+                  {editSaving ? 'Guardando...' : 'Guardar cambios'}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
 
       {/* Deactivation modal */}
       {deactivateTarget && (
