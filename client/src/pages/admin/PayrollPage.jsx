@@ -1,10 +1,17 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, Fragment } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { api } from '../../api/client';
 import { fmtDate } from '../../utils/dates';
 
 function fmt(n) {
   return new Intl.NumberFormat('es-CO', { style: 'currency', currency: 'COP', maximumFractionDigits: 0 }).format(n || 0);
+}
+
+function fmtDateTime(d) {
+  if (!d) return '';
+  return new Date(d).toLocaleString('es-CO', {
+    day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit',
+  });
 }
 
 const PAY_STATUS_BADGE = {
@@ -43,6 +50,7 @@ export default function PayrollPage() {
   const [expanded, setExpanded] = useState(null);
   const [detailMap, setDetailMap] = useState({});
   const [exporting, setExporting] = useState(false);
+  const [approving, setApproving] = useState(false);
 
   async function load() {
     setLoading(true);
@@ -89,6 +97,32 @@ export default function PayrollPage() {
     }
   }
 
+  async function handleApprove() {
+    if (!confirm(`¿Aprobar la liquidación del período ${period}? Quedará registrado con tu cuenta y la fecha actual.`)) return;
+    setApproving(true);
+    try {
+      await api.post('/payroll/approve', { period });
+      await load();
+    } catch (err) {
+      alert(err.message);
+    } finally {
+      setApproving(false);
+    }
+  }
+
+  async function handleRevert() {
+    if (!confirm('¿Revertir la aprobación de esta quincena?')) return;
+    setApproving(true);
+    try {
+      await api.delete(`/payroll/approve?period=${encodeURIComponent(period)}`);
+      await load();
+    } catch (err) {
+      alert(err.message);
+    } finally {
+      setApproving(false);
+    }
+  }
+
   useEffect(() => {
     load();
     setExpanded(null);
@@ -97,6 +131,7 @@ export default function PayrollPage() {
 
   const professors = summaryData?.items?.filter((s) => s.payeeType === 'PROFESSOR') || [];
   const assistants = summaryData?.items?.filter((s) => s.payeeType === 'ASSISTANT') || [];
+  const approval = summaryData?.approval || null;
 
   async function handleUnlock(sessionId, payeeId) {
     if (!confirm('¿Desbloquear el pago de esta clase reportada tarde?')) return;
@@ -112,6 +147,36 @@ export default function PayrollPage() {
     }
   }
 
+  function DetailRows({ detail, payeeId }) {
+    return (
+      <>
+        {detail.records?.map((r) => {
+          const badge = PAY_STATUS_BADGE[r.payStatus];
+          return (
+            <div key={r.id} style={{ padding: '4px 0' }}>
+              <div className="cost-row text-sm">
+                <span>
+                  {fmtDate(r.session.date, { day: 'numeric', month: 'short' })}
+                  {' · '}{r.session.group?.code || r.session.title}
+                  {r.presentCount > 0 && <span className="text-gray"> · {r.presentCount} est.</span>}
+                  {badge && <span className={`badge ${badge.cls}`} style={{ marginLeft: 6 }}>{badge.label}</span>}
+                </span>
+                <span>{fmt(r.total)}</span>
+              </div>
+              {r.payStatus === 'SUSPENDED_LATE' && (
+                <button className="btn btn-ghost" style={{ minHeight: 26, padding: '0 8px', fontSize: '0.72rem' }}
+                  onClick={() => handleUnlock(r.sessionId, payeeId)}>
+                  🔓 Desbloquear pago
+                </button>
+              )}
+            </div>
+          );
+        })}
+      </>
+    );
+  }
+
+  // Card (móvil / columna angosta)
   function PayeeCard({ s }) {
     const detail = detailMap[s.payeeId];
     const retained = (s.suspendedTotal || 0) + (s.pendingTotal || 0);
@@ -133,36 +198,78 @@ export default function PayrollPage() {
         </div>
         {expanded === s.payeeId && detail && (
           <div style={{ marginTop: 12, borderTop: '1px solid var(--gray-200)', paddingTop: 12 }}>
-            {detail.records?.map((r) => {
-              const badge = PAY_STATUS_BADGE[r.payStatus];
-              return (
-                <div key={r.id} style={{ padding: '4px 0' }}>
-                  <div className="cost-row text-sm">
-                    <span>
-                      {fmtDate(r.session.date, { day: 'numeric', month: 'short' })}
-                      {' · '}{r.session.group?.code || r.session.title}
-                      {r.presentCount > 0 && <span className="text-gray"> · {r.presentCount} est.</span>}
-                      {badge && <span className={`badge ${badge.cls}`} style={{ marginLeft: 6 }}>{badge.label}</span>}
-                    </span>
-                    <span>{fmt(r.total)}</span>
-                  </div>
-                  {r.payStatus === 'SUSPENDED_LATE' && (
-                    <button className="btn btn-ghost" style={{ minHeight: 26, padding: '0 8px', fontSize: '0.72rem' }}
-                      onClick={() => handleUnlock(r.sessionId, s.payeeId)}>
-                      🔓 Desbloquear pago
-                    </button>
-                  )}
-                </div>
-              );
-            })}
+            <DetailRows detail={detail} payeeId={s.payeeId} />
           </div>
         )}
       </div>
     );
   }
 
+  // Tabla (escritorio / pantalla ancha)
+  function PayeeTable({ items, label }) {
+    if (items.length === 0) return null;
+    const totalPayable = items.reduce((sum, s) => sum + (s.payableTotal ?? s.total), 0);
+    const totalRetained = items.reduce((sum, s) => sum + (s.suspendedTotal || 0) + (s.pendingTotal || 0), 0);
+    return (
+      <div className="table-wrap mb-4">
+        <table className="data-table">
+          <thead>
+            <tr>
+              <th style={{ width: 24 }}></th>
+              <th>{label}</th>
+              <th className="num">Clases</th>
+              <th className="num">Habilitado</th>
+              <th className="num">Retenido</th>
+            </tr>
+          </thead>
+          <tbody>
+            {items.map((s) => {
+              const detail = detailMap[s.payeeId];
+              const retained = (s.suspendedTotal || 0) + (s.pendingTotal || 0);
+              const isOpen = expanded === s.payeeId;
+              return (
+                <Fragment key={s.payeeId}>
+                  <tr className="clickable" onClick={() => loadDetail(s.payeeId)}>
+                    <td>{isOpen ? '▲' : '▼'}</td>
+                    <td className="font-medium">{s.name}</td>
+                    <td className="num">{s.classCount}</td>
+                    <td className="num font-medium" style={{ color: 'var(--blue)' }}>{fmt(s.payableTotal ?? s.total)}</td>
+                    <td className="num" style={{ color: retained > 0 ? 'var(--red)' : 'var(--gray-400)' }}>
+                      {retained > 0 ? fmt(retained) : '—'}
+                    </td>
+                  </tr>
+                  {isOpen && detail && (
+                    <tr>
+                      <td></td>
+                      <td colSpan={4} style={{ background: 'var(--gray-50)' }}>
+                        <DetailRows detail={detail} payeeId={s.payeeId} />
+                      </td>
+                    </tr>
+                  )}
+                </Fragment>
+              );
+            })}
+          </tbody>
+          <tfoot>
+            <tr>
+              <td></td>
+              <td>Total {label.toLowerCase()}</td>
+              <td></td>
+              <td className="num" style={{ color: 'var(--blue)' }}>{fmt(totalPayable)}</td>
+              <td className="num" style={{ color: totalRetained > 0 ? 'var(--red)' : 'inherit' }}>
+                {totalRetained > 0 ? fmt(totalRetained) : '—'}
+              </td>
+            </tr>
+          </tfoot>
+        </table>
+      </div>
+    );
+  }
+
+  const hasItems = summaryData && summaryData.items?.length > 0;
+
   return (
-    <div className="page">
+    <div className="page page-wide">
       <div className="page-header">
         <button className="nav-back" onClick={() => navigate('/admin')}>←</button>
         <h1>Liquidación</h1>
@@ -208,8 +315,40 @@ export default function PayrollPage() {
               </div>
             )}
 
+            {/* Aprobación de la quincena */}
+            {hasItems && (
+              approval ? (
+                <div className="card mb-3" style={{ borderColor: 'var(--green)', background: 'var(--green-light)' }}>
+                  <div className="flex items-center justify-between" style={{ gap: 8, flexWrap: 'wrap' }}>
+                    <div>
+                      <div className="font-medium" style={{ color: 'var(--green)' }}>✅ Liquidación aprobada</div>
+                      <div className="text-xs text-gray mt-1">
+                        Por {approval.approvedByName || '—'} · {fmtDateTime(approval.approvedAt)}
+                      </div>
+                      <div className="text-xs text-gray">
+                        Total aprobado: {fmt(approval.totalPayable)}
+                        {approval.totalRetained > 0 && ` · Retenido: ${fmt(approval.totalRetained)}`}
+                      </div>
+                    </div>
+                    <button className="btn btn-ghost" style={{ minHeight: 34, fontSize: '0.8rem', color: 'var(--red)' }}
+                      onClick={handleRevert} disabled={approving}>
+                      Revertir
+                    </button>
+                  </div>
+                </div>
+              ) : (
+                <button
+                  className="btn btn-success btn-full mb-3"
+                  onClick={handleApprove}
+                  disabled={approving}
+                >
+                  {approving ? 'Aprobando...' : '✅ Aprobar liquidación'}
+                </button>
+              )
+            )}
+
             <button
-              className="btn btn-outline btn-full mb-3"
+              className="btn btn-outline btn-full mb-4"
               style={{ fontSize: '0.875rem' }}
               onClick={handleExport}
               disabled={exporting}
@@ -217,27 +356,35 @@ export default function PayrollPage() {
               {exporting ? 'Exportando...' : '⬇ Exportar Excel'}
             </button>
 
-            {(!summaryData || summaryData.items?.length === 0) ? (
+            {!hasItems ? (
               <div className="alert alert-info">No hay registros de pago para este período.</div>
             ) : (
               <>
-                {professors.length > 0 && (
-                  <>
-                    <h3 className="mb-2" style={{ color: 'var(--gray-600)', fontSize: '0.85rem', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
-                      Profesores
-                    </h3>
-                    {professors.map((s) => <PayeeCard key={s.payeeId} s={s} />)}
-                  </>
-                )}
+                {/* Escritorio: tablas anchas */}
+                <div className="only-desktop">
+                  <PayeeTable items={professors} label="Profesores" />
+                  <PayeeTable items={assistants} label="Asistentes" />
+                </div>
 
-                {assistants.length > 0 && (
-                  <>
-                    <h3 className="mb-2 mt-3" style={{ color: 'var(--gray-600)', fontSize: '0.85rem', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
-                      Asistentes
-                    </h3>
-                    {assistants.map((s) => <PayeeCard key={s.payeeId} s={s} />)}
-                  </>
-                )}
+                {/* Móvil: cards */}
+                <div className="only-mobile">
+                  {professors.length > 0 && (
+                    <>
+                      <h3 className="mb-2" style={{ color: 'var(--gray-600)', fontSize: '0.85rem', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+                        Profesores
+                      </h3>
+                      {professors.map((s) => <PayeeCard key={s.payeeId} s={s} />)}
+                    </>
+                  )}
+                  {assistants.length > 0 && (
+                    <>
+                      <h3 className="mb-2 mt-3" style={{ color: 'var(--gray-600)', fontSize: '0.85rem', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+                        Asistentes
+                      </h3>
+                      {assistants.map((s) => <PayeeCard key={s.payeeId} s={s} />)}
+                    </>
+                  )}
+                </div>
               </>
             )}
           </>

@@ -10,6 +10,24 @@ const STAFF_ROLES = [
   { value: 'RECEPTION', label: 'Recepción' },
 ];
 
+// Orden y estilo de badge por rol para la vista unificada.
+const ROLE_ORDER = ['ADMIN', 'PHYSICAL_TRAINER', 'RECEPTION', 'TEACHER', 'ASSISTANT', 'PARENT'];
+const ROLE_BADGE = {
+  ADMIN: 'badge-blue',
+  PHYSICAL_TRAINER: 'badge-green',
+  RECEPTION: 'badge-green',
+  TEACHER: 'badge-gray',
+  ASSISTANT: 'badge-gray',
+  PARENT: 'badge-gray',
+};
+// Dónde se gestiona cada rol que no es personal (para orientar al admin).
+const MANAGED_AT = {
+  TEACHER: 'Profesores',
+  ASSISTANT: 'Asistentes',
+  PARENT: 'Inscripciones',
+  ADMIN: null,
+};
+
 export default function UsersPage() {
   const navigate = useNavigate();
   const [users, setUsers] = useState([]);
@@ -25,8 +43,12 @@ export default function UsersPage() {
   const [resetSaving, setResetSaving] = useState(false);
   const [resetError, setResetError] = useState('');
 
+  function loadUsers() {
+    return api.get('/users', { scope: 'all' }).then(setUsers);
+  }
+
   useEffect(() => {
-    api.get('/users').then(setUsers).finally(() => setLoading(false));
+    loadUsers().finally(() => setLoading(false));
   }, []);
 
   async function handleCreate(e) {
@@ -34,8 +56,8 @@ export default function UsersPage() {
     setSaving(true);
     setError('');
     try {
-      const u = await api.post('/users', form);
-      setUsers([...users, u].sort((a, b) => a.email.localeCompare(b.email)));
+      await api.post('/users', form);
+      await loadUsers();
       setShowForm(false);
       setForm(EMPTY_FORM);
     } catch (err) {
@@ -49,8 +71,8 @@ export default function UsersPage() {
     const action = u.active ? 'desactivar' : 'reactivar';
     if (!confirm(`¿Seguro que quieres ${action} a ${u.email}?`)) return;
     try {
-      const updated = await api.put(`/users/${u.id}`, { active: !u.active });
-      setUsers(users.map((x) => (x.id === u.id ? updated : x)));
+      await api.put(`/users/${u.id}`, { active: !u.active });
+      await loadUsers();
     } catch (err) {
       alert(err.message);
     }
@@ -73,11 +95,19 @@ export default function UsersPage() {
 
   if (loading) return <div className="page"><div className="spinner" /></div>;
 
+  // Agrupar por rol en el orden definido.
+  const byRole = ROLE_ORDER
+    .map((role) => ({ role, list: users.filter((u) => u.role === role) }))
+    .filter((g) => g.list.length > 0);
+
+  const total = users.length;
+  const activos = users.filter((u) => u.active).length;
+
   return (
     <div className="page">
       <div className="page-header">
         <button className="nav-back" onClick={() => navigate('/admin')}>←</button>
-        <h1>Usuarios</h1>
+        <h1>Usuarios y roles</h1>
         <button
           className="btn btn-primary"
           style={{ marginLeft: 'auto', minHeight: 36, padding: '0 12px', fontSize: '0.875rem' }}
@@ -89,12 +119,14 @@ export default function UsersPage() {
 
       <div className="page-content">
         <p className="text-sm text-gray mb-3">
-          Cuentas de Coordinador y Recepción. Los profesores y asistentes se gestionan en sus propias secciones.
+          Vista unificada de todas las cuentas ({activos} activas de {total}). Aquí se crean y gestionan las
+          cuentas de <strong>Coordinador</strong> y <strong>Recepción</strong>. Profesores, asistentes y
+          acudientes se ven aquí pero se gestionan en sus propias secciones.
         </p>
 
         {showForm && (
           <div className="card mb-4">
-            <h3 className="mb-3">Nuevo usuario</h3>
+            <h3 className="mb-3">Nuevo usuario de personal</h3>
             {error && <div className="alert alert-error">{error}</div>}
             <form onSubmit={handleCreate}>
               <div className="form-group">
@@ -127,34 +159,44 @@ export default function UsersPage() {
           </div>
         )}
 
-        {users.length === 0 ? (
-          <div className="alert alert-info">No hay cuentas de Coordinador o Recepción.</div>
-        ) : (
-          users.map((u) => (
-            <div key={u.id} className="card mb-2">
-              <div className="flex items-center justify-between">
-                <div style={{ flex: 1, minWidth: 0 }}>
-                  <div className="font-medium">{u.email}</div>
-                  <div className="text-xs text-gray">
-                    {roleLabel(u.role)}
-                    {!u.active && <span className="badge badge-red" style={{ marginLeft: 6 }}>Inactivo</span>}
+        {byRole.map(({ role, list }) => (
+          <div key={role} className="mb-4">
+            <h3 className="mb-2" style={{ color: 'var(--gray-600)', fontSize: '0.85rem', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+              {roleLabel(role)} · {list.length}
+            </h3>
+            {list.map((u) => (
+              <div key={u.id} className="card mb-2">
+                <div className="flex items-center justify-between" style={{ gap: 8 }}>
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <div className="font-medium" style={{ overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                      {u.name ? `${u.name} · ` : ''}{u.email}
+                    </div>
+                    <div className="text-xs text-gray" style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
+                      <span className={`badge ${ROLE_BADGE[u.role] || 'badge-gray'}`}>{roleLabel(u.role)}</span>
+                      {!u.active && <span className="badge badge-red">Inactivo</span>}
+                      {!u.manageable && MANAGED_AT[u.role] && (
+                        <span>Se gestiona en «{MANAGED_AT[u.role]}»</span>
+                      )}
+                    </div>
                   </div>
-                </div>
-                <div style={{ display: 'flex', gap: 6, flexShrink: 0 }}>
-                  <button className="btn btn-ghost" style={{ minHeight: 32, padding: '0 8px', fontSize: '0.75rem' }}
-                    onClick={() => { setResetTarget(u); setResetPassword(''); setResetError(''); }}>
-                    Contraseña
-                  </button>
-                  <button className="btn btn-ghost"
-                    style={{ minHeight: 32, padding: '0 8px', fontSize: '0.75rem', color: u.active ? 'var(--red)' : 'var(--green)' }}
-                    onClick={() => toggleActive(u)}>
-                    {u.active ? 'Desactivar' : 'Reactivar'}
-                  </button>
+                  {u.manageable && (
+                    <div style={{ display: 'flex', gap: 6, flexShrink: 0 }}>
+                      <button className="btn btn-ghost" style={{ minHeight: 32, padding: '0 8px', fontSize: '0.75rem' }}
+                        onClick={() => { setResetTarget(u); setResetPassword(''); setResetError(''); }}>
+                        Contraseña
+                      </button>
+                      <button className="btn btn-ghost"
+                        style={{ minHeight: 32, padding: '0 8px', fontSize: '0.75rem', color: u.active ? 'var(--red)' : 'var(--green)' }}
+                        onClick={() => toggleActive(u)}>
+                        {u.active ? 'Desactivar' : 'Reactivar'}
+                      </button>
+                    </div>
+                  )}
                 </div>
               </div>
-            </div>
-          ))
-        )}
+            ))}
+          </div>
+        ))}
       </div>
 
       {resetTarget && (

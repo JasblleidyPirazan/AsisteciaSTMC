@@ -28,7 +28,8 @@ export default function LoginPage() {
   }
 
   return (
-    <div className="page" style={{ display: 'flex', flexDirection: 'column', justifyContent: 'center', padding: '40px 20px', minHeight: '100vh' }}>
+    <div className="login-bg">
+      <div className="login-card">
       <div className="text-center mb-4">
         <div style={{ fontSize: '3.5rem', marginBottom: '8px' }}>🎾</div>
         <h1 style={{ fontSize: '1.75rem' }}>STMC</h1>
@@ -105,6 +106,7 @@ export default function LoginPage() {
         <a href="/enrollment" className="btn btn-outline btn-full">
           Formulario de inscripción
         </a>
+      </div>
       </div>
     </div>
   );

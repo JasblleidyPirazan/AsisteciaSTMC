@@ -115,6 +115,8 @@ router.get('/summary', requireRole('ADMIN'), async (req, res, next) => {
     const suspendedGrandTotal = sorted.reduce((sum, s) => sum + s.suspendedTotal, 0);
     const pendingGrandTotal = sorted.reduce((sum, s) => sum + s.pendingTotal, 0);
 
+    const approval = await prisma.payrollApproval.findUnique({ where: { period } });
+
     res.json({
       success: true,
       data: {
@@ -124,8 +126,85 @@ router.get('/summary', requireRole('ADMIN'), async (req, res, next) => {
         grandTotal: totalProfessors + totalAssistants,
         suspendedGrandTotal,
         pendingGrandTotal,
+        approval: approval
+          ? {
+              approvedByName: approval.approvedByName,
+              approvedAt: approval.approvedAt,
+              note: approval.note,
+              totalPayable: parseFloat(approval.totalPayable),
+              totalRetained: parseFloat(approval.totalRetained),
+            }
+          : null,
       },
     });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// Aprobar la liquidación de una quincena. Guarda auditoría (quién/cuándo) y una
+// foto de los totales al momento de aprobar. Idempotente por período (upsert).
+router.post('/approve', requireRole('ADMIN'), async (req, res, next) => {
+  try {
+    const { period, note } = req.body;
+    if (!period) return res.status(400).json({ success: false, error: 'period requerido' });
+
+    const records = await prisma.costRecord.findMany({ where: { period } });
+    if (records.length === 0) {
+      return res.status(400).json({ success: false, error: 'No hay registros de pago para aprobar en este período' });
+    }
+
+    let totalPayable = 0;
+    let totalRetained = 0;
+    for (const r of records) {
+      const amount = parseFloat(r.total);
+      if (r.payStatus === 'PAYABLE' || !r.payStatus) totalPayable += amount;
+      else totalRetained += amount;
+    }
+
+    const approvedByName = req.user.email;
+    const approval = await prisma.payrollApproval.upsert({
+      where: { period },
+      create: {
+        period,
+        approvedById: req.user.id,
+        approvedByName,
+        totalPayable,
+        totalRetained,
+        note: note?.trim() || null,
+      },
+      update: {
+        approvedById: req.user.id,
+        approvedByName,
+        totalPayable,
+        totalRetained,
+        note: note?.trim() || null,
+        approvedAt: new Date(),
+      },
+    });
+
+    res.json({
+      success: true,
+      data: {
+        approvedByName: approval.approvedByName,
+        approvedAt: approval.approvedAt,
+        note: approval.note,
+        totalPayable: parseFloat(approval.totalPayable),
+        totalRetained: parseFloat(approval.totalRetained),
+      },
+    });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// Revertir la aprobación de una quincena (p. ej. si hubo que ajustar registros).
+router.delete('/approve', requireRole('ADMIN'), async (req, res, next) => {
+  try {
+    const { period } = req.query;
+    if (!period) return res.status(400).json({ success: false, error: 'period requerido' });
+    await prisma.payrollApproval.deleteMany({ where: { period } });
+    res.json({ success: true, data: null });
   } catch (err) {
     next(err);
   }

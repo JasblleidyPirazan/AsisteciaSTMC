@@ -11,17 +11,48 @@ const STAFF_ROLES = ['PHYSICAL_TRAINER', 'RECEPTION'];
 
 router.get('/', requireRole('ADMIN'), async (req, res, next) => {
   try {
-    const { role } = req.query;
-    const where = { role: role ? role : { in: STAFF_ROLES } };
-    if (role && !STAFF_ROLES.includes(role)) {
-      return res.status(400).json({ success: false, error: 'Rol no gestionable desde aquí' });
+    const { role, scope } = req.query;
+
+    // scope=all → vista unificada de todas las cuentas (solo lectura para las
+    // que no son de personal). Sin scope → solo cuentas gestionables aquí.
+    let where;
+    if (scope === 'all') {
+      where = {};
+    } else if (role) {
+      if (!STAFF_ROLES.includes(role)) {
+        return res.status(400).json({ success: false, error: 'Rol no gestionable desde aquí' });
+      }
+      where = { role };
+    } else {
+      where = { role: { in: STAFF_ROLES } };
     }
+
     const users = await prisma.user.findMany({
       where,
-      select: { id: true, email: true, role: true, active: true, createdAt: true },
+      select: {
+        id: true,
+        email: true,
+        role: true,
+        active: true,
+        createdAt: true,
+        professor: { select: { name: true } },
+        assistant: { select: { name: true } },
+      },
       orderBy: { email: 'asc' },
     });
-    res.json({ success: true, data: users });
+
+    // Marca qué cuentas se pueden gestionar desde esta pantalla (personal).
+    const enriched = users.map((u) => ({
+      id: u.id,
+      email: u.email,
+      role: u.role,
+      active: u.active,
+      createdAt: u.createdAt,
+      name: u.professor?.name || u.assistant?.name || null,
+      manageable: STAFF_ROLES.includes(u.role),
+    }));
+
+    res.json({ success: true, data: enriched });
   } catch (err) {
     next(err);
   }

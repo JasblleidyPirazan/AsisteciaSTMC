@@ -18,7 +18,7 @@ const ALL_SECTIONS = [
   { label: 'Alertas', path: '/admin/alerts', icon: '🚨', roles: ['ADMIN', 'PHYSICAL_TRAINER'] },
   { label: 'Profesores', path: '/admin/professors', icon: '🏫', roles: ['ADMIN'] },
   { label: 'Asistentes', path: '/admin/assistants', icon: '🤝', roles: ['ADMIN'] },
-  { label: 'Usuarios', path: '/admin/users', icon: '🔑', roles: ['ADMIN'] },
+  { label: 'Usuarios y roles', path: '/admin/users', icon: '🔑', roles: ['ADMIN'] },
   { label: 'Liquidación', path: '/admin/payroll', icon: '💰', roles: ['ADMIN'] },
   { label: 'Inscripciones', path: '/admin/enrollment', icon: '📋', roles: ['ADMIN'] },
   { label: 'Configuración', path: '/admin/config', icon: '⚙️', roles: ['ADMIN'] },

@@ -38,7 +38,14 @@ html { font-size: 16px; }
 
 body {
   font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
-  background: var(--gray-50);
+  /* Fondo branded: degradado suave con acento de cancha (azul → verde tenis).
+     En móvil queda cubierto por la columna blanca de .page; se ve alrededor
+     de la columna centrada en pantallas anchas. */
+  background-color: var(--gray-50);
+  background-image:
+    radial-gradient(1200px 600px at 100% -10%, rgba(37, 99, 235, 0.10), transparent 60%),
+    radial-gradient(1000px 500px at -10% 110%, rgba(22, 163, 74, 0.10), transparent 60%);
+  background-attachment: fixed;
   color: var(--gray-800);
   min-height: 100vh;
   -webkit-font-smoothing: antialiased;
@@ -352,6 +359,76 @@ p { line-height: 1.5; }
 @media (min-width: 1024px) {
   :root { --page-max: 820px; }
   .module-grid { grid-template-columns: repeat(4, 1fr); }
+}
+
+/* Página ancha (optimizada para computador): la usan vistas de gestión densas
+   como la aprobación de liquidación. En móvil se comporta igual que .page. */
+.page-wide { max-width: var(--page-max); }
+@media (min-width: 1024px) {
+  .page-wide { max-width: 1120px; }
+}
+
+/* Tabla de datos (solo visible en pantallas anchas; en móvil se usan cards) */
+.table-wrap { overflow-x: auto; }
+.data-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.9rem;
+  background: #fff;
+  border: 1.5px solid var(--gray-200);
+  border-radius: var(--radius);
+  overflow: hidden;
+}
+.data-table th, .data-table td {
+  padding: 10px 14px;
+  text-align: left;
+  border-bottom: 1px solid var(--gray-100);
+}
+.data-table thead th {
+  background: var(--gray-50);
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: var(--gray-600);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  white-space: nowrap;
+}
+.data-table tbody tr:last-child td { border-bottom: none; }
+.data-table tbody tr.clickable { cursor: pointer; }
+.data-table tbody tr.clickable:hover { background: var(--gray-50); }
+.data-table td.num, .data-table th.num { text-align: right; white-space: nowrap; font-variant-numeric: tabular-nums; }
+.data-table tfoot td {
+  padding: 12px 14px;
+  font-weight: 700;
+  border-top: 2px solid var(--gray-200);
+  background: var(--gray-50);
+}
+/* Mostrar/ocultar según ancho: cards en móvil, tabla en escritorio */
+.only-desktop { display: none; }
+@media (min-width: 1024px) {
+  .only-desktop { display: block; }
+  .only-mobile { display: none; }
+}
+
+/* Login con fondo branded a pantalla completa */
+.login-bg {
+  min-height: 100vh;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px 16px;
+  background-image:
+    radial-gradient(900px 500px at 100% 0%, rgba(37, 99, 235, 0.18), transparent 55%),
+    radial-gradient(800px 500px at 0% 100%, rgba(22, 163, 74, 0.16), transparent 55%);
+}
+.login-card {
+  width: 100%;
+  max-width: 400px;
+  background: #fff;
+  border-radius: var(--radius);
+  border: 1px solid var(--gray-200);
+  box-shadow: var(--shadow-md);
+  padding: 32px 24px;
 }
 
 /* Modal */
