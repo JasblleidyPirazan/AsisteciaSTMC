@@ -252,6 +252,8 @@ router.post('/:id/finalize', async (req, res, next) => {
     const sessionData = { status: 'REALIZADA', reportedById: req.user.id };
     if (substituteProfessorId !== undefined) sessionData.substituteProfessorId = substituteProfessorId || null;
     if (assistantId !== undefined) sessionData.assistantId = assistantId || null;
+    // Only the first report stamps firstReportedAt (late-report pay suspension)
+    if (!session.firstReportedAt) sessionData.firstReportedAt = new Date();
 
     await prisma.classSession.update({ where: { id: req.params.id }, data: sessionData });
 

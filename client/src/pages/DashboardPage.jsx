@@ -99,6 +99,7 @@ export default function DashboardPage() {
           <AssistantView groups={groups} loading={loading} date={date} />
         ) : (
           <>
+            <PendingReportsAlert />
             <PendingMakeups />
             <div className="flex items-center justify-between mb-3">
               <h2>Grupos del día</h2>
@@ -117,6 +118,39 @@ export default function DashboardPage() {
             )}
           </>
         )}
+      </div>
+    </div>
+  );
+}
+
+function PendingReportsAlert() {
+  const { user } = useAuth();
+  const [data, setData] = useState(null);
+
+  useEffect(() => {
+    if (!['TEACHER', 'ADMIN', 'PHYSICAL_TRAINER'].includes(user?.role)) return;
+    api.get('/alerts/pending-reports').then(setData).catch(() => {});
+  }, [user?.role]);
+
+  if (!data || data.totalPending === 0) return null;
+
+  const isTeacher = user?.role === 'TEACHER';
+  return (
+    <div className="alert alert-error mb-4" style={{ marginBottom: 16 }}>
+      <div className="font-medium">
+        ⚠️ {isTeacher ? 'Tienes' : 'Hay'} {data.totalPending} clase{data.totalPending !== 1 ? 's' : ''} sin reportar
+      </div>
+      <div className="text-sm mt-2">
+        Una clase que no se reporta el mismo día en que fue dictada queda con el
+        <strong> pago suspendido</strong>; solo el administrador puede desbloquearlo.
+      </div>
+      <div className="text-xs mt-2">
+        {data.groups.map((g) => (
+          <div key={g.groupId}>
+            {g.code}{!isTeacher && g.professor ? ` (${g.professor.name})` : ''}: {g.pendingDates.slice(0, 4).join(', ')}
+            {g.pendingDates.length > 4 ? ` y ${g.pendingDates.length - 4} más` : ''}
+          </div>
+        ))}
       </div>
     </div>
   );

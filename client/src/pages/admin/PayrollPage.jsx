@@ -7,6 +7,11 @@ function fmt(n) {
   return new Intl.NumberFormat('es-CO', { style: 'currency', currency: 'COP', maximumFractionDigits: 0 }).format(n || 0);
 }
 
+const PAY_STATUS_BADGE = {
+  SUSPENDED_LATE: { cls: 'badge-red', label: 'Suspendido' },
+  PENDING_MATCH: { cls: 'badge-yellow', label: 'Pendiente' },
+};
+
 function buildPeriodOptions() {
   const options = [];
   const now = new Date();
@@ -93,8 +98,23 @@ export default function PayrollPage() {
   const professors = summaryData?.items?.filter((s) => s.payeeType === 'PROFESSOR') || [];
   const assistants = summaryData?.items?.filter((s) => s.payeeType === 'ASSISTANT') || [];
 
+  async function handleUnlock(sessionId, payeeId) {
+    if (!confirm('¿Desbloquear el pago de esta clase reportada tarde?')) return;
+    try {
+      await api.post(`/sessions/${sessionId}/unlock-payment`, {});
+      // Refresh both the detail and the summary totals
+      const data = await api.get('/payroll', { period, payeeId });
+      const entry = Array.isArray(data) ? data.find((d) => d.payeeId === payeeId) : null;
+      setDetailMap((prev) => ({ ...prev, [payeeId]: entry }));
+      await load();
+    } catch (err) {
+      alert(err.message);
+    }
+  }
+
   function PayeeCard({ s }) {
     const detail = detailMap[s.payeeId];
+    const retained = (s.suspendedTotal || 0) + (s.pendingTotal || 0);
     return (
       <div className="card mb-2">
         <div className="flex items-center justify-between" onClick={() => loadDetail(s.payeeId)}
@@ -102,24 +122,39 @@ export default function PayrollPage() {
           <div>
             <div className="font-medium">{s.name}</div>
             <div className="text-xs text-gray">{s.classCount} clases</div>
+            {retained > 0 && (
+              <div className="text-xs" style={{ color: 'var(--red)' }}>Retenido: {fmt(retained)}</div>
+            )}
           </div>
           <div style={{ textAlign: 'right' }}>
-            <div className="cost-total">{fmt(s.total)}</div>
+            <div className="cost-total">{fmt(s.payableTotal ?? s.total)}</div>
             <div className="text-xs text-gray">{expanded === s.payeeId ? '▲' : '▼'}</div>
           </div>
         </div>
         {expanded === s.payeeId && detail && (
           <div style={{ marginTop: 12, borderTop: '1px solid var(--gray-200)', paddingTop: 12 }}>
-            {detail.records?.map((r) => (
-              <div key={r.id} className="cost-row text-sm">
-                <span>
-                  {fmtDate(r.session.date, { day: 'numeric', month: 'short' })}
-                  {' · '}{r.session.group?.code}
-                  {r.presentCount > 0 && <span className="text-gray"> · {r.presentCount} est.</span>}
-                </span>
-                <span>{fmt(r.total)}</span>
-              </div>
-            ))}
+            {detail.records?.map((r) => {
+              const badge = PAY_STATUS_BADGE[r.payStatus];
+              return (
+                <div key={r.id} style={{ padding: '4px 0' }}>
+                  <div className="cost-row text-sm">
+                    <span>
+                      {fmtDate(r.session.date, { day: 'numeric', month: 'short' })}
+                      {' · '}{r.session.group?.code || r.session.title}
+                      {r.presentCount > 0 && <span className="text-gray"> · {r.presentCount} est.</span>}
+                      {badge && <span className={`badge ${badge.cls}`} style={{ marginLeft: 6 }}>{badge.label}</span>}
+                    </span>
+                    <span>{fmt(r.total)}</span>
+                  </div>
+                  {r.payStatus === 'SUSPENDED_LATE' && (
+                    <button className="btn btn-ghost" style={{ minHeight: 26, padding: '0 8px', fontSize: '0.72rem' }}
+                      onClick={() => handleUnlock(r.sessionId, s.payeeId)}>
+                      🔓 Desbloquear pago
+                    </button>
+                  )}
+                </div>
+              );
+            })}
           </div>
         )}
       </div>
@@ -157,9 +192,19 @@ export default function PayrollPage() {
                   <span className="font-medium">{fmt(summaryData.totalAssistants)}</span>
                 </div>
                 <div className="cost-row" style={{ borderTop: '1px solid var(--gray-200)', paddingTop: 8 }}>
-                  <span className="font-medium">Gran total</span>
+                  <span className="font-medium">Gran total (habilitado)</span>
                   <span className="cost-total">{fmt(summaryData.grandTotal)}</span>
                 </div>
+                {(summaryData.suspendedGrandTotal > 0 || summaryData.pendingGrandTotal > 0) && (
+                  <div className="cost-row mt-1">
+                    <span className="text-sm" style={{ color: 'var(--red)' }}>
+                      Retenido (suspendido/pendiente)
+                    </span>
+                    <span className="text-sm font-medium" style={{ color: 'var(--red)' }}>
+                      {fmt((summaryData.suspendedGrandTotal || 0) + (summaryData.pendingGrandTotal || 0))}
+                    </span>
+                  </div>
+                )}
               </div>
             )}
 

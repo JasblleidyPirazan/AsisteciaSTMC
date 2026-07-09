@@ -160,6 +160,9 @@ model ClassSession {
   substituteProfessorId String?       @map("substitute_professor_id")
   assistantId           String?       @map("assistant_id")
   reportedById          String?       @map("reported_by_id")
+  firstReportedAt       DateTime?     @map("first_reported_at")
+  paymentUnlockedById   String?       @map("payment_unlocked_by_id")
+  paymentUnlockedAt     DateTime?     @map("payment_unlocked_at")
   createdAt             DateTime      @default(now()) @map("created_at")
 
   group               Group?              @relation(fields: [groupId], references: [id])
@@ -259,6 +262,7 @@ model CostRecord {
   rate           Decimal   @db.Decimal(12, 2)
   total          Decimal   @db.Decimal(12, 2)
   period         String
+  payStatus      PayStatus @default(PAYABLE) @map("pay_status")
   createdAt      DateTime  @default(now()) @map("created_at")
 
   session   ClassSession @relation(fields: [sessionId], references: [id])
@@ -271,6 +275,12 @@ model CostRecord {
 enum PayeeType {
   PROFESSOR
   ASSISTANT
+}
+
+enum PayStatus {
+  PAYABLE // habilitado para pago
+  SUSPENDED_LATE // suspendido por reporte tardío; solo ADMIN desbloquea
+  PENDING_MATCH // asistente a la espera de la triple coincidencia
 }
 
 model MakeupClass {

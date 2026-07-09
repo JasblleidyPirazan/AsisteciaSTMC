@@ -1,4 +1,5 @@
 const prisma = require('../lib/prisma');
+const { bogotaDateStr, dbDateStr } = require('../lib/dates');
 
 function getCurrentPeriod() {
   const now = new Date();
@@ -74,6 +75,17 @@ async function calculateCosts(sessionId) {
     session.substituteProfessor || session.group?.professor || session.makeupProfessor;
   const professorTotal = bracketRate * effectiveUnits;
 
+  // Pay suspension for late reports: a class not reported the SAME DAY it was
+  // dictated (America/Bogota) is auto-suspended; only ADMIN can unlock it.
+  // payStatus is derived from session fields (never stored only on the cost
+  // record) because this engine deletes and recreates records on every edit.
+  // Historical sessions have firstReportedAt = null → never marked late.
+  const isLate =
+    session.firstReportedAt != null &&
+    bogotaDateStr(session.firstReportedAt) > dbDateStr(session.date);
+  const professorPayStatus =
+    isLate && !session.paymentUnlockedAt ? 'SUSPENDED_LATE' : 'PAYABLE';
+
   // Delete previous cost records for this session before recalculating
   await prisma.costRecord.deleteMany({ where: { sessionId } });
 
@@ -90,6 +102,7 @@ async function calculateCosts(sessionId) {
       rate: bracketRate,
       total: professorTotal,
       period,
+      payStatus: professorPayStatus,
     });
   }
 

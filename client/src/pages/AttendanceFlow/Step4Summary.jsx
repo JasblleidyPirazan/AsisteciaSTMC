@@ -16,6 +16,11 @@ export default function Step4Summary({ group, session, substitute, assistant, re
     }
   }, [userRole]);
 
+  // Late report warning: reporting after the class date suspends the pay
+  const sessionDate = session?.date ? String(session.date).slice(0, 10) : null;
+  const todayStr = new Date().toLocaleDateString('en-CA');
+  const isLateReport = !editing && sessionDate && sessionDate < todayStr;
+
   const present = records.filter((r) => r.status === 'PRESENTE').length;
   const absent = records.filter((r) => r.status === 'AUSENTE').length;
   const justified = records.filter((r) => r.status === 'JUSTIFICADA').length;
@@ -28,6 +33,13 @@ export default function Step4Summary({ group, session, substitute, assistant, re
     <div>
       <h2 className="mb-2">Resumen</h2>
       <p className="text-gray text-sm mb-4">Revisa antes de enviar el reporte</p>
+
+      {isLateReport && (
+        <div className="alert alert-error mb-3">
+          ⚠️ Este reporte es tardío (la clase no se reportó el mismo día). El pago
+          quedará <strong>suspendido</strong> hasta que el administrador lo desbloquee.
+        </div>
+      )}
 
       {/* Group info */}
       <div className="card mb-3">

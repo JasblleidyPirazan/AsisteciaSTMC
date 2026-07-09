@@ -213,6 +213,9 @@ router.post('/:id/finalize', async (req, res, next) => {
     const sessionData = { status, effectiveUnits, reportedById: req.user.id };
     if (substituteProfessorId !== undefined) sessionData.substituteProfessorId = substituteProfessorId || null;
     if (assistantId !== undefined) sessionData.assistantId = assistantId || null;
+    // Only the FIRST report stamps firstReportedAt — later edits never
+    // re-suspend a report that was made on time (regla de pago suspendido)
+    if (!session.firstReportedAt) sessionData.firstReportedAt = new Date();
     if (dictatedByOwner !== undefined) {
       sessionData.dictatedByOwner = dictatedByOwner !== false;
       sessionData.notDictatedNote = dictatedByOwner === false
@@ -295,6 +298,27 @@ router.post('/:id/cancel', async (req, res, next) => {
     await prisma.costRecord.deleteMany({ where: { sessionId: req.params.id } });
 
     res.json({ success: true, data: session });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// Unlock the pay of a late-reported class — ONLY the admin can do this
+router.post('/:id/unlock-payment', async (req, res, next) => {
+  try {
+    if (req.user.role !== 'ADMIN') {
+      return res.status(403).json({ success: false, error: 'Solo el administrador puede desbloquear pagos' });
+    }
+    const session = await prisma.classSession.findUnique({ where: { id: req.params.id } });
+    if (!session) return res.status(404).json({ success: false, error: 'Sesión no encontrada' });
+
+    await prisma.classSession.update({
+      where: { id: req.params.id },
+      data: { paymentUnlockedById: req.user.id, paymentUnlockedAt: new Date() },
+    });
+    await calculateCosts(req.params.id);
+
+    res.json({ success: true, data: { message: 'Pago desbloqueado' } });
   } catch (err) {
     next(err);
   }
