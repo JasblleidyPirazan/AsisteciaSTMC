@@ -1,14 +1,37 @@
 const express = require('express');
 const prisma = require('../lib/prisma');
 const { requireRole } = require('../middleware/auth');
+const { bogotaToday } = require('../lib/dates');
+const { notSuspended } = require('../lib/filters');
 
 const router = express.Router();
 
+// Derived state shown across the app:
+// INACTIVO (soft-deleted) | SUSPENDIDO (today inside suspension range) |
+// MATRICULADO (payment complete) | INSCRITO (payments pending)
+function studentStatus(student, today = bogotaToday()) {
+  if (!student.active) return 'INACTIVO';
+  if (
+    student.suspendedFrom && student.suspendedUntil &&
+    today >= new Date(student.suspendedFrom) && today <= new Date(student.suspendedUntil)
+  ) {
+    return 'SUSPENDIDO';
+  }
+  return student.paymentComplete ? 'MATRICULADO' : 'INSCRITO';
+}
+
+function withStatus(student) {
+  return { ...student, studentStatus: studentStatus(student) };
+}
+
 router.get('/', async (req, res, next) => {
   try {
-    const { active, groupId } = req.query;
+    const { active, groupId, excludeSuspended } = req.query;
     const where = {};
     if (active !== 'false') where.active = true;
+    // Roster pickers (drop-ins, reposiciones, festivales) hide suspended
+    // students; the admin list keeps showing them with their badge.
+    if (excludeSuspended === 'true') Object.assign(where, notSuspended());
 
     // Parent can only see their own children
     if (req.user.role === 'PARENT') {
@@ -33,7 +56,7 @@ router.get('/', async (req, res, next) => {
       });
     }
 
-    res.json({ success: true, data: students });
+    res.json({ success: true, data: students.map(withStatus) });
   } catch (err) {
     next(err);
   }
@@ -47,7 +70,7 @@ router.get('/:id', async (req, res, next) => {
         include: { enrollments: { include: { group: true } } },
       });
       if (!student) return res.status(403).json({ success: false, error: 'Acceso no autorizado' });
-      return res.json({ success: true, data: student });
+      return res.json({ success: true, data: withStatus(student) });
     }
 
     const student = await prisma.student.findUnique({
@@ -64,7 +87,7 @@ router.get('/:id', async (req, res, next) => {
       },
     });
     if (!student) return res.status(404).json({ success: false, error: 'Estudiante no encontrado' });
-    res.json({ success: true, data: student });
+    res.json({ success: true, data: withStatus(student) });
   } catch (err) {
     next(err);
   }
@@ -72,7 +95,7 @@ router.get('/:id', async (req, res, next) => {
 
 router.post('/', requireRole('ADMIN', 'PHYSICAL_TRAINER'), async (req, res, next) => {
   try {
-    const { name, email, parentUserId, primaryGroupId, secondaryGroupId } = req.body;
+    const { name, email, parentUserId, primaryGroupId, secondaryGroupId, classesAcquired } = req.body;
     if (!name) return res.status(400).json({ success: false, error: 'Nombre requerido' });
 
     const student = await prisma.student.create({
@@ -80,6 +103,7 @@ router.post('/', requireRole('ADMIN', 'PHYSICAL_TRAINER'), async (req, res, next
         name,
         email: email || null,
         parentUserId: parentUserId || null,
+        classesAcquired: Number.isFinite(+classesAcquired) ? Math.max(0, parseInt(classesAcquired)) : 0,
         enrollments: {
           create: [
             ...(primaryGroupId ? [{ groupId: primaryGroupId, enrollmentType: 'PRIMARY' }] : []),
@@ -112,11 +136,12 @@ router.post('/', requireRole('ADMIN', 'PHYSICAL_TRAINER'), async (req, res, next
 
 router.put('/:id', requireRole('ADMIN', 'PHYSICAL_TRAINER'), async (req, res, next) => {
   try {
-    const { name, email, parentUserId, active, deactivationReason } = req.body;
+    const { name, email, parentUserId, active, deactivationReason, classesAcquired } = req.body;
     const data = {};
     if (name !== undefined) data.name = name;
     if (email !== undefined) data.email = email;
     if (parentUserId !== undefined) data.parentUserId = parentUserId;
+    if (classesAcquired !== undefined) data.classesAcquired = Math.max(0, parseInt(classesAcquired) || 0);
     if (active !== undefined) {
       data.active = active;
       if (!active) {
@@ -130,7 +155,73 @@ router.put('/:id', requireRole('ADMIN', 'PHYSICAL_TRAINER'), async (req, res, ne
       data,
       include: { enrollments: { include: { group: true } } },
     });
-    res.json({ success: true, data: student });
+    res.json({ success: true, data: withStatus(student) });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// Payment status (Inscrito ↔ Matriculado). Separate endpoint so RECEPTION can
+// flip it without being able to edit anything else about the student.
+router.patch('/:id/payment-status', requireRole('ADMIN', 'RECEPTION'), async (req, res, next) => {
+  try {
+    const { paymentComplete } = req.body;
+    if (typeof paymentComplete !== 'boolean') {
+      return res.status(400).json({ success: false, error: 'paymentComplete (true/false) requerido' });
+    }
+    const student = await prisma.student.update({
+      where: { id: req.params.id },
+      data: { paymentComplete },
+      include: { enrollments: { include: { group: { select: { id: true, code: true, name: true } } } } },
+    });
+    res.json({ success: true, data: withStatus(student) });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// Temporary suspension (>2 weeks, shorter than the semester). While active the
+// student disappears from group rosters and attendance lists; when the range
+// ends they reappear automatically (filtering is done per-query, no cron).
+router.post('/:id/suspend', requireRole('ADMIN', 'PHYSICAL_TRAINER'), async (req, res, next) => {
+  try {
+    const { from, until, reason } = req.body;
+    if (!from || !until || !reason || !reason.trim()) {
+      return res.status(400).json({ success: false, error: 'Fecha de inicio, fecha de fin y razón son obligatorias' });
+    }
+    const fromDate = new Date(`${from}T00:00:00.000Z`);
+    const untilDate = new Date(`${until}T00:00:00.000Z`);
+    if (isNaN(fromDate) || isNaN(untilDate) || untilDate <= fromDate) {
+      return res.status(400).json({ success: false, error: 'Rango de fechas inválido' });
+    }
+    const days = (untilDate - fromDate) / 86400000;
+    if (days < 15) {
+      return res.status(400).json({ success: false, error: 'La suspensión debe ser mayor a dos semanas (mínimo 15 días); para ausencias cortas usa justificaciones' });
+    }
+    const semester = await prisma.semester.findFirst({ where: { active: true } });
+    if (semester && untilDate > new Date(semester.endDate)) {
+      return res.status(400).json({ success: false, error: 'La suspensión no puede exceder el fin del semestre; para retiros definitivos desactiva al estudiante' });
+    }
+
+    const student = await prisma.student.update({
+      where: { id: req.params.id },
+      data: { suspendedFrom: fromDate, suspendedUntil: untilDate, suspensionReason: reason.trim().slice(0, 500) },
+      include: { enrollments: { include: { group: { select: { id: true, code: true, name: true } } } } },
+    });
+    res.json({ success: true, data: withStatus(student) });
+  } catch (err) {
+    next(err);
+  }
+});
+
+router.post('/:id/unsuspend', requireRole('ADMIN', 'PHYSICAL_TRAINER'), async (req, res, next) => {
+  try {
+    const student = await prisma.student.update({
+      where: { id: req.params.id },
+      data: { suspendedFrom: null, suspendedUntil: null, suspensionReason: null },
+      include: { enrollments: { include: { group: { select: { id: true, code: true, name: true } } } } },
+    });
+    res.json({ success: true, data: withStatus(student) });
   } catch (err) {
     next(err);
   }

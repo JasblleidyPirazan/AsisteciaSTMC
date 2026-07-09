@@ -60,12 +60,15 @@ app.use('/api/professors', authMiddleware, require('./routes/professors'));
 app.use('/api/assistants', authMiddleware, require('./routes/assistants'));
 app.use('/api/sessions', authMiddleware, require('./routes/sessions'));
 app.use('/api/makeups', authMiddleware, require('./routes/makeups'));
+app.use('/api/festivals', authMiddleware, require('./routes/festivals'));
 app.use('/api/events', authMiddleware, require('./routes/events'));
 app.use('/api/payroll', authMiddleware, require('./routes/payroll'));
 app.use('/api/reports', authMiddleware, require('./routes/reports'));
 app.use('/api/config', authMiddleware, require('./routes/config'));
 app.use('/api/semesters', authMiddleware, require('./routes/semesters'));
 app.use('/api/parent', authMiddleware, require('./routes/parent'));
+app.use('/api/users', authMiddleware, require('./routes/users'));
+app.use('/api/alerts', authMiddleware, require('./routes/alerts'));
 
 // Serve React frontend
 const clientDist = path.join(__dirname, '../../client/dist');

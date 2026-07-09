@@ -1,8 +1,24 @@
 const express = require('express');
 const prisma = require('../lib/prisma');
 const { requireRole } = require('../middleware/auth');
+const { notSuspended } = require('../lib/filters');
+const { seenAttendanceFilter } = require('../services/attendanceStats');
 
 const router = express.Router();
+
+const SUB_LEVELS = ['A', 'B', 'C'];
+// Intermedio y Avanzado no manejan subnivel (pendiente de definición del cliente)
+const LEVELS_WITHOUT_SUBLEVEL = ['Intermedio', 'Avanzado'];
+
+// Returns the validated subLevel value or an error string.
+function validateSubLevel(subLevel, ballLevel) {
+  if (subLevel === undefined || subLevel === null || subLevel === '') return { value: null };
+  if (!SUB_LEVELS.includes(subLevel)) return { error: 'Subnivel inválido (A, B o C)' };
+  if (LEVELS_WITHOUT_SUBLEVEL.includes(ballLevel)) {
+    return { error: `El nivel ${ballLevel} no maneja subniveles` };
+  }
+  return { value: subLevel };
+}
 
 const DAY_MAP = {
   0: 'domingo',
@@ -70,12 +86,44 @@ router.get('/:id/students', async (req, res, next) => {
       }
     }
 
+    // Suspended students are hidden from rosters while their suspension lasts
     const enrollments = await prisma.studentEnrollment.findMany({
-      where: { groupId: req.params.id, student: { active: true } },
+      where: { groupId: req.params.id, student: { active: true, ...notSuspended() } },
       include: { student: true },
       orderBy: { student: { name: 'asc' } },
     });
-    res.json({ success: true, data: enrollments.map((e) => e.student) });
+    const students = enrollments.map((e) => e.student);
+
+    // Attach "classes seen / acquired": seen = PRESENTE attendance records within
+    // the active semester (falls back to all-time if no semester is active).
+    const studentIds = students.map((s) => s.id);
+    const seenById = {};
+    if (studentIds.length > 0) {
+      const activeSemester = await prisma.semester.findFirst({ where: { active: true } });
+      const dateFilter = activeSemester
+        ? { gte: activeSemester.startDate, lte: activeSemester.endDate }
+        : undefined;
+      const present = await prisma.attendanceRecord.findMany({
+        where: {
+          studentId: { in: studentIds },
+          AND: [
+            seenAttendanceFilter(),
+            ...(dateFilter ? [{ session: { date: dateFilter } }] : []),
+          ],
+        },
+        select: { studentId: true },
+      });
+      for (const r of present) seenById[r.studentId] = (seenById[r.studentId] || 0) + 1;
+    }
+
+    res.json({
+      success: true,
+      data: students.map((s) => ({
+        ...s,
+        classesSeen: seenById[s.id] || 0,
+        classesAcquired: s.classesAcquired,
+      })),
+    });
   } catch (err) {
     next(err);
   }
@@ -84,21 +132,23 @@ router.get('/:id/students', async (req, res, next) => {
 router.post('/', requireRole('ADMIN', 'PHYSICAL_TRAINER'), async (req, res, next) => {
   try {
     const { code, name, professorId, lunes, martes, miercoles, jueves, viernes, sabado, domingo,
-      startTime, endTime, court, ballLevel } = req.body;
+      startTime, endTime, court, ballLevel, subLevel } = req.body;
 
     if (!code || !professorId || !startTime || !endTime) {
       return res.status(400).json({ success: false, error: 'Código, profesor y horario requeridos' });
     }
 
+    const sub = validateSubLevel(subLevel, ballLevel);
+    if (sub.error) return res.status(400).json({ success: false, error: sub.error });
+
     const [sh, sm] = startTime.split(':').map(Number);
     const [eh, em] = endTime.split(':').map(Number);
     const durationMinutes = (eh * 60 + em) - (sh * 60 + sm);
-    const classUnits = durationMinutes >= 80 ? 2.0 : 1.0;
 
     const group = await prisma.group.create({
       data: {
-        code, name, professorId, startTime, endTime, durationMinutes, classUnits,
-        court: court ? parseInt(court) : null, ballLevel,
+        code, name, professorId, startTime, endTime, durationMinutes, classUnits: 1.0,
+        court: court ? parseInt(court) : null, ballLevel, subLevel: sub.value,
         lunes: !!lunes, martes: !!martes, miercoles: !!miercoles, jueves: !!jueves,
         viernes: !!viernes, sabado: !!sabado, domingo: !!domingo,
       },
@@ -113,13 +163,21 @@ router.post('/', requireRole('ADMIN', 'PHYSICAL_TRAINER'), async (req, res, next
 router.put('/:id', requireRole('ADMIN', 'PHYSICAL_TRAINER'), async (req, res, next) => {
   try {
     const { code, name, professorId, lunes, martes, miercoles, jueves, viernes, sabado, domingo,
-      startTime, endTime, court, ballLevel, active } = req.body;
+      startTime, endTime, court, ballLevel, subLevel, active } = req.body;
 
     const data = {};
     if (code !== undefined) data.code = code;
     if (name !== undefined) data.name = name;
     if (professorId !== undefined) data.professorId = professorId;
     if (ballLevel !== undefined) data.ballLevel = ballLevel;
+    if (subLevel !== undefined || ballLevel !== undefined) {
+      const current = await prisma.group.findUnique({ where: { id: req.params.id } });
+      const effectiveLevel = ballLevel !== undefined ? ballLevel : current?.ballLevel;
+      const effectiveSub = subLevel !== undefined ? subLevel : current?.subLevel;
+      const sub = validateSubLevel(effectiveSub, effectiveLevel);
+      if (sub.error) return res.status(400).json({ success: false, error: sub.error });
+      data.subLevel = sub.value;
+    }
     if (court !== undefined) data.court = court ? parseInt(court) : null;
     if (active !== undefined) data.active = active;
     if (lunes !== undefined) data.lunes = !!lunes;
@@ -139,7 +197,6 @@ router.put('/:id', requireRole('ADMIN', 'PHYSICAL_TRAINER'), async (req, res, ne
       data.startTime = st;
       data.endTime = et;
       data.durationMinutes = (eh * 60 + em) - (sh * 60 + sm);
-      data.classUnits = data.durationMinutes >= 80 ? 2.0 : 1.0;
     }
 
     const group = await prisma.group.update({

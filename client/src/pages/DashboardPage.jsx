@@ -4,7 +4,9 @@ import { api } from '../api/client';
 import { useAuth } from '../hooks/useAuth';
 import GroupCard from '../components/GroupCard';
 import OfflineBanner from '../components/OfflineBanner';
+import AssistantDayView from '../components/AssistantDayView';
 import { fmtDate } from '../utils/dates';
+import { roleLabel } from '../utils/roles';
 
 function todayStr() {
   return new Date().toISOString().slice(0, 10);
@@ -61,13 +63,13 @@ export default function DashboardPage() {
       <div className="page-header">
         <div style={{ flex: 1 }}>
           <h1>🎾 STMC</h1>
-          <p className="text-xs text-gray">{user?.email} · {user?.role}</p>
+          <p className="text-xs text-gray">{user?.email} · {roleLabel(user?.role)}</p>
         </div>
         <div style={{ display: 'flex', gap: 8 }}>
           {(isAdmin || isPhysicalTrainer) && (
             <button className="btn btn-outline" style={{ minHeight: 36, padding: '0 12px', fontSize: '0.875rem' }}
               onClick={() => navigate('/admin')}>
-              {isAdmin ? 'Admin' : 'Gestión'}
+              {isAdmin ? 'Admin' : 'Coordinación'}
             </button>
           )}
           {(user?.role === 'TEACHER' || isAssistant) && (
@@ -95,10 +97,12 @@ export default function DashboardPage() {
         </div>
 
         {isAssistant ? (
-          <AssistantView groups={groups} loading={loading} date={date} />
+          <AssistantDayView groups={groups} loading={loading} date={date} />
         ) : (
           <>
+            <PendingReportsAlert />
             <PendingMakeups />
+            <PendingFestivals />
             <div className="flex items-center justify-between mb-3">
               <h2>Grupos del día</h2>
               <span className="badge badge-blue">{groups.length}</span>
@@ -108,13 +112,85 @@ export default function DashboardPage() {
             ) : groups.length === 0 ? (
               <div className="alert alert-info">No hay grupos programados para este día.</div>
             ) : (
-              groups.map((g) => (
-                <GroupCard key={g.id} group={g} onClick={() => handleGroupClick(g)} />
-              ))
+              <div className="card-grid">
+                {groups.map((g) => (
+                  <GroupCard key={g.id} group={g} onClick={() => handleGroupClick(g)} />
+                ))}
+              </div>
             )}
           </>
         )}
       </div>
+    </div>
+  );
+}
+
+function PendingReportsAlert() {
+  const { user } = useAuth();
+  const [data, setData] = useState(null);
+
+  useEffect(() => {
+    if (!['TEACHER', 'ADMIN', 'PHYSICAL_TRAINER'].includes(user?.role)) return;
+    api.get('/alerts/pending-reports').then(setData).catch(() => {});
+  }, [user?.role]);
+
+  if (!data || data.totalPending === 0) return null;
+
+  const isTeacher = user?.role === 'TEACHER';
+  return (
+    <div className="alert alert-error mb-4" style={{ marginBottom: 16 }}>
+      <div className="font-medium">
+        ⚠️ {isTeacher ? 'Tienes' : 'Hay'} {data.totalPending} clase{data.totalPending !== 1 ? 's' : ''} sin reportar
+      </div>
+      <div className="text-sm mt-2">
+        Una clase que no se reporta el mismo día en que fue dictada queda con el
+        <strong> pago suspendido</strong>; solo el administrador puede desbloquearlo.
+      </div>
+      <div className="text-xs mt-2">
+        {data.groups.map((g) => (
+          <div key={g.groupId}>
+            {g.code}{!isTeacher && g.professor ? ` (${g.professor.name})` : ''}: {g.pendingDates.slice(0, 4).join(', ')}
+            {g.pendingDates.length > 4 ? ` y ${g.pendingDates.length - 4} más` : ''}
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function PendingFestivals() {
+  const navigate = useNavigate();
+  const [festivals, setFestivals] = useState([]);
+
+  useEffect(() => {
+    api.get('/festivals', { status: 'PROGRAMADA' })
+      .then((data) => setFestivals(data || []))
+      .catch(() => {});
+  }, []);
+
+  if (festivals.length === 0) return null;
+
+  return (
+    <div className="mb-4">
+      <div className="flex items-center justify-between mb-3">
+        <h2>Festivales pendientes</h2>
+        <span className="badge badge-blue">{festivals.length}</span>
+      </div>
+      {festivals.map((f) => (
+        <div key={f.id} className="card card-tap mb-2" style={{ borderLeft: '3px solid var(--green)' }}
+          onClick={() => navigate(`/festivals/${f.id}/attendance`)}>
+          <div className="flex items-center justify-between">
+            <div>
+              <div className="font-medium">🎉 {f.title || 'Festival'}</div>
+              <div className="text-sm text-gray">
+                {fmtDate(f.date)} · {(f.festivalProfessors || []).map((fp) => fp.professor?.name).join(', ') || '—'}
+                {' · '}{f.makeupParticipants?.length || 0} est.
+              </div>
+            </div>
+            <span style={{ fontSize: '1.2rem' }}>›</span>
+          </div>
+        </div>
+      ))}
     </div>
   );
 }
@@ -155,81 +231,3 @@ function PendingMakeups() {
   );
 }
 
-function AssistantView({ groups, loading, date }) {
-  const { user } = useAuth();
-  const [sessionsByGroup, setSessionsByGroup] = useState({});
-  const [myAssistantId, setMyAssistantId] = useState(null);
-  const [saving, setSaving] = useState({});
-  const [loadingSessions, setLoadingSessions] = useState(true);
-  const [error, setError] = useState('');
-
-  useEffect(() => {
-    setLoadingSessions(true);
-    Promise.all([
-      api.get('/sessions', { date }),
-      api.get('/assistants', { active: 'true' }),
-    ]).then(([sessions, assistants]) => {
-      const map = {};
-      sessions.forEach((s) => { map[s.groupId || s.group?.id] = s; });
-      setSessionsByGroup(map);
-      const mine = assistants.find((a) => a.user?.email === user?.email);
-      setMyAssistantId(mine?.id || null);
-    }).catch(() => {}).finally(() => setLoadingSessions(false));
-  }, [date, user?.email]);
-
-  async function toggleAssist(group) {
-    const session = sessionsByGroup[group.id];
-    if (!session) return;
-    const isMarked = session.assistantId === myAssistantId;
-    setSaving((s) => ({ ...s, [group.id]: true }));
-    setError('');
-    try {
-      const updated = await api.post(`/sessions/${session.id}/assist`, isMarked ? { remove: true } : {});
-      setSessionsByGroup((m) => ({ ...m, [group.id]: { ...session, assistantId: updated.assistantId } }));
-    } catch (err) {
-      setError(err.message);
-    } finally {
-      setSaving((s) => ({ ...s, [group.id]: false }));
-    }
-  }
-
-  if (loading || loadingSessions) return <div className="spinner" />;
-
-  return (
-    <>
-      <h2 className="mb-3">Clases que acompañé</h2>
-      {error && <div className="alert alert-error mb-3">{error}</div>}
-      {groups.length === 0 && <div className="alert alert-info">No hay grupos programados para este día.</div>}
-      {groups.map((g) => {
-        const session = sessionsByGroup[g.id];
-        const isMarked = !!session && !!myAssistantId && session.assistantId === myAssistantId;
-        const markedByOther = !!session?.assistantId && !isMarked;
-        return (
-          <div key={g.id} className="card mb-3">
-            <div className="flex items-center justify-between">
-              <div>
-                <div className="font-medium">{g.code}</div>
-                <div className="text-sm text-gray">{g.startTime}–{g.endTime}</div>
-                {!session && (
-                  <div className="text-xs text-gray">La clase aún no ha sido reportada</div>
-                )}
-                {markedByOther && (
-                  <div className="text-xs text-gray">Acompañada por otro asistente</div>
-                )}
-              </div>
-              <label className="toggle">
-                <input
-                  type="checkbox"
-                  checked={isMarked}
-                  onChange={() => toggleAssist(g)}
-                  disabled={!session || markedByOther || saving[g.id] || !myAssistantId}
-                />
-                <span className="toggle-slider" />
-              </label>
-            </div>
-          </div>
-        );
-      })}
-    </>
-  );
-}

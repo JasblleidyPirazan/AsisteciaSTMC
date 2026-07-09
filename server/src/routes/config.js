@@ -10,7 +10,7 @@ const CONFIG_KEYS = [
   'rate_4_students',
   'rate_5plus_students',
   'assistant_fixed_rate',
-  'reposition_rate',
+  'rain_alert_threshold',
 ];
 
 const DEFAULTS = {
@@ -19,7 +19,7 @@ const DEFAULTS = {
   rate_4_students: '60000',
   rate_5plus_students: '75000',
   assistant_fixed_rate: '12000',
-  reposition_rate: '15000',
+  rain_alert_threshold: '3',
 };
 
 // Rates only — readable by teachers so the attendance flow can preview their pay.

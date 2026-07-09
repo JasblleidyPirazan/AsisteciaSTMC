@@ -38,4 +38,8 @@ function requireRole(...roles) {
   };
 }
 
-module.exports = { authMiddleware, requireRole };
+// Operational management roles. PHYSICAL_TRAINER acts as the school's
+// "Coordinador" (renamed in the UI only — the enum value stays for db compat).
+const MANAGEMENT = ['ADMIN', 'PHYSICAL_TRAINER'];
+
+module.exports = { authMiddleware, requireRole, MANAGEMENT };

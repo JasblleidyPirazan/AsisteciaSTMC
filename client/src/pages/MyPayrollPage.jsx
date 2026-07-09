@@ -8,6 +8,11 @@ function fmt(n) {
   return new Intl.NumberFormat('es-CO', { style: 'currency', currency: 'COP', maximumFractionDigits: 0 }).format(n || 0);
 }
 
+const PAY_STATUS_BADGE = {
+  SUSPENDED_LATE: { cls: 'badge-red', label: 'Suspendido — reporte tardío' },
+  PENDING_MATCH: { cls: 'badge-yellow', label: 'Pendiente de validación' },
+};
+
 function buildPeriodOptions() {
   const options = [];
   const now = new Date();
@@ -92,9 +97,17 @@ export default function MyPayrollPage() {
             <div className="card mb-3">
               <div className="text-xs text-gray mb-1">{roleLabel}{data?.name ? ` · ${data.name}` : ''}</div>
               <div className="cost-row">
-                <span className="font-medium">Total quincena</span>
-                <span className="cost-total">{fmt(data?.total)}</span>
+                <span className="font-medium">Total habilitado</span>
+                <span className="cost-total">{fmt(data?.payableTotal ?? data?.total)}</span>
               </div>
+              {((data?.suspendedTotal || 0) + (data?.pendingTotal || 0)) > 0 && (
+                <div className="cost-row">
+                  <span className="text-sm" style={{ color: 'var(--red)' }}>Retenido</span>
+                  <span className="text-sm font-medium" style={{ color: 'var(--red)' }}>
+                    {fmt((data?.suspendedTotal || 0) + (data?.pendingTotal || 0))}
+                  </span>
+                </div>
+              )}
               <div className="text-xs text-gray">{data?.records?.length || 0} clases liquidadas</div>
             </div>
 
@@ -110,23 +123,27 @@ export default function MyPayrollPage() {
             {!data || data.records?.length === 0 ? (
               <div className="alert alert-info">No hay registros de pago para este período.</div>
             ) : (
-              data.records.map((r) => (
-                <div key={r.id} className="card mb-2">
-                  <div className="flex items-center justify-between">
-                    <div>
-                      <div className="text-sm font-medium">
-                        {fmtDate(r.session?.date, { day: 'numeric', month: 'short' })} · {r.session?.group?.code}
+              data.records.map((r) => {
+                const badge = PAY_STATUS_BADGE[r.payStatus];
+                return (
+                  <div key={r.id} className="card mb-2">
+                    <div className="flex items-center justify-between">
+                      <div>
+                        <div className="text-sm font-medium">
+                          {fmtDate(r.session?.date, { day: 'numeric', month: 'short' })} · {r.session?.group?.code || r.session?.title}
+                        </div>
+                        <div className="text-xs text-gray">
+                          {r.payeeType === 'PROFESSOR'
+                            ? `${r.presentCount} estudiantes · ${parseFloat(r.effectiveUnits)} und.`
+                            : `Tarifa fija · ${parseFloat(r.effectiveUnits)} und.`}
+                        </div>
+                        {badge && <span className={`badge ${badge.cls}`} style={{ marginTop: 4 }}>{badge.label}</span>}
                       </div>
-                      <div className="text-xs text-gray">
-                        {r.payeeType === 'PROFESSOR'
-                          ? `${r.presentCount} estudiantes · ${parseFloat(r.effectiveUnits)} und.`
-                          : `Tarifa fija · ${parseFloat(r.effectiveUnits)} und.`}
-                      </div>
+                      <span className="font-medium">{fmt(r.total)}</span>
                     </div>
-                    <span className="font-medium">{fmt(r.total)}</span>
                   </div>
-                </div>
-              ))
+                );
+              })
             )}
           </>
         )}

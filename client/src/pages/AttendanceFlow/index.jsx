@@ -22,8 +22,9 @@ export default function AttendanceFlow() {
   const [session, setSession] = useState(null);
   const [substitute, setSubstitute] = useState(null);
   const [assistant, setAssistant] = useState(null);
+  const [dictatedByOwner, setDictatedByOwner] = useState(true);
+  const [notDictatedNote, setNotDictatedNote] = useState('');
   const [attendanceRecords, setAttendanceRecords] = useState([]);
-  const [cancelledHalf, setCancelledHalf] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [done, setDone] = useState(false);
@@ -42,7 +43,8 @@ export default function AttendanceFlow() {
           setSession(existing);
           setSubstitute(existing.substituteProfessor || null);
           setAssistant(existing.assistant || null);
-          setCancelledHalf(existing.status === 'CANCELADA_MITAD');
+          setDictatedByOwner(existing.dictatedByOwner !== false);
+          setNotDictatedNote(existing.notDictatedNote || '');
           setAttendanceRecords(
             (existing.attendanceRecords || []).map((r) => ({
               studentId: r.studentId,
@@ -82,11 +84,14 @@ export default function AttendanceFlow() {
     }
   }
 
-  async function handleCancel(reason) {
+  async function handleCancel(category, reasonText) {
     setLoading(true);
     try {
       const sess = await api.post('/sessions', { groupId, date });
-      await api.post(`/sessions/${sess.id}/cancel`, { cancellationReason: reason });
+      await api.post(`/sessions/${sess.id}/cancel`, {
+        cancellationCategory: category,
+        cancellationReason: reasonText || undefined,
+      });
       navigate('/', { replace: true });
     } catch (err) {
       setError(err.message);
@@ -101,9 +106,10 @@ export default function AttendanceFlow() {
     try {
       const payload = {
         attendanceRecords,
-        cancelledHalf,
         substituteProfessorId: substitute?.id || null,
         assistantId: assistant?.id || null,
+        dictatedByOwner,
+        notDictatedNote: dictatedByOwner ? null : notDictatedNote.trim(),
       };
       let result;
       if (!navigator.onLine) {
@@ -180,8 +186,12 @@ export default function AttendanceFlow() {
             group={group}
             substitute={substitute}
             assistant={assistant}
+            dictatedByOwner={dictatedByOwner}
+            notDictatedNote={notDictatedNote}
             onSubstituteChange={setSubstitute}
             onAssistantChange={setAssistant}
+            onDictatedChange={setDictatedByOwner}
+            onNoteChange={setNotDictatedNote}
             onNext={() => setStep(3)}
           />
         )}
@@ -200,8 +210,6 @@ export default function AttendanceFlow() {
             substitute={substitute}
             assistant={assistant}
             records={attendanceRecords}
-            cancelledHalf={cancelledHalf}
-            onCancelledHalfChange={setCancelledHalf}
             onSubmit={handleFinalize}
             loading={loading}
             userRole={user?.role}

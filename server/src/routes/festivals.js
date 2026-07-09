@@ -6,38 +6,42 @@ const { calculateCosts } = require('../services/costEngine');
 const router = express.Router();
 
 const VALID_STATUSES = ['PRESENTE', 'AUSENTE', 'JUSTIFICADA'];
+const CANCEL_CATEGORIES = ['LLUVIA', 'SIN_ESTUDIANTES', 'OTRA'];
+const CANCEL_AUTO_TEXT = {
+  LLUVIA: 'Cancelada por lluvia',
+  SIN_ESTUDIANTES: 'No llegaron estudiantes',
+};
 
 /**
- * Who may report a makeup class:
- * - ADMIN / PHYSICAL_TRAINER: any makeup
- * - TEACHER: only makeups where they are the assigned professor or the substitute
- * (Assistants accompany via /sessions/:id/assist, same as regular classes.)
+ * Who may report a festival:
+ * - ADMIN / PHYSICAL_TRAINER (coordinador): any festival
+ * - TEACHER: only festivals where they participate
  */
-async function canReportMakeup(user, session) {
+async function canReportFestival(user, session) {
   if (['ADMIN', 'PHYSICAL_TRAINER'].includes(user.role)) return true;
   if (user.role === 'TEACHER') {
     const professor = await prisma.professor.findUnique({ where: { userId: user.id } });
     if (!professor) return false;
-    return session.makeupProfessorId === professor.id || session.substituteProfessorId === professor.id;
+    const participant = await prisma.festivalProfessor.findUnique({
+      where: { sessionId_professorId: { sessionId: session.id, professorId: professor.id } },
+    });
+    return !!participant;
   }
   return false;
 }
 
-function makeupInclude() {
+function festivalInclude() {
   return {
-    makeupProfessor: { select: { id: true, name: true } },
-    substituteProfessor: { select: { id: true, name: true } },
-    assistant: { select: { id: true, name: true } },
+    festivalProfessors: { include: { professor: { select: { id: true, name: true } } } },
     makeupParticipants: { include: { student: { select: { id: true, name: true } } } },
     attendanceRecords: { include: { student: { select: { id: true, name: true } } } },
   };
 }
 
-// List makeup classes (optionally filter by date / status)
 router.get('/', requireRole('ADMIN', 'PHYSICAL_TRAINER', 'TEACHER'), async (req, res, next) => {
   try {
     const { date, status, from, to } = req.query;
-    const where = { kind: 'MAKEUP' };
+    const where = { kind: 'FESTIVAL' };
     if (date) where.date = new Date(date);
     if (status) where.status = status;
     if (from || to) {
@@ -46,18 +50,15 @@ router.get('/', requireRole('ADMIN', 'PHYSICAL_TRAINER', 'TEACHER'), async (req,
       if (to) where.date.lte = new Date(to);
     }
 
-    // Teachers only see makeups assigned to them
+    // Teachers only see festivals they participate in
     if (req.user.role === 'TEACHER') {
       const professor = await prisma.professor.findUnique({ where: { userId: req.user.id } });
-      where.OR = [
-        { makeupProfessorId: professor?.id || '__none__' },
-        { substituteProfessorId: professor?.id || '__none__' },
-      ];
+      where.festivalProfessors = { some: { professorId: professor?.id || '__none__' } };
     }
 
     const sessions = await prisma.classSession.findMany({
       where,
-      include: makeupInclude(),
+      include: festivalInclude(),
       orderBy: { date: 'desc' },
     });
     res.json({ success: true, data: sessions });
@@ -70,10 +71,10 @@ router.get('/:id', requireRole('ADMIN', 'PHYSICAL_TRAINER', 'TEACHER'), async (r
   try {
     const session = await prisma.classSession.findUnique({
       where: { id: req.params.id },
-      include: makeupInclude(),
+      include: festivalInclude(),
     });
-    if (!session || session.kind !== 'MAKEUP') {
-      return res.status(404).json({ success: false, error: 'Reposición no encontrada' });
+    if (!session || session.kind !== 'FESTIVAL') {
+      return res.status(404).json({ success: false, error: 'Festival no encontrado' });
     }
     res.json({ success: true, data: session });
   } catch (err) {
@@ -81,41 +82,46 @@ router.get('/:id', requireRole('ADMIN', 'PHYSICAL_TRAINER', 'TEACHER'), async (r
   }
 });
 
-// Create a makeup class — ADMIN / PHYSICAL_TRAINER
+// Create a festival — coordinator/admin builds the roster from the panel
 router.post('/', requireRole('ADMIN', 'PHYSICAL_TRAINER'), async (req, res, next) => {
   try {
-    const { date, title, professorId, assistantId, countsAsUnits, studentIds } = req.body;
+    const { date, title, ratePerProfessor, professorIds, studentIds } = req.body;
 
     if (!date) return res.status(400).json({ success: false, error: 'Fecha requerida' });
-    if (!professorId) return res.status(400).json({ success: false, error: 'Profesor requerido' });
-
-    const units = parseFloat(countsAsUnits);
-    if (!units || units <= 0 || units > 10) {
-      return res.status(400).json({ success: false, error: 'Debe definir por cuántas asistencias cuenta la clase (mayor a 0)' });
+    const rate = parseFloat(ratePerProfessor);
+    if (!rate || rate <= 0) {
+      return res.status(400).json({ success: false, error: 'Define el pago por profesor (igual para todos)' });
+    }
+    if (!Array.isArray(professorIds) || professorIds.length === 0) {
+      return res.status(400).json({ success: false, error: 'Asigna al menos un profesor participante' });
     }
     if (!Array.isArray(studentIds) || studentIds.length === 0) {
-      return res.status(400).json({ success: false, error: 'Debe asignar al menos un estudiante' });
+      return res.status(400).json({ success: false, error: 'Inscribe al menos un estudiante' });
     }
 
-    const professor = await prisma.professor.findUnique({ where: { id: professorId } });
-    if (!professor) return res.status(404).json({ success: false, error: 'Profesor no encontrado' });
+    const professors = await prisma.professor.findMany({ where: { id: { in: professorIds } } });
+    if (professors.length !== new Set(professorIds).size) {
+      return res.status(404).json({ success: false, error: 'Profesor no encontrado' });
+    }
 
     const session = await prisma.classSession.create({
       data: {
-        kind: 'MAKEUP',
+        kind: 'FESTIVAL',
         groupId: null,
-        title: title?.slice(0, 200) || 'Reposición grupal',
+        title: title?.slice(0, 200) || 'Festival',
         date: new Date(date),
         status: 'PROGRAMADA',
-        effectiveUnits: units,
-        makeupProfessorId: professorId,
-        assistantId: assistantId || null,
+        effectiveUnits: 1.0,
+        festivalRate: rate,
         reportedById: req.user.id,
+        festivalProfessors: {
+          create: [...new Set(professorIds)].map((professorId) => ({ professorId })),
+        },
         makeupParticipants: {
           create: [...new Set(studentIds)].map((studentId) => ({ studentId })),
         },
       },
-      include: makeupInclude(),
+      include: festivalInclude(),
     });
     res.status(201).json({ success: true, data: session });
   } catch (err) {
@@ -123,32 +129,38 @@ router.post('/', requireRole('ADMIN', 'PHYSICAL_TRAINER'), async (req, res, next
   }
 });
 
-// Edit makeup meta (only while still scheduled) — ADMIN / PHYSICAL_TRAINER
+// Edit festival meta / roster / professors
 router.put('/:id', requireRole('ADMIN', 'PHYSICAL_TRAINER'), async (req, res, next) => {
   try {
-    const { date, title, professorId, assistantId, countsAsUnits, studentIds } = req.body;
+    const { date, title, ratePerProfessor, professorIds, studentIds } = req.body;
 
     const existing = await prisma.classSession.findUnique({ where: { id: req.params.id } });
-    if (!existing || existing.kind !== 'MAKEUP') {
-      return res.status(404).json({ success: false, error: 'Reposición no encontrada' });
+    if (!existing || existing.kind !== 'FESTIVAL') {
+      return res.status(404).json({ success: false, error: 'Festival no encontrado' });
     }
 
     const data = {};
     if (date !== undefined) data.date = new Date(date);
-    if (title !== undefined) data.title = title?.slice(0, 200) || 'Reposición grupal';
-    if (professorId !== undefined) data.makeupProfessorId = professorId;
-    if (assistantId !== undefined) data.assistantId = assistantId || null;
-    if (countsAsUnits !== undefined) {
-      const units = parseFloat(countsAsUnits);
-      if (!units || units <= 0 || units > 10) {
-        return res.status(400).json({ success: false, error: 'Valor de asistencias inválido' });
+    if (title !== undefined) data.title = title?.slice(0, 200) || 'Festival';
+    if (ratePerProfessor !== undefined) {
+      const rate = parseFloat(ratePerProfessor);
+      if (!rate || rate <= 0) return res.status(400).json({ success: false, error: 'Pago por profesor inválido' });
+      data.festivalRate = rate;
+    }
+
+    if (Array.isArray(professorIds)) {
+      if (professorIds.length === 0) {
+        return res.status(400).json({ success: false, error: 'Asigna al menos un profesor participante' });
       }
-      data.effectiveUnits = units;
+      await prisma.festivalProfessor.deleteMany({ where: { sessionId: req.params.id } });
+      await prisma.festivalProfessor.createMany({
+        data: [...new Set(professorIds)].map((professorId) => ({ sessionId: req.params.id, professorId })),
+      });
     }
 
     if (Array.isArray(studentIds)) {
       if (studentIds.length === 0) {
-        return res.status(400).json({ success: false, error: 'Debe asignar al menos un estudiante' });
+        return res.status(400).json({ success: false, error: 'Inscribe al menos un estudiante' });
       }
       await prisma.makeupParticipant.deleteMany({ where: { sessionId: req.params.id } });
       await prisma.makeupParticipant.createMany({
@@ -159,10 +171,9 @@ router.put('/:id', requireRole('ADMIN', 'PHYSICAL_TRAINER'), async (req, res, ne
     const session = await prisma.classSession.update({
       where: { id: req.params.id },
       data,
-      include: makeupInclude(),
+      include: festivalInclude(),
     });
 
-    // If it was already reported, recalculate costs (participants/units may have changed)
     if (['REALIZADA', 'CANCELADA_MITAD'].includes(session.status)) {
       await calculateCosts(req.params.id);
     }
@@ -173,28 +184,29 @@ router.put('/:id', requireRole('ADMIN', 'PHYSICAL_TRAINER'), async (req, res, ne
   }
 });
 
-// Delete a makeup — ADMIN / PHYSICAL_TRAINER
 router.delete('/:id', requireRole('ADMIN', 'PHYSICAL_TRAINER'), async (req, res, next) => {
   try {
     const existing = await prisma.classSession.findUnique({ where: { id: req.params.id } });
-    if (!existing || existing.kind !== 'MAKEUP') {
-      return res.status(404).json({ success: false, error: 'Reposición no encontrada' });
+    if (!existing || existing.kind !== 'FESTIVAL') {
+      return res.status(404).json({ success: false, error: 'Festival no encontrado' });
     }
     await prisma.costRecord.deleteMany({ where: { sessionId: req.params.id } });
     await prisma.attendanceRecord.deleteMany({ where: { sessionId: req.params.id } });
     await prisma.sessionEditLog.deleteMany({ where: { sessionId: req.params.id } });
     await prisma.makeupParticipant.deleteMany({ where: { sessionId: req.params.id } });
+    await prisma.festivalProfessor.deleteMany({ where: { sessionId: req.params.id } });
     await prisma.classSession.delete({ where: { id: req.params.id } });
-    res.json({ success: true, data: { message: 'Reposición eliminada' } });
+    res.json({ success: true, data: { message: 'Festival eliminado' } });
   } catch (err) {
     next(err);
   }
 });
 
-// Report attendance for a makeup class (normal flow for prof/PF/admin)
+// Report festival attendance. P and A both count as a class for the student
+// (they consume from the package); J is omitted — see costEngine/attendanceStats.
 router.post('/:id/finalize', async (req, res, next) => {
   try {
-    const { attendanceRecords, substituteProfessorId, assistantId } = req.body;
+    const { attendanceRecords } = req.body;
 
     if (attendanceRecords !== undefined && !Array.isArray(attendanceRecords)) {
       return res.status(400).json({ success: false, error: 'attendanceRecords debe ser una lista' });
@@ -206,14 +218,13 @@ router.post('/:id/finalize', async (req, res, next) => {
     }
 
     const session = await prisma.classSession.findUnique({ where: { id: req.params.id } });
-    if (!session || session.kind !== 'MAKEUP') {
-      return res.status(404).json({ success: false, error: 'Reposición no encontrada' });
+    if (!session || session.kind !== 'FESTIVAL') {
+      return res.status(404).json({ success: false, error: 'Festival no encontrado' });
     }
-    if (!(await canReportMakeup(req.user, session))) {
-      return res.status(403).json({ success: false, error: 'No tienes permiso para reportar esta reposición' });
+    if (!(await canReportFestival(req.user, session))) {
+      return res.status(403).json({ success: false, error: 'No tienes permiso para reportar este festival' });
     }
 
-    // Re-finalizing is an edit: snapshot the previous state into an edit log
     const isEdit = ['REALIZADA', 'CANCELADA_MITAD'].includes(session.status);
     let previousState = null;
     if (isEdit) {
@@ -223,19 +234,15 @@ router.post('/:id/finalize', async (req, res, next) => {
       });
       previousState = {
         status: session.status,
-        effectiveUnits: parseFloat(session.effectiveUnits),
         records: prevRecords.map((r) => ({
           studentId: r.studentId,
           name: r.student?.name,
           status: r.status,
-          attendanceType: r.attendanceType,
           justification: r.justification,
         })),
       };
     }
 
-    // Makeup participants are all regular attendees of this class (no group bracket
-    // exception). effectiveUnits is the "counts-as" value defined at creation.
     const newRecords = (attendanceRecords || []).map((record) => ({
       sessionId: req.params.id,
       studentId: record.studentId,
@@ -250,11 +257,7 @@ router.post('/:id/finalize', async (req, res, next) => {
     }
 
     const sessionData = { status: 'REALIZADA', reportedById: req.user.id };
-    if (substituteProfessorId !== undefined) sessionData.substituteProfessorId = substituteProfessorId || null;
-    if (assistantId !== undefined) sessionData.assistantId = assistantId || null;
-    // Only the first report stamps firstReportedAt (late-report pay suspension)
     if (!session.firstReportedAt) sessionData.firstReportedAt = new Date();
-
     await prisma.classSession.update({ where: { id: req.params.id }, data: sessionData });
 
     if (isEdit) {
@@ -265,9 +268,8 @@ router.post('/:id/finalize', async (req, res, next) => {
           previousState,
           newState: {
             status: 'REALIZADA',
-            effectiveUnits: parseFloat(session.effectiveUnits),
             records: newRecords.map(({ studentId, status, justification }) => ({
-              studentId, status, attendanceType: 'REGULAR', justification,
+              studentId, status, justification,
             })),
           },
         },
@@ -277,20 +279,13 @@ router.post('/:id/finalize', async (req, res, next) => {
     const costs = await calculateCosts(req.params.id);
     const updated = await prisma.classSession.findUnique({
       where: { id: req.params.id },
-      include: makeupInclude(),
+      include: festivalInclude(),
     });
     res.json({ success: true, data: { session: updated, costs } });
   } catch (err) {
     next(err);
   }
 });
-
-// Cancel a makeup
-const CANCEL_CATEGORIES = ['LLUVIA', 'SIN_ESTUDIANTES', 'OTRA'];
-const CANCEL_AUTO_TEXT = {
-  LLUVIA: 'Cancelada por lluvia',
-  SIN_ESTUDIANTES: 'No llegaron estudiantes',
-};
 
 router.post('/:id/cancel', async (req, res, next) => {
   try {
@@ -302,11 +297,11 @@ router.post('/:id/cancel', async (req, res, next) => {
       return res.status(400).json({ success: false, error: 'Describe el motivo de la cancelación' });
     }
     const session = await prisma.classSession.findUnique({ where: { id: req.params.id } });
-    if (!session || session.kind !== 'MAKEUP') {
-      return res.status(404).json({ success: false, error: 'Reposición no encontrada' });
+    if (!session || session.kind !== 'FESTIVAL') {
+      return res.status(404).json({ success: false, error: 'Festival no encontrado' });
     }
-    if (!(await canReportMakeup(req.user, session))) {
-      return res.status(403).json({ success: false, error: 'No tienes permiso para cancelar esta reposición' });
+    if (!(await canReportFestival(req.user, session))) {
+      return res.status(403).json({ success: false, error: 'No tienes permiso para cancelar este festival' });
     }
 
     const reasonText = (cancellationReason && cancellationReason.trim())

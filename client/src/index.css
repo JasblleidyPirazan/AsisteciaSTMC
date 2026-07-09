@@ -8,6 +8,7 @@
   --blue: #2563eb;
   --blue-dark: #1d4ed8;
   --blue-light: #eff6ff;
+  --primary: #2563eb;
   --green: #16a34a;
   --green-light: #f0fdf4;
   --red: #dc2626;
@@ -19,13 +20,18 @@
   --gray-50: #f9fafb;
   --gray-100: #f3f4f6;
   --gray-200: #e5e7eb;
+  --gray-300: #d1d5db;
   --gray-400: #9ca3af;
+  --gray-500: #6b7280;
   --gray-600: #4b5563;
+  --gray-700: #374151;
   --gray-800: #1f2937;
   --radius: 12px;
   --radius-sm: 8px;
   --shadow: 0 1px 3px rgba(0,0,0,0.1), 0 1px 2px rgba(0,0,0,0.06);
   --shadow-md: 0 4px 6px rgba(0,0,0,0.07), 0 2px 4px rgba(0,0,0,0.05);
+  /* Content column width — widens on larger screens (see media queries) */
+  --page-max: 480px;
 }
 
 html { font-size: 16px; }
@@ -41,7 +47,7 @@ body {
 #root { min-height: 100vh; }
 
 /* Layout */
-.page { max-width: 480px; margin: 0 auto; min-height: 100vh; background: #fff; }
+.page { max-width: var(--page-max); margin: 0 auto; min-height: 100vh; background: #fff; }
 .page-header {
   padding: 16px 20px;
   border-bottom: 1px solid var(--gray-200);
@@ -230,7 +236,7 @@ p { line-height: 1.5; }
 .action-bar {
   position: fixed;
   bottom: 0; left: 0; right: 0;
-  max-width: 480px;
+  max-width: var(--page-max);
   margin: 0 auto;
   padding: 12px 20px;
   background: #fff;
@@ -314,8 +320,38 @@ p { line-height: 1.5; }
 .font-medium { font-weight: 500; }
 .w-full { width: 100%; }
 
+/* Responsive module grid (admin/gestión dashboard) — fills columns as width grows */
+.module-grid {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 12px;
+}
+
+/* Responsive card grid (e.g. day's groups) — single column on phones, more on wider screens */
+.card-grid {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 12px;
+}
+.card-grid > * { margin-bottom: 0; }
+
+/* Tablet: widen the content column and give it side borders + a bit of breathing room */
 @media (min-width: 768px) {
-  .page { border-left: 1px solid var(--gray-200); border-right: 1px solid var(--gray-200); }
+  :root { --page-max: 680px; }
+  .page {
+    border-left: 1px solid var(--gray-200);
+    border-right: 1px solid var(--gray-200);
+    box-shadow: var(--shadow-md);
+  }
+  body { background: var(--gray-100); }
+  .module-grid { grid-template-columns: repeat(3, 1fr); }
+  .card-grid { grid-template-columns: repeat(2, 1fr); }
+}
+
+/* Desktop: a comfortable reading width, more module columns */
+@media (min-width: 1024px) {
+  :root { --page-max: 820px; }
+  .module-grid { grid-template-columns: repeat(4, 1fr); }
 }
 
 /* Modal */
@@ -334,7 +370,7 @@ p { line-height: 1.5; }
   border-radius: var(--radius) var(--radius) 0 0;
   padding: 20px 16px;
   width: 100%;
-  max-width: 480px;
+  max-width: var(--page-max);
   max-height: 85vh;
   overflow-y: auto;
 }

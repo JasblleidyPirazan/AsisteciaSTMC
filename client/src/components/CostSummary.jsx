@@ -3,18 +3,20 @@ function fmt(n) {
 }
 
 // Mirrors getBracketRate() in server/src/services/costEngine.js
-function getBracketRate(regularPresent, rates) {
-  if (regularPresent <= 0) return 0;
-  if (regularPresent <= 2) return parseFloat(rates.rate_2_students || 30000);
-  if (regularPresent === 3) return parseFloat(rates.rate_3_students || 45000);
-  if (regularPresent === 4) return parseFloat(rates.rate_4_students || 60000);
+function getBracketRate(presentCount, rates) {
+  if (presentCount <= 0) return 0;
+  if (presentCount <= 2) return parseFloat(rates.rate_2_students || 30000);
+  if (presentCount === 3) return parseFloat(rates.rate_3_students || 45000);
+  if (presentCount === 4) return parseFloat(rates.rate_4_students || 60000);
   return parseFloat(rates.rate_5plus_students || 75000);
 }
 
 export default function CostSummary({ regularPresent, repositionPresent, effectiveUnits, rates, assistantRate, professorName }) {
-  const bracketRate = getBracketRate(regularPresent, rates);
-  const repoRate = parseFloat(rates.reposition_rate || 15000);
-  const profTotal = bracketRate * effectiveUnits + repositionPresent * repoRate * effectiveUnits;
+  // Payment is based solely on the total number of students present, regardless
+  // of whether they attend as a regular class or as a make-up (reposición).
+  const presentCount = regularPresent + repositionPresent;
+  const bracketRate = getBracketRate(presentCount, rates);
+  const profTotal = bracketRate * effectiveUnits;
   const assistantTotal = assistantRate ? assistantRate * effectiveUnits : null;
 
   return (
@@ -23,17 +25,9 @@ export default function CostSummary({ regularPresent, repositionPresent, effecti
       <div className="cost-row">
         <span className="text-sm">Profesor {professorName && `(${professorName})`}</span>
         <span className="text-sm text-gray">
-          {regularPresent} est. → {fmt(bracketRate)} × {effectiveUnits}
+          {presentCount} est. → {fmt(bracketRate)} × {effectiveUnits}
         </span>
       </div>
-      {repositionPresent > 0 && (
-        <div className="cost-row">
-          <span className="text-sm">Reposiciones</span>
-          <span className="text-sm text-gray">
-            {repositionPresent} × {fmt(repoRate)} × {effectiveUnits}
-          </span>
-        </div>
-      )}
       <div className="cost-row">
         <span className="font-medium">Total profesor</span>
         <span className="cost-total">{fmt(profTotal)}</span>

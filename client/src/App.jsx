@@ -20,6 +20,11 @@ import PayrollPage from './pages/admin/PayrollPage';
 import ConfigPage from './pages/admin/ConfigPage';
 import EnrollmentRequestsPage from './pages/admin/EnrollmentRequestsPage';
 import MakeupsPage from './pages/admin/MakeupsPage';
+import UsersPage from './pages/admin/UsersPage';
+import ValidationPage from './pages/admin/ValidationPage';
+import FestivalsPage from './pages/admin/FestivalsPage';
+import FestivalAttendancePage from './pages/FestivalAttendancePage';
+import AlertsPage from './pages/admin/AlertsPage';
 
 class ErrorBoundary extends Component {
   constructor(props) {
@@ -69,7 +74,9 @@ function AppRoutes() {
 
       <Route path="/" element={
         <RequireAuth>
-          {user?.role === 'PARENT' ? <Navigate to="/parent" /> : <DashboardPage />}
+          {user?.role === 'PARENT' ? <Navigate to="/parent" />
+            : user?.role === 'RECEPTION' ? <Navigate to="/admin/students" />
+            : <DashboardPage />}
         </RequireAuth>
       } />
 
@@ -82,6 +89,12 @@ function AppRoutes() {
       <Route path="/makeups/:id/attendance" element={
         <RequireAuth roles={['ADMIN', 'TEACHER', 'PHYSICAL_TRAINER']}>
           <MakeupAttendancePage />
+        </RequireAuth>
+      } />
+
+      <Route path="/festivals/:id/attendance" element={
+        <RequireAuth roles={['ADMIN', 'TEACHER', 'PHYSICAL_TRAINER']}>
+          <FestivalAttendancePage />
         </RequireAuth>
       } />
 
@@ -98,12 +111,12 @@ function AppRoutes() {
       } />
 
       <Route path="/admin" element={
-        <RequireAuth roles={['ADMIN', 'PHYSICAL_TRAINER']}>
+        <RequireAuth roles={['ADMIN', 'PHYSICAL_TRAINER', 'RECEPTION']}>
           <AdminDashboard />
         </RequireAuth>
       } />
       <Route path="/admin/students" element={
-        <RequireAuth roles={['ADMIN', 'PHYSICAL_TRAINER']}>
+        <RequireAuth roles={['ADMIN', 'PHYSICAL_TRAINER', 'RECEPTION']}>
           <StudentsPage />
         </RequireAuth>
       } />
@@ -125,6 +138,21 @@ function AppRoutes() {
       <Route path="/admin/reports" element={
         <RequireAuth roles={['ADMIN', 'PHYSICAL_TRAINER']}>
           <ReportsPage />
+        </RequireAuth>
+      } />
+      <Route path="/admin/validation" element={
+        <RequireAuth roles={['ADMIN', 'PHYSICAL_TRAINER']}>
+          <ValidationPage />
+        </RequireAuth>
+      } />
+      <Route path="/admin/festivals" element={
+        <RequireAuth roles={['ADMIN', 'PHYSICAL_TRAINER']}>
+          <FestivalsPage />
+        </RequireAuth>
+      } />
+      <Route path="/admin/alerts" element={
+        <RequireAuth roles={['ADMIN', 'PHYSICAL_TRAINER']}>
+          <AlertsPage />
         </RequireAuth>
       } />
       {/* ADMIN-only routes */}
@@ -151,6 +179,11 @@ function AppRoutes() {
       <Route path="/admin/assistants" element={
         <RequireAuth roles={['ADMIN']}>
           <AssistantsPage />
+        </RequireAuth>
+      } />
+      <Route path="/admin/users" element={
+        <RequireAuth roles={['ADMIN']}>
+          <UsersPage />
         </RequireAuth>
       } />
 

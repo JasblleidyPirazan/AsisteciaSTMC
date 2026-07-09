@@ -1,6 +1,8 @@
 const express = require('express');
 const prisma = require('../lib/prisma');
 const { requireRole } = require('../middleware/auth');
+const { isSeenRecord } = require('../services/attendanceStats');
+const { computeAttendanceDeviations } = require('../services/attendanceAlerts');
 
 const router = express.Router();
 
@@ -13,7 +15,28 @@ router.get('/children', requireRole('PARENT', 'ADMIN'), async (req, res, next) =
         enrollments: { include: { group: { include: { professor: { select: { name: true } } } } } },
       },
     });
-    res.json({ success: true, data: students });
+
+    // Attendance alert for each child (deviation vs the ideal progress level)
+    let alertsById = {};
+    try {
+      const deviations = await computeAttendanceDeviations({ studentIds: students.map((s) => s.id) });
+      alertsById = Object.fromEntries(deviations.map((d) => [d.studentId, d]));
+    } catch { /* alerts are best-effort here */ }
+
+    res.json({
+      success: true,
+      data: students.map((s) => ({
+        ...s,
+        attendanceAlert: alertsById[s.id]
+          ? {
+              expected: alertsById[s.id].expected,
+              seen: alertsById[s.id].seen,
+              deviation: alertsById[s.id].deviation,
+              level: alertsById[s.id].level,
+            }
+          : null,
+      })),
+    });
   } catch (err) {
     next(err);
   }
@@ -51,6 +74,7 @@ router.get('/attendance/:studentId', requireRole('PARENT', 'ADMIN', 'TEACHER'), 
 
     const total = records.length;
     const present = records.filter((r) => r.status === 'PRESENTE').length;
+    const classesSeen = records.filter((r) => isSeenRecord(r, r.session?.kind)).length;
 
     res.json({
       success: true,
@@ -61,6 +85,7 @@ router.get('/attendance/:studentId', requireRole('PARENT', 'ADMIN', 'TEACHER'), 
           present,
           absent: records.filter((r) => r.status === 'AUSENTE').length,
           justified: records.filter((r) => r.status === 'JUSTIFICADA').length,
+          classesSeen,
           attendanceRate: total > 0 ? Math.round((present / total) * 100) : 0,
         },
       },

@@ -7,6 +7,8 @@ const STATUS_CLASS = { PRESENTE: 'present', AUSENTE: 'absent', JUSTIFICADA: 'jus
 export default function Step3Students({ groupId, records, onChange, onNext }) {
   const [students, setStudents] = useState([]);
   const [allStudents, setAllStudents] = useState([]);
+  // Per-student "classes seen / acquired" for the active semester, keyed by id.
+  const [meta, setMeta] = useState({});
   const [showRepoSearch, setShowRepoSearch] = useState(false);
   const [search, setSearch] = useState('');
   const [loading, setLoading] = useState(true);
@@ -16,10 +18,13 @@ export default function Step3Students({ groupId, records, onChange, onNext }) {
   useEffect(() => {
     Promise.all([
       api.get(`/groups/${groupId}/students`),
-      api.get('/students', { active: 'true' }),
+      api.get('/students', { active: 'true', excludeSuspended: 'true' }),
     ]).then(([group, all]) => {
       setStudents(group);
       setAllStudents(all);
+      setMeta(Object.fromEntries(
+        group.map((s) => [s.id, { seen: s.classesSeen ?? 0, acquired: s.classesAcquired ?? 0 }])
+      ));
       // Pre-populate records for group students
       if (records.length === 0) {
         onChange(group.map((s) => ({ studentId: s.id, name: s.name, status: null, attendanceType: 'REGULAR' })));
@@ -90,6 +95,11 @@ export default function Step3Students({ groupId, records, onChange, onNext }) {
             {r.name}
             {r.attendanceType === 'REPOSICION' && (
               <span className="badge badge-blue" style={{ marginLeft: 6, fontSize: '0.7rem' }}>repo</span>
+            )}
+            {meta[r.studentId] && (
+              <div className="text-xs text-gray" style={{ fontWeight: 400, marginTop: 2 }}>
+                Clases: {meta[r.studentId].seen}/{meta[r.studentId].acquired}
+              </div>
             )}
           </div>
           <div className="student-actions">

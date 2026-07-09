@@ -3,9 +3,15 @@ import { useNavigate } from 'react-router-dom';
 import { api } from '../../api/client';
 import { useAuth } from '../../hooks/useAuth';
 import { fmtDate } from '../../utils/dates';
+import PoliciesModal from '../../components/PoliciesModal';
 
 const STATUS_LABELS = { PRESENTE: 'Presente', AUSENTE: 'Ausente', JUSTIFICADA: 'Justificada' };
 const STATUS_BADGE = { PRESENTE: 'badge-green', AUSENTE: 'badge-red', JUSTIFICADA: 'badge-yellow' };
+
+const ALERT_STYLE = {
+  ROJA: { color: 'var(--red)', label: 'Alerta roja' },
+  AMARILLA: { color: 'var(--yellow)', label: 'Alerta amarilla' },
+};
 
 export default function ParentPortalPage() {
   const { user, logout } = useAuth();
@@ -14,8 +20,20 @@ export default function ParentPortalPage() {
   const [selected, setSelected] = useState(null);
   const [attendance, setAttendance] = useState(null);
   const [loading, setLoading] = useState(true);
+  // null = checking; true = must accept before seeing content
+  const [needsPolicies, setNeedsPolicies] = useState(null);
 
   useEffect(() => {
+    // First-login gate: PARENT must explicitly accept the school policies.
+    // The JWT payload doesn't carry policiesAcceptedAt, so ask /auth/me.
+    if (user?.role === 'PARENT') {
+      api.get('/auth/me')
+        .then((me) => setNeedsPolicies(!me.policiesAcceptedAt))
+        .catch(() => setNeedsPolicies(false));
+    } else {
+      setNeedsPolicies(false);
+    }
+
     api.get('/parent/children').then((data) => {
       setChildren(data);
       if (data.length === 1) loadAttendance(data[0]);
@@ -29,7 +47,15 @@ export default function ParentPortalPage() {
     setAttendance(data);
   }
 
-  if (loading) return <div className="page"><div className="spinner" /></div>;
+  if (loading || needsPolicies === null) return <div className="page"><div className="spinner" /></div>;
+
+  if (needsPolicies) {
+    return (
+      <div className="page">
+        <PoliciesModal onAccepted={() => setNeedsPolicies(false)} />
+      </div>
+    );
+  }
 
   return (
     <div className="page">
@@ -67,6 +93,17 @@ export default function ParentPortalPage() {
               ))}
             </div>
 
+            {selected.attendanceAlert?.level && (
+              <div className="alert mb-3" style={{
+                background: selected.attendanceAlert.level === 'ROJA' ? 'var(--red-light)' : 'var(--yellow-light)',
+                color: ALERT_STYLE[selected.attendanceAlert.level].color,
+              }}>
+                ⚠️ {ALERT_STYLE[selected.attendanceAlert.level].label}: {selected.name} lleva{' '}
+                {selected.attendanceAlert.seen} clases vistas de {selected.attendanceAlert.expected} esperadas
+                a la fecha ({selected.attendanceAlert.deviation} de atraso).
+              </div>
+            )}
+
             <div className="stats-row mb-4">
               <div className="stat-box stat-present">
                 <div className="num">{attendance.summary.present}</div>
@@ -93,7 +130,10 @@ export default function ParentPortalPage() {
                       <div className="text-sm font-medium">
                         {fmtDate(r.session.date, { weekday: 'short', month: 'short', day: 'numeric' })}
                       </div>
-                      <div className="text-xs text-gray">{r.session.group.code}</div>
+                      <div className="text-xs text-gray">
+                        {r.session.group?.code || r.session.title}
+                        {r.session.kind === 'FESTIVAL' && ' · Festival'}
+                      </div>
                     </div>
                     <span className={`badge ${STATUS_BADGE[r.status]}`}>
                       {STATUS_LABELS[r.status]}

@@ -344,10 +344,17 @@ function countStates(records = []) {
   return `P:${c.PRESENTE} A:${c.AUSENTE} J:${c.JUSTIFICADA}`;
 }
 
+const CANCEL_CATEGORY_LABEL = {
+  LLUVIA: '🌧️ Cancelada por lluvia',
+  SIN_ESTUDIANTES: '👥 No llegaron estudiantes',
+  OTRA: '📝 Otro motivo',
+};
+
 function ClassReport({ data }) {
   if (!data) return null;
   const { attendanceRecords = [], group, date, status, present, absent, justified, totalCost,
-    substituteProfessor, assistant, editLogs = [] } = data;
+    substituteProfessor, assistant, editLogs = [],
+    dictatedByOwner, notDictatedNote, cancellationCategory, cancellationReason } = data;
 
   return (
     <div className="mt-4">
@@ -357,6 +364,21 @@ function ClassReport({ data }) {
         {substituteProfessor && <div className="text-xs text-gray">Sustituto: {substituteProfessor.name}</div>}
         {assistant && <div className="text-xs text-gray">Asistente: {assistant.name}</div>}
       </div>
+
+      {dictatedByOwner === false && (
+        <div className="alert alert-info mb-3">
+          ⚠️ Clase no dictada por el profesor titular
+          {substituteProfessor && <> — dictó: <strong>{substituteProfessor.name}</strong></>}
+          {notDictatedNote && <div className="text-sm mt-2">Observación: {notDictatedNote}</div>}
+        </div>
+      )}
+
+      {status === 'CANCELADA' && (
+        <div className="alert alert-error mb-3">
+          {CANCEL_CATEGORY_LABEL[cancellationCategory] || 'Cancelada'}
+          {cancellationReason && <div className="text-sm mt-2">{cancellationReason}</div>}
+        </div>
+      )}
 
       <div className="stats-row mb-3">
         <div className="stat-box"><div className="num">{present}</div><div className="lbl">Presentes</div></div>

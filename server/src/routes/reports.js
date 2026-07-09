@@ -2,6 +2,7 @@ const express = require('express');
 const prisma = require('../lib/prisma');
 const { requireRole } = require('../middleware/auth');
 const { getCurrentPeriod } = require('../services/costEngine');
+const { isSeenRecord } = require('../services/attendanceStats');
 
 const router = express.Router();
 
@@ -70,6 +71,8 @@ router.get('/student/:studentId', requireRole('ADMIN', 'PHYSICAL_TRAINER', 'TEAC
 
     const total = records.length;
     const present = records.filter((r) => r.status === 'PRESENTE').length;
+    // "Clases vistas": PRESENTE, más AUSENTE en festivales (J se omite)
+    const classesSeen = records.filter((r) => isSeenRecord(r, r.session?.kind)).length;
 
     res.json({
       success: true,
@@ -80,6 +83,7 @@ router.get('/student/:studentId', requireRole('ADMIN', 'PHYSICAL_TRAINER', 'TEAC
           present,
           absent: records.filter((r) => r.status === 'AUSENTE').length,
           justified: records.filter((r) => r.status === 'JUSTIFICADA').length,
+          classesSeen,
           attendanceRate: total > 0 ? Math.round((present / total) * 100) : 0,
         },
       },
@@ -138,11 +142,13 @@ router.get('/professor/:professorId', requireRole('ADMIN', 'PHYSICAL_TRAINER', '
 
     const where = {
       status: { not: 'PROGRAMADA' },
-      // Regular classes of the professor's groups, plus makeup classes they dictated
+      // Regular classes of the professor's groups, plus makeups they dictated
+      // and festivals where they participated
       OR: [
         { group: { professorId: req.params.professorId } },
         { makeupProfessorId: req.params.professorId },
         { substituteProfessorId: req.params.professorId },
+        { festivalProfessors: { some: { professorId: req.params.professorId } } },
       ],
     };
     if (from || to) where.date = dateFilter;

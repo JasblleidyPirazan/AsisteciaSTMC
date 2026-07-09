@@ -9,7 +9,7 @@ const EMPTY_CONFIG = {
   rate_4_students: '',
   rate_5plus_students: '',
   assistant_fixed_rate: '',
-  reposition_rate: '',
+  rain_alert_threshold: '',
 };
 
 const EMPTY_SEMESTER = { name: '', startDate: '', endDate: '' };
@@ -161,15 +161,15 @@ export default function ConfigPage() {
               </div>
             ))}
             <div className="card mb-2" style={{ background: 'var(--blue-light)', marginTop: 8 }}>
-              <div className="text-xs text-gray mb-1">Ejemplo · 3 presentes, clase doble:</div>
+              <div className="text-xs text-gray mb-1">Ejemplo · 3 estudiantes presentes:</div>
               <div className="text-sm font-medium">
-                Profesor: {fmt(config.rate_3_students)} × 2 = {fmt(Number(config.rate_3_students || 0) * 2)}
+                Profesor: {fmt(config.rate_3_students)} por la sesión
               </div>
             </div>
           </div>
 
           <div className="card mb-4">
-            <h3 className="mb-3" style={{ fontSize: '0.9rem' }}>Asistente y reposiciones</h3>
+            <h3 className="mb-3" style={{ fontSize: '0.9rem' }}>Asistente</h3>
             <div className="form-group">
               <label className="form-label">Tarifa fija — Asistente por clase (COP)</label>
               <input
@@ -182,17 +182,23 @@ export default function ConfigPage() {
               />
               <span className="text-xs text-gray">Pago fijo al asistente × unidades de clase</span>
             </div>
+          </div>
+
+          <div className="card mb-4">
+            <h3 className="mb-3" style={{ fontSize: '0.9rem' }}>Alertas</h3>
             <div className="form-group">
-              <label className="form-label">Tarifa reposición por estudiante (COP)</label>
+              <label className="form-label">Umbral de alerta por lluvia (clases canceladas)</label>
               <input
                 type="number"
                 className="form-input"
-                value={config.reposition_rate}
-                onChange={(e) => setConfig({ ...config, reposition_rate: e.target.value })}
-                placeholder="15000"
-                min="0"
+                value={config.rain_alert_threshold}
+                onChange={(e) => setConfig({ ...config, rain_alert_threshold: e.target.value })}
+                placeholder="3"
+                min="1"
               />
-              <span className="text-xs text-gray">Se suma por cada estudiante en reposición</span>
+              <span className="text-xs text-gray">
+                Un grupo entra en alerta cuando acumula este número de clases canceladas por lluvia en el semestre.
+              </span>
             </div>
           </div>
 

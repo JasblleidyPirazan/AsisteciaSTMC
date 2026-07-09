@@ -5,17 +5,21 @@ import CostSummary from '../../components/CostSummary';
 const STATUS_COLORS = { PRESENTE: 'badge-green', AUSENTE: 'badge-red', JUSTIFICADA: 'badge-yellow' };
 
 export default function Step4Summary({ group, session, substitute, assistant, records,
-  cancelledHalf, onCancelledHalfChange, onSubmit, loading, userRole, editing }) {
+  onSubmit, loading, userRole, editing }) {
 
   const [rates, setRates] = useState({});
-  const isDouble = parseFloat(group.classUnits) === 2.0;
-  const effectiveUnits = isDouble && cancelledHalf ? 1.0 : parseFloat(group.classUnits);
+  const effectiveUnits = 1.0;
 
   useEffect(() => {
     if (['ADMIN', 'TEACHER'].includes(userRole)) {
       api.get('/config/rates').then(setRates).catch(() => {});
     }
   }, [userRole]);
+
+  // Late report warning: reporting after the class date suspends the pay
+  const sessionDate = session?.date ? String(session.date).slice(0, 10) : null;
+  const todayStr = new Date().toLocaleDateString('en-CA');
+  const isLateReport = !editing && sessionDate && sessionDate < todayStr;
 
   const present = records.filter((r) => r.status === 'PRESENTE').length;
   const absent = records.filter((r) => r.status === 'AUSENTE').length;
@@ -29,6 +33,13 @@ export default function Step4Summary({ group, session, substitute, assistant, re
     <div>
       <h2 className="mb-2">Resumen</h2>
       <p className="text-gray text-sm mb-4">Revisa antes de enviar el reporte</p>
+
+      {isLateReport && (
+        <div className="alert alert-error mb-3">
+          ⚠️ Este reporte es tardío (la clase no se reportó el mismo día). El pago
+          quedará <strong>suspendido</strong> hasta que el administrador lo desbloquee.
+        </div>
+      )}
 
       {/* Group info */}
       <div className="card mb-3">
@@ -45,22 +56,6 @@ export default function Step4Summary({ group, session, substitute, assistant, re
         <div className="stat-box stat-absent"><div className="num">{absent}</div><div className="lbl">Ausentes</div></div>
         <div className="stat-box stat-justified"><div className="num">{justified}</div><div className="lbl">Justificadas</div></div>
       </div>
-
-      {/* Half-cancelled toggle (only for double classes) */}
-      {isDouble && (
-        <div className="card mb-3">
-          <div className="toggle-row">
-            <div>
-              <div className="font-medium">¿Se canceló a la mitad?</div>
-              <div className="text-xs text-gray">Cambia el pago de ×2 a ×1</div>
-            </div>
-            <label className="toggle">
-              <input type="checkbox" checked={cancelledHalf} onChange={(e) => onCancelledHalfChange(e.target.checked)} />
-              <span className="toggle-slider" />
-            </label>
-          </div>
-        </div>
-      )}
 
       {/* Detail */}
       <div className="card mb-3">

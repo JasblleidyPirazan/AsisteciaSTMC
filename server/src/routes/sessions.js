@@ -6,6 +6,11 @@ const router = express.Router();
 
 const VALID_STATUSES = ['PRESENTE', 'AUSENTE', 'JUSTIFICADA'];
 const VALID_TYPES = ['REGULAR', 'REPOSICION'];
+const CANCEL_CATEGORIES = ['LLUVIA', 'SIN_ESTUDIANTES', 'OTRA'];
+const CANCEL_AUTO_TEXT = {
+  LLUVIA: 'Cancelada por lluvia',
+  SIN_ESTUDIANTES: 'No llegaron estudiantes',
+};
 
 /**
  * Authorization for reporting attendance on a group:
@@ -106,7 +111,7 @@ router.post('/', async (req, res, next) => {
         groupId,
         date: new Date(date),
         status: 'PROGRAMADA',
-        effectiveUnits: group.classUnits,
+        effectiveUnits: 1.0,
         substituteProfessorId: substituteProfessorId || null,
         assistantId: assistantId || null,
         reportedById: req.user.id,
@@ -126,10 +131,20 @@ router.post('/', async (req, res, next) => {
 // Finalize session: save attendance + run cost engine
 router.post('/:id/finalize', async (req, res, next) => {
   try {
-    const { attendanceRecords, cancelledHalf, substituteProfessorId, assistantId } = req.body;
+    const { attendanceRecords, substituteProfessorId, assistantId, dictatedByOwner, notDictatedNote } = req.body;
 
     if (attendanceRecords !== undefined && !Array.isArray(attendanceRecords)) {
       return res.status(400).json({ success: false, error: 'attendanceRecords debe ser una lista' });
+    }
+    // "No dicté la clase yo": la asistencia se registra igual, pero exige
+    // quién la dictó y una observación obligatoria (queda para el coordinador)
+    if (dictatedByOwner === false) {
+      if (!notDictatedNote || !notDictatedNote.trim()) {
+        return res.status(400).json({ success: false, error: 'La observación es obligatoria cuando la clase no fue dictada por el profesor titular' });
+      }
+      if (!substituteProfessorId) {
+        return res.status(400).json({ success: false, error: 'Indica quién dictó la clase' });
+      }
     }
     for (const record of attendanceRecords || []) {
       if (!record.studentId || !VALID_STATUSES.includes(record.status)) {
@@ -162,6 +177,8 @@ router.post('/:id/finalize', async (req, res, next) => {
       previousState = {
         status: session.status,
         effectiveUnits: parseFloat(session.effectiveUnits),
+        dictatedByOwner: session.dictatedByOwner,
+        notDictatedNote: session.notDictatedNote,
         records: prevRecords.map((r) => ({
           studentId: r.studentId,
           name: r.student?.name,
@@ -172,12 +189,9 @@ router.post('/:id/finalize', async (req, res, next) => {
       };
     }
 
-    let effectiveUnits = parseFloat(session.group.classUnits);
-    let status = 'REALIZADA';
-    if (cancelledHalf && effectiveUnits === 2.0) {
-      effectiveUnits = 1.0;
-      status = 'CANCELADA_MITAD';
-    }
+    // Every class counts as a single unit (double groups were removed).
+    const effectiveUnits = 1.0;
+    const status = 'REALIZADA';
 
     // Replace all attendance records so the latest report is the single source
     // of truth (an edit can also remove a reposition student, for example)
@@ -199,6 +213,15 @@ router.post('/:id/finalize', async (req, res, next) => {
     const sessionData = { status, effectiveUnits, reportedById: req.user.id };
     if (substituteProfessorId !== undefined) sessionData.substituteProfessorId = substituteProfessorId || null;
     if (assistantId !== undefined) sessionData.assistantId = assistantId || null;
+    // Only the FIRST report stamps firstReportedAt — later edits never
+    // re-suspend a report that was made on time (regla de pago suspendido)
+    if (!session.firstReportedAt) sessionData.firstReportedAt = new Date();
+    if (dictatedByOwner !== undefined) {
+      sessionData.dictatedByOwner = dictatedByOwner !== false;
+      sessionData.notDictatedNote = dictatedByOwner === false
+        ? notDictatedNote.trim().slice(0, 500)
+        : null;
+    }
 
     await prisma.classSession.update({
       where: { id: req.params.id },
@@ -214,6 +237,8 @@ router.post('/:id/finalize', async (req, res, next) => {
           newState: {
             status,
             effectiveUnits,
+            dictatedByOwner: dictatedByOwner !== false,
+            notDictatedNote: dictatedByOwner === false ? notDictatedNote.trim().slice(0, 500) : null,
             records: newRecords.map(({ studentId, status: st, attendanceType, justification }) => ({
               studentId, status: st, attendanceType, justification,
             })),
@@ -241,9 +266,12 @@ router.post('/:id/finalize', async (req, res, next) => {
 // Cancel a session
 router.post('/:id/cancel', async (req, res, next) => {
   try {
-    const { cancellationReason } = req.body;
-    if (!cancellationReason) {
-      return res.status(400).json({ success: false, error: 'Motivo de cancelación requerido' });
+    const { cancellationCategory, cancellationReason } = req.body;
+    if (!CANCEL_CATEGORIES.includes(cancellationCategory)) {
+      return res.status(400).json({ success: false, error: 'Categoría de cancelación requerida (LLUVIA, SIN_ESTUDIANTES u OTRA)' });
+    }
+    if (cancellationCategory === 'OTRA' && (!cancellationReason || !cancellationReason.trim())) {
+      return res.status(400).json({ success: false, error: 'Describe el motivo de la cancelación' });
     }
 
     const existing = await prisma.classSession.findUnique({ where: { id: req.params.id } });
@@ -253,9 +281,17 @@ router.post('/:id/cancel', async (req, res, next) => {
       return res.status(403).json({ success: false, error: 'No tienes permiso para reportar este grupo' });
     }
 
+    const reasonText = (cancellationReason && cancellationReason.trim())
+      ? cancellationReason.trim().slice(0, 500)
+      : CANCEL_AUTO_TEXT[cancellationCategory];
     const session = await prisma.classSession.update({
       where: { id: req.params.id },
-      data: { status: 'CANCELADA', cancellationReason: cancellationReason.slice(0, 500), reportedById: req.user.id },
+      data: {
+        status: 'CANCELADA',
+        cancellationCategory,
+        cancellationReason: reasonText,
+        reportedById: req.user.id,
+      },
     });
 
     // If the session had been finalized before, its cost records no longer apply
@@ -267,7 +303,32 @@ router.post('/:id/cancel', async (req, res, next) => {
   }
 });
 
-// Assistant marks classes they accompanied
+// Unlock the pay of a late-reported class — ONLY the admin can do this
+router.post('/:id/unlock-payment', async (req, res, next) => {
+  try {
+    if (req.user.role !== 'ADMIN') {
+      return res.status(403).json({ success: false, error: 'Solo el administrador puede desbloquear pagos' });
+    }
+    const session = await prisma.classSession.findUnique({ where: { id: req.params.id } });
+    if (!session) return res.status(404).json({ success: false, error: 'Sesión no encontrada' });
+
+    await prisma.classSession.update({
+      where: { id: req.params.id },
+      data: { paymentUnlockedById: req.user.id, paymentUnlockedAt: new Date() },
+    });
+    await calculateCosts(req.params.id);
+
+    res.json({ success: true, data: { message: 'Pago desbloqueado' } });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// Assistant confirms a class they accompanied.
+// This writes assistantConfirmedId (the assistant's own report) — it does NOT
+// touch assistantId, which is what the professor reported in the class flow.
+// The assistant's pay only turns PAYABLE when both match AND the coordinator
+// validates (triple coincidence, see costEngine).
 router.post('/:id/assist', async (req, res, next) => {
   try {
     if (!['ADMIN', 'ASSISTANT'].includes(req.user.role)) {
@@ -283,14 +344,14 @@ router.post('/:id/assist', async (req, res, next) => {
     const existing = await prisma.classSession.findUnique({ where: { id: req.params.id } });
     if (!existing) return res.status(404).json({ success: false, error: 'Sesión no encontrada' });
 
-    // remove: true → unmark (only if the session is marked with this assistant)
+    // remove: true → clear the confirmation (only if it belongs to this assistant)
     if (req.body.remove) {
-      if (existing.assistantId !== assistant.id) {
-        return res.status(403).json({ success: false, error: 'La sesión no está marcada con este asistente' });
+      if (existing.assistantConfirmedId !== assistant.id) {
+        return res.status(403).json({ success: false, error: 'La sesión no está confirmada por este asistente' });
       }
       const session = await prisma.classSession.update({
         where: { id: req.params.id },
-        data: { assistantId: null },
+        data: { assistantConfirmedId: null, assistantConfirmedAt: null },
       });
       if (['REALIZADA', 'CANCELADA_MITAD'].includes(session.status)) {
         await calculateCosts(req.params.id);
@@ -300,7 +361,7 @@ router.post('/:id/assist', async (req, res, next) => {
 
     const session = await prisma.classSession.update({
       where: { id: req.params.id },
-      data: { assistantId: assistant.id },
+      data: { assistantConfirmedId: assistant.id, assistantConfirmedAt: new Date() },
     });
 
     if (['REALIZADA', 'CANCELADA_MITAD'].includes(session.status)) {
@@ -308,6 +369,90 @@ router.post('/:id/assist', async (req, res, next) => {
     }
 
     res.json({ success: true, data: session });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// Coordinator/admin validates (or un-validates) the assistant match of a session
+router.post('/:id/validate-assistant', async (req, res, next) => {
+  try {
+    if (!['ADMIN', 'PHYSICAL_TRAINER'].includes(req.user.role)) {
+      return res.status(403).json({ success: false, error: 'Solo el coordinador o el administrador pueden validar' });
+    }
+    const existing = await prisma.classSession.findUnique({ where: { id: req.params.id } });
+    if (!existing) return res.status(404).json({ success: false, error: 'Sesión no encontrada' });
+
+    const confirm = req.body.confirm !== false;
+    const session = await prisma.classSession.update({
+      where: { id: req.params.id },
+      data: confirm
+        ? { coordinatorValidatedById: req.user.id, coordinatorValidatedAt: new Date() }
+        : { coordinatorValidatedById: null, coordinatorValidatedAt: null },
+    });
+
+    if (['REALIZADA', 'CANCELADA_MITAD'].includes(session.status)) {
+      await calculateCosts(req.params.id);
+    }
+
+    res.json({ success: true, data: session });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// Validation queue for the coordinator: today's (or a date's) finalized
+// sessions that involve an assistant, with the three-way match state.
+// No money amounts here — the coordinator role doesn't see pay.
+router.get('/validation-queue', async (req, res, next) => {
+  try {
+    if (!['ADMIN', 'PHYSICAL_TRAINER'].includes(req.user.role)) {
+      return res.status(403).json({ success: false, error: 'Acceso no autorizado' });
+    }
+    const { date, from, to } = req.query;
+    const where = {
+      status: { in: ['REALIZADA', 'CANCELADA_MITAD'] },
+      OR: [
+        { assistantId: { not: null } },
+        { assistantConfirmedId: { not: null } },
+      ],
+    };
+    if (date) where.date = new Date(date);
+    else if (from || to) {
+      where.date = {};
+      if (from) where.date.gte = new Date(from);
+      if (to) where.date.lte = new Date(to);
+    }
+
+    const sessions = await prisma.classSession.findMany({
+      where,
+      include: {
+        group: { select: { id: true, code: true, professor: { select: { id: true, name: true } } } },
+        makeupProfessor: { select: { id: true, name: true } },
+        substituteProfessor: { select: { id: true, name: true } },
+        assistant: { select: { id: true, name: true } },
+        assistantConfirmed: { select: { id: true, name: true } },
+      },
+      orderBy: { date: 'desc' },
+    });
+
+    const data = sessions.map((s) => ({
+      id: s.id,
+      date: s.date,
+      kind: s.kind,
+      title: s.title,
+      groupCode: s.group?.code || s.title,
+      professor: s.substituteProfessor || s.group?.professor || s.makeupProfessor,
+      dictatedByOwner: s.dictatedByOwner,
+      notDictatedNote: s.notDictatedNote,
+      assistantReported: s.assistant,        // lo que reportó el profesor
+      assistantConfirmed: s.assistantConfirmed, // lo que confirmó el asistente
+      coordinatorValidatedAt: s.coordinatorValidatedAt,
+      matches: !!s.assistantId && s.assistantId === s.assistantConfirmedId,
+      complete: !!s.assistantId && s.assistantId === s.assistantConfirmedId && !!s.coordinatorValidatedAt,
+    }));
+
+    res.json({ success: true, data });
   } catch (err) {
     next(err);
   }

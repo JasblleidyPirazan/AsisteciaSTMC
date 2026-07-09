@@ -1,10 +1,19 @@
 import { useState } from 'react';
 
-const CANCEL_REASONS = ['Lluvia', 'Festivo', 'Mantenimiento', 'Emergencia', 'Otro'];
+// Structured cancellation categories — LLUVIA feeds the per-group rain alert
+const CANCEL_OPTIONS = [
+  { category: 'LLUVIA', label: '🌧️ Cancelada por lluvia' },
+  { category: 'SIN_ESTUDIANTES', label: '👥 No llegaron estudiantes' },
+  { category: 'OTRA', label: '📝 Otro motivo' },
+];
 
 export default function Step1ClassStatus({ group, onHeld, onCancel, loading }) {
   const [showCancel, setShowCancel] = useState(false);
-  const [reason, setReason] = useState('');
+  const [category, setCategory] = useState('');
+  const [reasonText, setReasonText] = useState('');
+
+  const needsText = category === 'OTRA';
+  const canConfirm = category && (!needsText || reasonText.trim());
 
   return (
     <div>
@@ -32,17 +41,30 @@ export default function Step1ClassStatus({ group, onHeld, onCancel, loading }) {
         <div>
           <h3 className="mb-3">Motivo de cancelación</h3>
           <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-            {CANCEL_REASONS.map((r) => (
+            {CANCEL_OPTIONS.map((opt) => (
               <button
-                key={r}
-                className={`btn btn-full ${reason === r ? 'btn-primary' : 'btn-outline'}`}
-                onClick={() => setReason(r)}
+                key={opt.category}
+                className={`btn btn-full ${category === opt.category ? 'btn-primary' : 'btn-outline'}`}
+                onClick={() => setCategory(opt.category)}
                 style={{ justifyContent: 'flex-start', paddingLeft: 20 }}
               >
-                {reason === r ? '✓ ' : ''}{r}
+                {category === opt.category ? '✓ ' : ''}{opt.label}
               </button>
             ))}
           </div>
+          {needsText && (
+            <div className="form-group mt-3">
+              <label className="form-label">Describe el motivo *</label>
+              <textarea
+                className="form-input"
+                rows={3}
+                placeholder="Ej: Mantenimiento de cancha, emergencia..."
+                value={reasonText}
+                onChange={(e) => setReasonText(e.target.value)}
+                style={{ resize: 'vertical' }}
+              />
+            </div>
+          )}
           <div className="action-bar">
             <button className="btn btn-outline" style={{ flex: 1 }} onClick={() => setShowCancel(false)}>
               Volver
@@ -50,8 +72,8 @@ export default function Step1ClassStatus({ group, onHeld, onCancel, loading }) {
             <button
               className="btn btn-danger"
               style={{ flex: 2 }}
-              onClick={() => onCancel(reason)}
-              disabled={!reason || loading}
+              onClick={() => onCancel(category, reasonText.trim())}
+              disabled={!canConfirm || loading}
             >
               Confirmar cancelación
             </button>

@@ -7,7 +7,7 @@ const router = express.Router();
 
 router.get('/', async (req, res, next) => {
   try {
-    if (req.user.role === 'PHYSICAL_TRAINER') {
+    if (['PHYSICAL_TRAINER', 'RECEPTION'].includes(req.user.role)) {
       return res.status(403).json({ success: false, error: 'Acceso no autorizado' });
     }
 
@@ -47,9 +47,17 @@ router.get('/', async (req, res, next) => {
       const id = r.professorId || r.assistantId;
       const name = r.professor?.name || r.assistant?.name;
       if (!byPayee[id]) {
-        byPayee[id] = { payeeId: id, payeeType: r.payeeType, name, period, total: 0, records: [] };
+        byPayee[id] = {
+          payeeId: id, payeeType: r.payeeType, name, period,
+          total: 0, payableTotal: 0, suspendedTotal: 0, pendingTotal: 0,
+          records: [],
+        };
       }
-      byPayee[id].total += parseFloat(r.total);
+      const amount = parseFloat(r.total);
+      byPayee[id].total += amount;
+      if (r.payStatus === 'SUSPENDED_LATE') byPayee[id].suspendedTotal += amount;
+      else if (r.payStatus === 'PENDING_MATCH') byPayee[id].pendingTotal += amount;
+      else byPayee[id].payableTotal += amount;
       byPayee[id].records.push(r);
     }
 
@@ -78,9 +86,16 @@ router.get('/summary', requireRole('ADMIN'), async (req, res, next) => {
       const name = r.professor?.name || r.assistant?.name;
       const key = `${r.payeeType}-${id}`;
       if (!summary[key]) {
-        summary[key] = { payeeId: id, payeeType: r.payeeType, name, total: 0, classCount: 0 };
+        summary[key] = {
+          payeeId: id, payeeType: r.payeeType, name,
+          total: 0, payableTotal: 0, suspendedTotal: 0, pendingTotal: 0, classCount: 0,
+        };
       }
-      summary[key].total += parseFloat(r.total);
+      const amount = parseFloat(r.total);
+      summary[key].total += amount;
+      if (r.payStatus === 'SUSPENDED_LATE') summary[key].suspendedTotal += amount;
+      else if (r.payStatus === 'PENDING_MATCH') summary[key].pendingTotal += amount;
+      else summary[key].payableTotal += amount;
       summary[key].classCount++;
     }
 
@@ -90,12 +105,15 @@ router.get('/summary', requireRole('ADMIN'), async (req, res, next) => {
       return a.name.localeCompare(b.name);
     });
 
+    // Headline totals count only PAYABLE amounts; retained money is separate
     const totalProfessors = sorted
       .filter((s) => s.payeeType === 'PROFESSOR')
-      .reduce((sum, s) => sum + s.total, 0);
+      .reduce((sum, s) => sum + s.payableTotal, 0);
     const totalAssistants = sorted
       .filter((s) => s.payeeType === 'ASSISTANT')
-      .reduce((sum, s) => sum + s.total, 0);
+      .reduce((sum, s) => sum + s.payableTotal, 0);
+    const suspendedGrandTotal = sorted.reduce((sum, s) => sum + s.suspendedTotal, 0);
+    const pendingGrandTotal = sorted.reduce((sum, s) => sum + s.pendingTotal, 0);
 
     res.json({
       success: true,
@@ -104,6 +122,8 @@ router.get('/summary', requireRole('ADMIN'), async (req, res, next) => {
         totalProfessors,
         totalAssistants,
         grandTotal: totalProfessors + totalAssistants,
+        suspendedGrandTotal,
+        pendingGrandTotal,
       },
     });
   } catch (err) {
@@ -144,6 +164,12 @@ router.get('/export', requireRole('ADMIN', 'TEACHER', 'ASSISTANT'), async (req, 
     const profRows = [];
     const asstRows = [];
 
+    const PAY_STATUS_LABEL = {
+      PAYABLE: 'Habilitado',
+      SUSPENDED_LATE: 'Suspendido (reporte tardío)',
+      PENDING_MATCH: 'Pendiente validación',
+    };
+
     for (const r of records) {
       const name = r.professor?.name || r.assistant?.name || '';
       // r.session.date is a Date at UTC midnight; format in UTC to avoid day shift
@@ -153,15 +179,24 @@ router.get('/export', requireRole('ADMIN', 'TEACHER', 'ASSISTANT'), async (req, 
       const row = {
         Nombre: name,
         Fecha: date,
-        Grupo: r.session.group?.code || '',
+        Grupo: r.session.group?.code || r.session.title || '',
         'Estudiantes presentes': r.presentCount,
         'Unidades efectivas': parseFloat(r.effectiveUnits),
         'Tarifa (COP)': parseFloat(r.rate),
         'Total (COP)': parseFloat(r.total),
+        Estado: PAY_STATUS_LABEL[r.payStatus] || 'Habilitado',
+        __payable: r.payStatus === 'PAYABLE' || !r.payStatus,
       };
       if (r.payeeType === 'PROFESSOR') profRows.push(row);
       else asstRows.push(row);
     }
+
+    // Column order for sheets (excludes the internal __payable flag)
+    const COLUMNS = ['Nombre', 'Fecha', 'Grupo', 'Estudiantes presentes',
+      'Unidades efectivas', 'Tarifa (COP)', 'Total (COP)', 'Estado'];
+    const toValues = (row) => COLUMNS.map((c) => row[c]);
+    const payableSum = (rows) => rows.filter((r) => r.__payable).reduce((s, r) => s + r['Total (COP)'], 0);
+    const retainedSum = (rows) => rows.filter((r) => !r.__payable).reduce((s, r) => s + r['Total (COP)'], 0);
 
     const wb = XLSX.utils.book_new();
 
@@ -174,10 +209,11 @@ router.get('/export', requireRole('ADMIN', 'TEACHER', 'ASSISTANT'), async (req, 
             [title],
             [`Período: ${period}`],
             [],
-            Object.keys(myRows[0]),
-            ...myRows.map(Object.values),
+            COLUMNS,
+            ...myRows.map(toValues),
             [],
-            ['', '', '', '', '', 'TOTAL', myRows.reduce((s, r) => s + r['Total (COP)'], 0)],
+            ['', '', '', '', '', 'TOTAL HABILITADO', payableSum(myRows)],
+            ['', '', '', '', '', 'TOTAL RETENIDO', retainedSum(myRows)],
           ])
         : XLSX.utils.aoa_to_sheet([['Sin registros para este período']]);
       XLSX.utils.book_append_sheet(wb, wsMine, 'Mi liquidación');
@@ -194,10 +230,11 @@ router.get('/export', requireRole('ADMIN', 'TEACHER', 'ASSISTANT'), async (req, 
           ['LIQUIDACIÓN DE PROFESORES'],
           [`Período: ${period}`],
           [],
-          Object.keys(profRows[0]),
-          ...profRows.map(Object.values),
+          COLUMNS,
+          ...profRows.map(toValues),
           [],
-          ['', '', '', '', '', 'TOTAL PROFESORES', profRows.reduce((s, r) => s + r['Total (COP)'], 0)],
+          ['', '', '', '', '', 'TOTAL PROFESORES (HABILITADO)', payableSum(profRows)],
+          ['', '', '', '', '', 'TOTAL RETENIDO', retainedSum(profRows)],
         ])
       : XLSX.utils.aoa_to_sheet([['Sin registros de profesores para este período']]);
     XLSX.utils.book_append_sheet(wb, wsProf, 'Profesores');
@@ -208,25 +245,28 @@ router.get('/export', requireRole('ADMIN', 'TEACHER', 'ASSISTANT'), async (req, 
           ['LIQUIDACIÓN DE ASISTENTES'],
           [`Período: ${period}`],
           [],
-          Object.keys(asstRows[0]),
-          ...asstRows.map(Object.values),
+          COLUMNS,
+          ...asstRows.map(toValues),
           [],
-          ['', '', '', '', '', 'TOTAL ASISTENTES', asstRows.reduce((s, r) => s + r['Total (COP)'], 0)],
+          ['', '', '', '', '', 'TOTAL ASISTENTES (HABILITADO)', payableSum(asstRows)],
+          ['', '', '', '', '', 'TOTAL RETENIDO', retainedSum(asstRows)],
         ])
       : XLSX.utils.aoa_to_sheet([['Sin registros de asistentes para este período']]);
     XLSX.utils.book_append_sheet(wb, wsAsst, 'Asistentes');
 
-    // Summary sheet
-    const grandTotal = [...profRows, ...asstRows].reduce((s, r) => s + r['Total (COP)'], 0);
+    // Summary sheet — grand total counts only pay-enabled records
+    const grandTotal = payableSum(profRows) + payableSum(asstRows);
+    const retainedTotal = retainedSum(profRows) + retainedSum(asstRows);
     const wsSum = XLSX.utils.aoa_to_sheet([
       ['RESUMEN LIQUIDACIÓN'],
       [`Período: ${period}`],
       [],
       ['Concepto', 'Total (COP)'],
-      ['Total Profesores', profRows.reduce((s, r) => s + r['Total (COP)'], 0)],
-      ['Total Asistentes', asstRows.reduce((s, r) => s + r['Total (COP)'], 0)],
+      ['Total Profesores (habilitado)', payableSum(profRows)],
+      ['Total Asistentes (habilitado)', payableSum(asstRows)],
+      ['Total retenido (suspendido/pendiente)', retainedTotal],
       [],
-      ['GRAN TOTAL', grandTotal],
+      ['GRAN TOTAL A PAGAR', grandTotal],
     ]);
     XLSX.utils.book_append_sheet(wb, wsSum, 'Resumen');
 

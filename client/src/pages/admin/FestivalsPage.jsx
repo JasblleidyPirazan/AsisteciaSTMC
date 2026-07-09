@@ -7,27 +7,28 @@ function todayStr() {
   return new Date().toISOString().slice(0, 10);
 }
 
+function fmt(n) {
+  return new Intl.NumberFormat('es-CO', { style: 'currency', currency: 'COP', maximumFractionDigits: 0 }).format(n || 0);
+}
+
 const STATUS_BADGE = {
-  PROGRAMADA: { cls: 'badge-blue', label: 'Programada' },
-  REALIZADA: { cls: 'badge-green', label: 'Realizada' },
-  CANCELADA: { cls: 'badge-red', label: 'Cancelada' },
-  CANCELADA_MITAD: { cls: 'badge-yellow', label: 'Cancelada a la mitad' },
+  PROGRAMADA: { cls: 'badge-blue', label: 'Programado' },
+  REALIZADA: { cls: 'badge-green', label: 'Realizado' },
+  CANCELADA: { cls: 'badge-red', label: 'Cancelado' },
 };
 
 const EMPTY_FORM = {
   date: todayStr(),
   title: '',
-  professorId: '',
-  assistantId: '',
-  countsAsUnits: '1',
+  ratePerProfessor: '',
+  professorIds: [],
   studentIds: [],
 };
 
-export default function MakeupsPage() {
+export default function FestivalsPage() {
   const navigate = useNavigate();
-  const [makeups, setMakeups] = useState([]);
+  const [festivals, setFestivals] = useState([]);
   const [professors, setProfessors] = useState([]);
-  const [assistants, setAssistants] = useState([]);
   const [students, setStudents] = useState([]);
   const [loading, setLoading] = useState(true);
   const [creating, setCreating] = useState(false);
@@ -41,15 +42,13 @@ export default function MakeupsPage() {
   async function loadAll() {
     setLoading(true);
     try {
-      const [m, p, a, s] = await Promise.all([
-        api.get('/makeups'),
+      const [f, p, s] = await Promise.all([
+        api.get('/festivals'),
         api.get('/professors', { active: 'true' }),
-        api.get('/assistants', { active: 'true' }),
         api.get('/students', { active: 'true', excludeSuspended: 'true' }),
       ]);
-      setMakeups(m);
+      setFestivals(f);
       setProfessors(p);
-      setAssistants(a);
       setStudents(s);
     } catch (err) {
       setError(err.message);
@@ -64,29 +63,26 @@ export default function MakeupsPage() {
     setForm((f) => ({ ...f, [field]: value }));
   }
 
-  function toggleStudent(id) {
+  function toggleIn(field, id) {
     setForm((f) => ({
       ...f,
-      studentIds: f.studentIds.includes(id)
-        ? f.studentIds.filter((x) => x !== id)
-        : [...f.studentIds, id],
+      [field]: f[field].includes(id) ? f[field].filter((x) => x !== id) : [...f[field], id],
     }));
   }
 
   async function handleCreate() {
     setError('');
-    if (!form.professorId) { setError('Selecciona un profesor'); return; }
-    if (form.studentIds.length === 0) { setError('Asigna al menos un estudiante'); return; }
-    if (!(parseFloat(form.countsAsUnits) > 0)) { setError('Define por cuántas asistencias cuenta'); return; }
+    if (form.professorIds.length === 0) { setError('Selecciona al menos un profesor participante'); return; }
+    if (form.studentIds.length === 0) { setError('Inscribe al menos un estudiante'); return; }
+    if (!(parseFloat(form.ratePerProfessor) > 0)) { setError('Define el pago por profesor'); return; }
 
     setSaving(true);
     try {
-      await api.post('/makeups', {
+      await api.post('/festivals', {
         date: form.date,
         title: form.title || undefined,
-        professorId: form.professorId,
-        assistantId: form.assistantId || undefined,
-        countsAsUnits: parseFloat(form.countsAsUnits),
+        ratePerProfessor: parseFloat(form.ratePerProfessor),
+        professorIds: form.professorIds,
         studentIds: form.studentIds,
       });
       setForm(EMPTY_FORM);
@@ -101,10 +97,10 @@ export default function MakeupsPage() {
   }
 
   async function handleDelete(id) {
-    if (!confirm('¿Eliminar esta reposición? Se borrará su reporte y costos asociados.')) return;
+    if (!confirm('¿Eliminar este festival? Se borrará su reporte y costos asociados.')) return;
     try {
-      await api.delete(`/makeups/${id}`);
-      setMakeups((m) => m.filter((x) => x.id !== id));
+      await api.delete(`/festivals/${id}`);
+      setFestivals((f) => f.filter((x) => x.id !== id));
     } catch (err) {
       alert(err.message);
     }
@@ -116,7 +112,7 @@ export default function MakeupsPage() {
     <div className="page">
       <div className="page-header">
         <button className="nav-back" onClick={() => navigate('/admin')}>←</button>
-        <h1>Reposiciones</h1>
+        <h1>Festivales</h1>
       </div>
 
       <div className="page-content">
@@ -124,11 +120,11 @@ export default function MakeupsPage() {
 
         {!creating ? (
           <button className="btn btn-primary btn-full mb-4" onClick={() => setCreating(true)}>
-            + Crear reposición grupal
+            + Crear festival
           </button>
         ) : (
           <div className="card mb-4">
-            <h3 className="mb-3">Nueva reposición grupal</h3>
+            <h3 className="mb-3">Nuevo festival</h3>
 
             <div className="form-group">
               <label className="form-label">Fecha *</label>
@@ -137,46 +133,43 @@ export default function MakeupsPage() {
             </div>
 
             <div className="form-group">
-              <label className="form-label">Nombre / descripción</label>
+              <label className="form-label">Nombre</label>
               <input type="text" className="form-input" value={form.title} maxLength={200}
-                placeholder="Ej: Festival sábado, reposición lluvia..."
+                placeholder="Ej: Festival de fin de mes"
                 onChange={(e) => update('title', e.target.value)} />
             </div>
 
             <div className="form-group">
-              <label className="form-label">Profesor *</label>
-              <select className="form-input form-select" value={form.professorId}
-                onChange={(e) => update('professorId', e.target.value)}>
-                <option value="">Seleccionar profesor</option>
-                {professors.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
-              </select>
-            </div>
-
-            <div className="form-group">
-              <label className="form-label">Asistente (opcional)</label>
-              <select className="form-input form-select" value={form.assistantId}
-                onChange={(e) => update('assistantId', e.target.value)}>
-                <option value="">Sin asistente</option>
-                {assistants.map((a) => <option key={a.id} value={a.id}>{a.name}</option>)}
-              </select>
-            </div>
-
-            <div className="form-group">
-              <label className="form-label">¿Por cuántas asistencias cuenta? *</label>
-              <input type="number" className="form-input" value={form.countsAsUnits}
-                min="0.5" step="0.5" max="10"
-                onChange={(e) => update('countsAsUnits', e.target.value)} />
+              <label className="form-label">Pago por profesor (COP) *</label>
+              <input type="number" className="form-input" min="1" value={form.ratePerProfessor}
+                placeholder="Ej: 168000"
+                onChange={(e) => update('ratePerProfessor', e.target.value)} />
               <span className="text-xs text-gray">
-                Cada estudiante presente recupera este número de clases. También define el pago al profesor (×{form.countsAsUnits || '?'}).
+                Pago igualitario: todos los profesores participantes reciben este mismo monto.
               </span>
             </div>
 
             <div className="form-group">
-              <label className="form-label">Estudiantes asignados * ({form.studentIds.length})</label>
+              <label className="form-label">Profesores participantes * ({form.professorIds.length})</label>
+              <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
+                {professors.map((p) => {
+                  const selected = form.professorIds.includes(p.id);
+                  return (
+                    <span key={p.id} className={`chip ${selected ? 'chip-active' : ''}`}
+                      style={{ cursor: 'pointer' }} onClick={() => toggleIn('professorIds', p.id)}>
+                      {selected ? '✓ ' : ''}{p.name}
+                    </span>
+                  );
+                })}
+              </div>
+            </div>
+
+            <div className="form-group">
+              <label className="form-label">Estudiantes inscritos * ({form.studentIds.length})</label>
               {form.studentIds.length > 0 && (
                 <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginBottom: 8 }}>
                   {form.studentIds.map((id) => (
-                    <span key={id} className="chip chip-active" onClick={() => toggleStudent(id)}
+                    <span key={id} className="chip chip-active" onClick={() => toggleIn('studentIds', id)}
                       style={{ cursor: 'pointer' }}>
                       {studentMap[id]?.name} ✕
                     </span>
@@ -195,7 +188,7 @@ export default function MakeupsPage() {
                       <button key={s.id} type="button"
                         className={`btn btn-full mb-1 ${selected ? 'btn-primary' : 'btn-outline'}`}
                         style={{ justifyContent: 'flex-start', minHeight: 40 }}
-                        onClick={() => toggleStudent(s.id)}>
+                        onClick={() => toggleIn('studentIds', s.id)}>
                         {selected ? '✓ ' : ''}{s.name}
                       </button>
                     );
@@ -210,46 +203,48 @@ export default function MakeupsPage() {
               </button>
               <button className="btn btn-success" style={{ flex: 2 }}
                 onClick={handleCreate} disabled={saving}>
-                {saving ? 'Creando...' : 'Crear reposición'}
+                {saving ? 'Creando...' : 'Crear festival'}
               </button>
             </div>
           </div>
         )}
 
-        <h2 className="mb-3">Reposiciones</h2>
-        {makeups.length === 0 ? (
-          <div className="alert alert-info">No hay reposiciones registradas.</div>
+        <h2 className="mb-3">Festivales</h2>
+        {festivals.length === 0 ? (
+          <div className="alert alert-info">No hay festivales registrados.</div>
         ) : (
-          makeups.map((m) => {
-            const badge = STATUS_BADGE[m.status] || STATUS_BADGE.PROGRAMADA;
-            const participantCount = m.makeupParticipants?.length || 0;
-            const presentCount = (m.attendanceRecords || []).filter((r) => r.status === 'PRESENTE').length;
+          festivals.map((f) => {
+            const badge = STATUS_BADGE[f.status] || STATUS_BADGE.PROGRAMADA;
+            const participantCount = f.makeupParticipants?.length || 0;
+            const counted = (f.attendanceRecords || []).filter((r) => r.status !== 'JUSTIFICADA').length;
             return (
-              <div key={m.id} className="card mb-3">
+              <div key={f.id} className="card mb-3">
                 <div className="flex items-center justify-between mb-1">
-                  <span className="font-medium">{m.title || 'Reposición grupal'}</span>
+                  <span className="font-medium">🏆 {f.title || 'Festival'}</span>
                   <span className={`badge ${badge.cls}`}>{badge.label}</span>
                 </div>
-                <div className="text-sm text-gray">📅 {fmtDate(m.date)}</div>
-                <div className="text-sm text-gray">🏫 {m.makeupProfessor?.name || '—'}
-                  {m.substituteProfessor && ` (sustituto: ${m.substituteProfessor.name})`}</div>
-                {m.assistant && <div className="text-sm text-gray">🤝 {m.assistant.name}</div>}
+                <div className="text-sm text-gray">📅 {fmtDate(f.date)}</div>
+                <div className="text-sm text-gray">
+                  🏫 {(f.festivalProfessors || []).map((fp) => fp.professor?.name).join(', ') || '—'}
+                </div>
                 <div className="text-sm text-gray">
                   👥 {participantCount} estudiante{participantCount !== 1 ? 's' : ''}
-                  {m.status === 'REALIZADA' && ` · ${presentCount} presentes`}
+                  {f.status === 'REALIZADA' && ` · ${counted} cuentan como clase`}
                 </div>
-                <div className="text-xs text-gray">Cuenta por {parseFloat(m.effectiveUnits)} asistencia(s)</div>
+                <div className="text-xs text-gray">
+                  Pago: {fmt(f.festivalRate)} × {(f.festivalProfessors || []).length} profesor(es)
+                </div>
 
                 <div className="flex gap-2 mt-3">
-                  {m.status === 'PROGRAMADA' && (
+                  {f.status === 'PROGRAMADA' && (
                     <button className="btn btn-outline" style={{ flex: 1, color: 'var(--red)', minHeight: 38 }}
-                      onClick={() => handleDelete(m.id)}>
+                      onClick={() => handleDelete(f.id)}>
                       Eliminar
                     </button>
                   )}
                   <button className="btn btn-primary" style={{ flex: 2, minHeight: 38 }}
-                    onClick={() => navigate(`/makeups/${m.id}/attendance`)}>
-                    {m.status === 'PROGRAMADA' ? 'Reportar asistencia' : 'Ver / editar reporte'}
+                    onClick={() => navigate(`/festivals/${f.id}/attendance`)}>
+                    {f.status === 'PROGRAMADA' ? 'Reportar asistencia' : 'Ver / editar reporte'}
                   </button>
                 </div>
               </div>
