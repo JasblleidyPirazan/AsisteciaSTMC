@@ -15,6 +15,10 @@ function formatDate(d) {
   return fmtDate(d, { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' });
 }
 
+function capitalize(s) {
+  return s ? s.charAt(0).toUpperCase() + s.slice(1) : s;
+}
+
 export default function DashboardPage() {
   const { user } = useAuth();
   const navigate = useNavigate();
@@ -59,21 +63,20 @@ export default function DashboardPage() {
       <OfflineBanner />
       <div className="page-header">
         <div style={{ flex: 1 }}>
-          <h1>Grupos del día</h1>
+          <h1>{capitalize(formatDate(date))}</h1>
           <p className="text-xs text-gray">Hola, {user?.email}</p>
         </div>
       </div>
 
       <div className="page-content">
         <div className="form-group mb-4">
-          <label className="form-label">Fecha</label>
+          <label className="form-label">Ver otro día</label>
           <input
             type="date"
             className="form-input"
             value={date}
             onChange={(e) => setDate(e.target.value)}
           />
-          <span className="text-xs text-gray">{formatDate(date)}</span>
         </div>
 
         {isAssistant ? (
