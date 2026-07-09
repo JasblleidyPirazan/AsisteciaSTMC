@@ -12,7 +12,9 @@ export default function GroupCard({ group, onClick }) {
     <div className="card card-tap mb-3" onClick={onClick}>
       <div className="flex items-center justify-between mb-2">
         <h3>{group.code}</h3>
-        <span className={`badge ${ballClass}`}>{group.ballLevel || '—'}</span>
+        <span className={`badge ${ballClass}`}>
+          {group.ballLevel ? `${group.ballLevel}${group.subLevel ? ` ${group.subLevel}` : ''}` : '—'}
+        </span>
       </div>
       <div className="text-sm text-gray flex gap-3 flex-wrap">
         <span>🕐 {group.startTime}–{group.endTime}</span>

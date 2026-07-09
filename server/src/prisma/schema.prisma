@@ -111,6 +111,7 @@ model Group {
   classUnits         Decimal   @map("class_units") @db.Decimal(3, 1)
   court              Int?
   ballLevel          String?   @map("ball_level")
+  subLevel           String?   @map("sub_level") // 'A' | 'B' | 'C' — informativo
   active             Boolean   @default(true)
   deactivationReason String?   @map("deactivation_reason")
   deactivatedAt      DateTime? @map("deactivated_at")
@@ -153,6 +154,9 @@ model ClassSession {
   status                SessionStatus @default(PROGRAMADA)
   effectiveUnits        Decimal       @map("effective_units") @db.Decimal(3, 1)
   cancellationReason    String?       @map("cancellation_reason")
+  cancellationCategory  CancellationCategory? @map("cancellation_category")
+  dictatedByOwner       Boolean       @default(true) @map("dictated_by_owner")
+  notDictatedNote       String?       @map("not_dictated_note")
   substituteProfessorId String?       @map("substitute_professor_id")
   assistantId           String?       @map("assistant_id")
   reportedById          String?       @map("reported_by_id")
@@ -175,6 +179,12 @@ model ClassSession {
 enum SessionKind {
   REGULAR
   MAKEUP
+}
+
+enum CancellationCategory {
+  LLUVIA
+  SIN_ESTUDIANTES
+  OTRA
 }
 
 model MakeupParticipant {

@@ -25,6 +25,7 @@ export default function MakeupAttendancePage() {
   const [error, setError] = useState('');
   const [done, setDone] = useState(false);
   const [showCancel, setShowCancel] = useState(false);
+  const [cancelCategory, setCancelCategory] = useState('');
   const [cancelReason, setCancelReason] = useState('');
 
   const editing = makeup && ['REALIZADA', 'CANCELADA_MITAD'].includes(makeup.status);
@@ -82,7 +83,10 @@ export default function MakeupAttendancePage() {
   async function handleCancel() {
     setSaving(true);
     try {
-      await api.post(`/makeups/${id}/cancel`, { cancellationReason: cancelReason });
+      await api.post(`/makeups/${id}/cancel`, {
+        cancellationCategory: cancelCategory,
+        cancellationReason: cancelReason || undefined,
+      });
       navigate('/admin/makeups', { replace: true });
     } catch (err) {
       setError(err.message);
@@ -218,14 +222,31 @@ export default function MakeupAttendancePage() {
         ) : (
           <div className="card mt-3">
             <label className="form-label">Motivo de cancelación</label>
-            <input type="text" className="form-input mb-2" value={cancelReason}
-              onChange={(e) => setCancelReason(e.target.value)} placeholder="Ej: lluvia" />
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginBottom: 8 }}>
+              {[
+                { category: 'LLUVIA', label: '🌧️ Cancelada por lluvia' },
+                { category: 'SIN_ESTUDIANTES', label: '👥 No llegaron estudiantes' },
+                { category: 'OTRA', label: '📝 Otro motivo' },
+              ].map((opt) => (
+                <button key={opt.category} type="button"
+                  className={`btn btn-full ${cancelCategory === opt.category ? 'btn-primary' : 'btn-outline'}`}
+                  style={{ justifyContent: 'flex-start', minHeight: 40 }}
+                  onClick={() => setCancelCategory(opt.category)}>
+                  {cancelCategory === opt.category ? '✓ ' : ''}{opt.label}
+                </button>
+              ))}
+            </div>
+            {cancelCategory === 'OTRA' && (
+              <input type="text" className="form-input mb-2" value={cancelReason}
+                onChange={(e) => setCancelReason(e.target.value)} placeholder="Describe el motivo..." />
+            )}
             <div className="flex gap-2">
               <button className="btn btn-outline" style={{ flex: 1 }} onClick={() => setShowCancel(false)}>
                 Volver
               </button>
               <button className="btn btn-danger" style={{ flex: 2 }}
-                disabled={!cancelReason || saving} onClick={handleCancel}>
+                disabled={!cancelCategory || (cancelCategory === 'OTRA' && !cancelReason.trim()) || saving}
+                onClick={handleCancel}>
                 Confirmar cancelación
               </button>
             </div>

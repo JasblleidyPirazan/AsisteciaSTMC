@@ -284,11 +284,20 @@ router.post('/:id/finalize', async (req, res, next) => {
 });
 
 // Cancel a makeup
+const CANCEL_CATEGORIES = ['LLUVIA', 'SIN_ESTUDIANTES', 'OTRA'];
+const CANCEL_AUTO_TEXT = {
+  LLUVIA: 'Cancelada por lluvia',
+  SIN_ESTUDIANTES: 'No llegaron estudiantes',
+};
+
 router.post('/:id/cancel', async (req, res, next) => {
   try {
-    const { cancellationReason } = req.body;
-    if (!cancellationReason) {
-      return res.status(400).json({ success: false, error: 'Motivo de cancelación requerido' });
+    const { cancellationCategory, cancellationReason } = req.body;
+    if (!CANCEL_CATEGORIES.includes(cancellationCategory)) {
+      return res.status(400).json({ success: false, error: 'Categoría de cancelación requerida (LLUVIA, SIN_ESTUDIANTES u OTRA)' });
+    }
+    if (cancellationCategory === 'OTRA' && (!cancellationReason || !cancellationReason.trim())) {
+      return res.status(400).json({ success: false, error: 'Describe el motivo de la cancelación' });
     }
     const session = await prisma.classSession.findUnique({ where: { id: req.params.id } });
     if (!session || session.kind !== 'MAKEUP') {
@@ -298,9 +307,17 @@ router.post('/:id/cancel', async (req, res, next) => {
       return res.status(403).json({ success: false, error: 'No tienes permiso para cancelar esta reposición' });
     }
 
+    const reasonText = (cancellationReason && cancellationReason.trim())
+      ? cancellationReason.trim().slice(0, 500)
+      : CANCEL_AUTO_TEXT[cancellationCategory];
     const updated = await prisma.classSession.update({
       where: { id: req.params.id },
-      data: { status: 'CANCELADA', cancellationReason: cancellationReason.slice(0, 500), reportedById: req.user.id },
+      data: {
+        status: 'CANCELADA',
+        cancellationCategory,
+        cancellationReason: reasonText,
+        reportedById: req.user.id,
+      },
     });
     await prisma.costRecord.deleteMany({ where: { sessionId: req.params.id } });
     res.json({ success: true, data: updated });

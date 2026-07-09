@@ -5,6 +5,20 @@ const { notSuspended } = require('../lib/filters');
 
 const router = express.Router();
 
+const SUB_LEVELS = ['A', 'B', 'C'];
+// Intermedio y Avanzado no manejan subnivel (pendiente de definición del cliente)
+const LEVELS_WITHOUT_SUBLEVEL = ['Intermedio', 'Avanzado'];
+
+// Returns the validated subLevel value or an error string.
+function validateSubLevel(subLevel, ballLevel) {
+  if (subLevel === undefined || subLevel === null || subLevel === '') return { value: null };
+  if (!SUB_LEVELS.includes(subLevel)) return { error: 'Subnivel inválido (A, B o C)' };
+  if (LEVELS_WITHOUT_SUBLEVEL.includes(ballLevel)) {
+    return { error: `El nivel ${ballLevel} no maneja subniveles` };
+  }
+  return { value: subLevel };
+}
+
 const DAY_MAP = {
   0: 'domingo',
   1: 'lunes',
@@ -115,11 +129,14 @@ router.get('/:id/students', async (req, res, next) => {
 router.post('/', requireRole('ADMIN', 'PHYSICAL_TRAINER'), async (req, res, next) => {
   try {
     const { code, name, professorId, lunes, martes, miercoles, jueves, viernes, sabado, domingo,
-      startTime, endTime, court, ballLevel } = req.body;
+      startTime, endTime, court, ballLevel, subLevel } = req.body;
 
     if (!code || !professorId || !startTime || !endTime) {
       return res.status(400).json({ success: false, error: 'Código, profesor y horario requeridos' });
     }
+
+    const sub = validateSubLevel(subLevel, ballLevel);
+    if (sub.error) return res.status(400).json({ success: false, error: sub.error });
 
     const [sh, sm] = startTime.split(':').map(Number);
     const [eh, em] = endTime.split(':').map(Number);
@@ -128,7 +145,7 @@ router.post('/', requireRole('ADMIN', 'PHYSICAL_TRAINER'), async (req, res, next
     const group = await prisma.group.create({
       data: {
         code, name, professorId, startTime, endTime, durationMinutes, classUnits: 1.0,
-        court: court ? parseInt(court) : null, ballLevel,
+        court: court ? parseInt(court) : null, ballLevel, subLevel: sub.value,
         lunes: !!lunes, martes: !!martes, miercoles: !!miercoles, jueves: !!jueves,
         viernes: !!viernes, sabado: !!sabado, domingo: !!domingo,
       },
@@ -143,13 +160,21 @@ router.post('/', requireRole('ADMIN', 'PHYSICAL_TRAINER'), async (req, res, next
 router.put('/:id', requireRole('ADMIN', 'PHYSICAL_TRAINER'), async (req, res, next) => {
   try {
     const { code, name, professorId, lunes, martes, miercoles, jueves, viernes, sabado, domingo,
-      startTime, endTime, court, ballLevel, active } = req.body;
+      startTime, endTime, court, ballLevel, subLevel, active } = req.body;
 
     const data = {};
     if (code !== undefined) data.code = code;
     if (name !== undefined) data.name = name;
     if (professorId !== undefined) data.professorId = professorId;
     if (ballLevel !== undefined) data.ballLevel = ballLevel;
+    if (subLevel !== undefined || ballLevel !== undefined) {
+      const current = await prisma.group.findUnique({ where: { id: req.params.id } });
+      const effectiveLevel = ballLevel !== undefined ? ballLevel : current?.ballLevel;
+      const effectiveSub = subLevel !== undefined ? subLevel : current?.subLevel;
+      const sub = validateSubLevel(effectiveSub, effectiveLevel);
+      if (sub.error) return res.status(400).json({ success: false, error: sub.error });
+      data.subLevel = sub.value;
+    }
     if (court !== undefined) data.court = court ? parseInt(court) : null;
     if (active !== undefined) data.active = active;
     if (lunes !== undefined) data.lunes = !!lunes;

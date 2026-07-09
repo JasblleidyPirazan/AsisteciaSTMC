@@ -6,6 +6,11 @@ const router = express.Router();
 
 const VALID_STATUSES = ['PRESENTE', 'AUSENTE', 'JUSTIFICADA'];
 const VALID_TYPES = ['REGULAR', 'REPOSICION'];
+const CANCEL_CATEGORIES = ['LLUVIA', 'SIN_ESTUDIANTES', 'OTRA'];
+const CANCEL_AUTO_TEXT = {
+  LLUVIA: 'Cancelada por lluvia',
+  SIN_ESTUDIANTES: 'No llegaron estudiantes',
+};
 
 /**
  * Authorization for reporting attendance on a group:
@@ -126,10 +131,20 @@ router.post('/', async (req, res, next) => {
 // Finalize session: save attendance + run cost engine
 router.post('/:id/finalize', async (req, res, next) => {
   try {
-    const { attendanceRecords, substituteProfessorId, assistantId } = req.body;
+    const { attendanceRecords, substituteProfessorId, assistantId, dictatedByOwner, notDictatedNote } = req.body;
 
     if (attendanceRecords !== undefined && !Array.isArray(attendanceRecords)) {
       return res.status(400).json({ success: false, error: 'attendanceRecords debe ser una lista' });
+    }
+    // "No dicté la clase yo": la asistencia se registra igual, pero exige
+    // quién la dictó y una observación obligatoria (queda para el coordinador)
+    if (dictatedByOwner === false) {
+      if (!notDictatedNote || !notDictatedNote.trim()) {
+        return res.status(400).json({ success: false, error: 'La observación es obligatoria cuando la clase no fue dictada por el profesor titular' });
+      }
+      if (!substituteProfessorId) {
+        return res.status(400).json({ success: false, error: 'Indica quién dictó la clase' });
+      }
     }
     for (const record of attendanceRecords || []) {
       if (!record.studentId || !VALID_STATUSES.includes(record.status)) {
@@ -162,6 +177,8 @@ router.post('/:id/finalize', async (req, res, next) => {
       previousState = {
         status: session.status,
         effectiveUnits: parseFloat(session.effectiveUnits),
+        dictatedByOwner: session.dictatedByOwner,
+        notDictatedNote: session.notDictatedNote,
         records: prevRecords.map((r) => ({
           studentId: r.studentId,
           name: r.student?.name,
@@ -196,6 +213,12 @@ router.post('/:id/finalize', async (req, res, next) => {
     const sessionData = { status, effectiveUnits, reportedById: req.user.id };
     if (substituteProfessorId !== undefined) sessionData.substituteProfessorId = substituteProfessorId || null;
     if (assistantId !== undefined) sessionData.assistantId = assistantId || null;
+    if (dictatedByOwner !== undefined) {
+      sessionData.dictatedByOwner = dictatedByOwner !== false;
+      sessionData.notDictatedNote = dictatedByOwner === false
+        ? notDictatedNote.trim().slice(0, 500)
+        : null;
+    }
 
     await prisma.classSession.update({
       where: { id: req.params.id },
@@ -211,6 +234,8 @@ router.post('/:id/finalize', async (req, res, next) => {
           newState: {
             status,
             effectiveUnits,
+            dictatedByOwner: dictatedByOwner !== false,
+            notDictatedNote: dictatedByOwner === false ? notDictatedNote.trim().slice(0, 500) : null,
             records: newRecords.map(({ studentId, status: st, attendanceType, justification }) => ({
               studentId, status: st, attendanceType, justification,
             })),
@@ -238,9 +263,12 @@ router.post('/:id/finalize', async (req, res, next) => {
 // Cancel a session
 router.post('/:id/cancel', async (req, res, next) => {
   try {
-    const { cancellationReason } = req.body;
-    if (!cancellationReason) {
-      return res.status(400).json({ success: false, error: 'Motivo de cancelación requerido' });
+    const { cancellationCategory, cancellationReason } = req.body;
+    if (!CANCEL_CATEGORIES.includes(cancellationCategory)) {
+      return res.status(400).json({ success: false, error: 'Categoría de cancelación requerida (LLUVIA, SIN_ESTUDIANTES u OTRA)' });
+    }
+    if (cancellationCategory === 'OTRA' && (!cancellationReason || !cancellationReason.trim())) {
+      return res.status(400).json({ success: false, error: 'Describe el motivo de la cancelación' });
     }
 
     const existing = await prisma.classSession.findUnique({ where: { id: req.params.id } });
@@ -250,9 +278,17 @@ router.post('/:id/cancel', async (req, res, next) => {
       return res.status(403).json({ success: false, error: 'No tienes permiso para reportar este grupo' });
     }
 
+    const reasonText = (cancellationReason && cancellationReason.trim())
+      ? cancellationReason.trim().slice(0, 500)
+      : CANCEL_AUTO_TEXT[cancellationCategory];
     const session = await prisma.classSession.update({
       where: { id: req.params.id },
-      data: { status: 'CANCELADA', cancellationReason: cancellationReason.slice(0, 500), reportedById: req.user.id },
+      data: {
+        status: 'CANCELADA',
+        cancellationCategory,
+        cancellationReason: reasonText,
+        reportedById: req.user.id,
+      },
     });
 
     // If the session had been finalized before, its cost records no longer apply

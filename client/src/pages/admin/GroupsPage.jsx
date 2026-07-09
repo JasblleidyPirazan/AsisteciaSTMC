@@ -12,11 +12,14 @@ const DAYS = [
   { key: 'domingo', label: 'D' },
 ];
 
-const BALL_LEVELS = ['Verde', 'Amarilla', 'Naranja', 'Roja'];
+const BALL_LEVELS = ['Roja', 'Naranja', 'Verde', 'Amarilla', 'Intermedio', 'Avanzado'];
+// Intermedio y Avanzado no manejan subnivel (pendiente de definición)
+const LEVELS_WITH_SUBLEVEL = ['Roja', 'Naranja', 'Verde', 'Amarilla'];
+const SUB_LEVELS = ['A', 'B', 'C'];
 
 const EMPTY_FORM = {
   code: '', professorId: '', startTime: '15:00', endTime: '15:45',
-  court: '', ballLevel: '',
+  court: '', ballLevel: '', subLevel: '',
   lunes: false, martes: false, miercoles: false, jueves: false,
   viernes: false, sabado: false, domingo: false,
 };
@@ -160,14 +163,37 @@ export default function GroupsPage() {
                     value={form.court} onChange={(e) => setField('court', e.target.value)} />
                 </div>
                 <div className="form-group">
-                  <label className="form-label">Nivel de bola</label>
+                  <label className="form-label">Nivel</label>
                   <select className="form-input form-select" value={form.ballLevel}
-                    onChange={(e) => setField('ballLevel', e.target.value)}>
+                    onChange={(e) => {
+                      const level = e.target.value;
+                      setForm((f) => ({
+                        ...f,
+                        ballLevel: level,
+                        subLevel: LEVELS_WITH_SUBLEVEL.includes(level) ? f.subLevel : '',
+                      }));
+                    }}>
                     <option value="">Sin especificar</option>
                     {BALL_LEVELS.map((b) => <option key={b} value={b}>{b}</option>)}
                   </select>
                 </div>
               </div>
+              {LEVELS_WITH_SUBLEVEL.includes(form.ballLevel) && (
+                <div className="form-group">
+                  <label className="form-label">Subnivel</label>
+                  <div style={{ display: 'flex', gap: 8 }}>
+                    {SUB_LEVELS.map((s) => (
+                      <button key={s} type="button"
+                        className={`btn ${form.subLevel === s ? 'btn-primary' : 'btn-outline'}`}
+                        style={{ flex: 1, minHeight: 40 }}
+                        onClick={() => setField('subLevel', form.subLevel === s ? '' : s)}>
+                        {s}
+                      </button>
+                    ))}
+                  </div>
+                  <span className="text-xs text-gray">Informativo, para seguimiento del nivel.</span>
+                </div>
+              )}
               <div className="flex gap-2 mt-2">
                 <button type="button" className="btn btn-outline" style={{ flex: 1 }}
                   onClick={() => setShowForm(false)}>
@@ -192,7 +218,7 @@ export default function GroupsPage() {
                   <div className="text-xs text-gray">
                     {g.professor?.name} · {g.startTime}–{g.endTime}
                     {g.court ? ` · Cancha ${g.court}` : ''}
-                    {g.ballLevel ? ` · ${g.ballLevel}` : ''}
+                    {g.ballLevel ? ` · ${g.ballLevel}${g.subLevel ? ` ${g.subLevel}` : ''}` : ''}
                   </div>
                   {daysLabel(g) && (
                     <div className="text-xs" style={{ color: 'var(--primary)', marginTop: 2 }}>
