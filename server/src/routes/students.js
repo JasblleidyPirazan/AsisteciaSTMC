@@ -95,13 +95,19 @@ router.get('/:id', async (req, res, next) => {
 
 router.post('/', requireRole('ADMIN', 'PHYSICAL_TRAINER'), async (req, res, next) => {
   try {
-    const { name, email, parentUserId, primaryGroupId, secondaryGroupId, classesAcquired } = req.body;
+    const { name, email, parentUserId, primaryGroupId, secondaryGroupId, classesAcquired,
+      paymentComplete, document, phone, guardianName, birthDate } = req.body;
     if (!name) return res.status(400).json({ success: false, error: 'Nombre requerido' });
 
     const student = await prisma.student.create({
       data: {
         name,
         email: email || null,
+        document: document || null,
+        phone: phone || null,
+        guardianName: guardianName || null,
+        birthDate: birthDate ? new Date(birthDate) : null,
+        paymentComplete: !!paymentComplete,
         parentUserId: parentUserId || null,
         classesAcquired: Number.isFinite(+classesAcquired) ? Math.max(0, parseInt(classesAcquired)) : 0,
         enrollments: {
@@ -136,10 +142,15 @@ router.post('/', requireRole('ADMIN', 'PHYSICAL_TRAINER'), async (req, res, next
 
 router.put('/:id', requireRole('ADMIN', 'PHYSICAL_TRAINER'), async (req, res, next) => {
   try {
-    const { name, email, parentUserId, active, deactivationReason, classesAcquired } = req.body;
+    const { name, email, parentUserId, active, deactivationReason, classesAcquired,
+      document, phone, guardianName, birthDate } = req.body;
     const data = {};
     if (name !== undefined) data.name = name;
     if (email !== undefined) data.email = email;
+    if (document !== undefined) data.document = document || null;
+    if (phone !== undefined) data.phone = phone || null;
+    if (guardianName !== undefined) data.guardianName = guardianName || null;
+    if (birthDate !== undefined) data.birthDate = birthDate ? new Date(birthDate) : null;
     if (parentUserId !== undefined) data.parentUserId = parentUserId;
     if (classesAcquired !== undefined) data.classesAcquired = Math.max(0, parseInt(classesAcquired) || 0);
     if (active !== undefined) {

@@ -75,6 +75,10 @@ model Student {
   id                 String    @id @default(cuid())
   name               String
   email              String?
+  document           String?   @map("document")
+  phone              String?   @map("phone")
+  guardianName       String?   @map("guardian_name")
+  birthDate          DateTime? @map("birth_date") @db.Date
   parentUserId       String?   @map("parent_user_id")
   classesAcquired    Int       @default(0) @map("classes_acquired")
   paymentComplete    Boolean   @default(false) @map("payment_complete")

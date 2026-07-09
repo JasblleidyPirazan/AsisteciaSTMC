@@ -19,7 +19,7 @@ export default function StudentsPage() {
   const [groups, setGroups] = useState([]);
   const [loading, setLoading] = useState(true);
   const [showForm, setShowForm] = useState(false);
-  const [form, setForm] = useState({ name: '', email: '', primaryGroupId: '', secondaryGroupId: '', classesAcquired: '' });
+  const [form, setForm] = useState({ name: '', email: '', document: '', phone: '', guardianName: '', birthDate: '', primaryGroupId: '', secondaryGroupId: '', classesAcquired: '', paymentComplete: false });
   const [error, setError] = useState('');
   const [saving, setSaving] = useState(false);
 
@@ -82,7 +82,7 @@ export default function StudentsPage() {
       const s = await api.post('/students', form);
       setStudents([...students, s]);
       setShowForm(false);
-      setForm({ name: '', email: '', primaryGroupId: '', secondaryGroupId: '', classesAcquired: '' });
+      setForm({ name: '', email: '', document: '', phone: '', guardianName: '', birthDate: '', primaryGroupId: '', secondaryGroupId: '', classesAcquired: '', paymentComplete: false });
     } catch (err) {
       setError(err.message);
     } finally {
@@ -280,6 +280,28 @@ export default function StudentsPage() {
                 <input type="email" className="form-input" value={form.email}
                   onChange={(e) => setForm({ ...form, email: e.target.value })} />
               </div>
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+                <div className="form-group">
+                  <label className="form-label">Documento</label>
+                  <input type="text" className="form-input" value={form.document} maxLength={40}
+                    onChange={(e) => setForm({ ...form, document: e.target.value })} />
+                </div>
+                <div className="form-group">
+                  <label className="form-label">WhatsApp</label>
+                  <input type="text" className="form-input" value={form.phone} maxLength={40}
+                    onChange={(e) => setForm({ ...form, phone: e.target.value })} />
+                </div>
+              </div>
+              <div className="form-group">
+                <label className="form-label">Acudiente</label>
+                <input type="text" className="form-input" value={form.guardianName} maxLength={200}
+                  onChange={(e) => setForm({ ...form, guardianName: e.target.value })} />
+              </div>
+              <div className="form-group">
+                <label className="form-label">Fecha de nacimiento</label>
+                <input type="date" className="form-input" value={form.birthDate}
+                  onChange={(e) => setForm({ ...form, birthDate: e.target.value })} />
+              </div>
               <div className="form-group">
                 <label className="form-label">Grupo principal</label>
                 <select className="form-input form-select" value={form.primaryGroupId}
@@ -303,6 +325,16 @@ export default function StudentsPage() {
                   onChange={(e) => setForm({ ...form, classesAcquired: e.target.value })} />
                 <span className="text-xs text-gray">Total de clases que el estudiante compró para el semestre.</span>
               </div>
+              <label style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 16, cursor: 'pointer' }}>
+                <input type="checkbox" checked={form.paymentComplete}
+                  onChange={(e) => setForm({ ...form, paymentComplete: e.target.checked })} />
+                <span className="text-sm">
+                  Pago completo — <strong>Matriculado</strong>
+                  <span className="text-xs text-gray" style={{ display: 'block' }}>
+                    Sin marcar, el estudiante figura como Inscrito (pagos pendientes).
+                  </span>
+                </span>
+              </label>
               <div className="flex gap-2">
                 <button type="button" className="btn btn-outline" style={{ flex: 1 }} onClick={() => setShowForm(false)}>
                   Cancelar

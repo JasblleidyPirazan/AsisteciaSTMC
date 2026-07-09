@@ -6,3 +6,6 @@ server/node_modules/
 client/node_modules/
 *.log
 .DS_Store
+
+# Datos de importación (contienen datos personales — no versionar)
+server/data/*.xlsx
