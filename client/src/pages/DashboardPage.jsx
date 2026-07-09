@@ -6,7 +6,6 @@ import GroupCard from '../components/GroupCard';
 import OfflineBanner from '../components/OfflineBanner';
 import AssistantDayView from '../components/AssistantDayView';
 import { fmtDate } from '../utils/dates';
-import { roleLabel } from '../utils/roles';
 
 function todayStr() {
   return new Date().toISOString().slice(0, 10);
@@ -17,7 +16,7 @@ function formatDate(d) {
 }
 
 export default function DashboardPage() {
-  const { user, logout } = useAuth();
+  const { user } = useAuth();
   const navigate = useNavigate();
   const [groups, setGroups] = useState([]);
   const [date, setDate] = useState(todayStr());
@@ -53,8 +52,6 @@ export default function DashboardPage() {
     navigate(`/attendance/${group.id}`, { state: { group, date } });
   }
 
-  const isAdmin = user?.role === 'ADMIN';
-  const isPhysicalTrainer = user?.role === 'PHYSICAL_TRAINER';
   const isAssistant = user?.role === 'ASSISTANT';
 
   return (
@@ -62,25 +59,8 @@ export default function DashboardPage() {
       <OfflineBanner />
       <div className="page-header">
         <div style={{ flex: 1 }}>
-          <h1>🎾 STMC</h1>
-          <p className="text-xs text-gray">{user?.email} · {roleLabel(user?.role)}</p>
-        </div>
-        <div style={{ display: 'flex', gap: 8 }}>
-          {(isAdmin || isPhysicalTrainer) && (
-            <button className="btn btn-outline" style={{ minHeight: 36, padding: '0 12px', fontSize: '0.875rem' }}
-              onClick={() => navigate('/admin')}>
-              {isAdmin ? 'Admin' : 'Coordinación'}
-            </button>
-          )}
-          {(user?.role === 'TEACHER' || isAssistant) && (
-            <button className="btn btn-outline" style={{ minHeight: 36, padding: '0 12px', fontSize: '0.875rem' }}
-              onClick={() => navigate('/my-payroll')}>
-              💰 Mi quincena
-            </button>
-          )}
-          <button className="btn btn-ghost" style={{ minHeight: 36 }} onClick={logout}>
-            Salir
-          </button>
+          <h1>Grupos del día</h1>
+          <p className="text-xs text-gray">Hola, {user?.email}</p>
         </div>
       </div>
 

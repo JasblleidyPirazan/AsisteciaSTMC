@@ -1,6 +1,7 @@
 import { Component } from 'react';
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
 import { AuthProvider, useAuth } from './hooks/useAuth';
+import AppShell from './components/AppShell';
 
 import LoginPage from './pages/LoginPage';
 import DashboardPage from './pages/DashboardPage';
@@ -64,6 +65,12 @@ function RequireAuth({ children, roles }) {
   return children;
 }
 
+// Envuelve una página de gestión/dashboard en el shell (sidebar + topbar).
+// Los flujos inmersivos de asistencia y las páginas públicas NO lo usan.
+function Shell({ children }) {
+  return <AppShell>{children}</AppShell>;
+}
+
 function AppRoutes() {
   const { user } = useAuth();
 
@@ -76,7 +83,7 @@ function AppRoutes() {
         <RequireAuth>
           {user?.role === 'PARENT' ? <Navigate to="/parent" />
             : user?.role === 'RECEPTION' ? <Navigate to="/admin/students" />
-            : <DashboardPage />}
+            : <Shell><DashboardPage /></Shell>}
         </RequireAuth>
       } />
 
@@ -100,90 +107,90 @@ function AppRoutes() {
 
       <Route path="/parent" element={
         <RequireAuth roles={['PARENT', 'ADMIN']}>
-          <ParentPortalPage />
+          <Shell><ParentPortalPage /></Shell>
         </RequireAuth>
       } />
 
       <Route path="/my-payroll" element={
         <RequireAuth roles={['TEACHER', 'ASSISTANT']}>
-          <MyPayrollPage />
+          <Shell><MyPayrollPage /></Shell>
         </RequireAuth>
       } />
 
       <Route path="/admin" element={
         <RequireAuth roles={['ADMIN', 'PHYSICAL_TRAINER', 'RECEPTION']}>
-          <AdminDashboard />
+          <Shell><AdminDashboard /></Shell>
         </RequireAuth>
       } />
       <Route path="/admin/students" element={
         <RequireAuth roles={['ADMIN', 'PHYSICAL_TRAINER', 'RECEPTION']}>
-          <StudentsPage />
+          <Shell><StudentsPage /></Shell>
         </RequireAuth>
       } />
       <Route path="/admin/groups" element={
         <RequireAuth roles={['ADMIN', 'PHYSICAL_TRAINER']}>
-          <GroupsPage />
+          <Shell><GroupsPage /></Shell>
         </RequireAuth>
       } />
       <Route path="/admin/makeups" element={
         <RequireAuth roles={['ADMIN', 'PHYSICAL_TRAINER']}>
-          <MakeupsPage />
+          <Shell><MakeupsPage /></Shell>
         </RequireAuth>
       } />
       <Route path="/admin/events" element={
         <RequireAuth roles={['ADMIN', 'PHYSICAL_TRAINER']}>
-          <EventsPage />
+          <Shell><EventsPage /></Shell>
         </RequireAuth>
       } />
       <Route path="/admin/reports" element={
         <RequireAuth roles={['ADMIN', 'PHYSICAL_TRAINER']}>
-          <ReportsPage />
+          <Shell><ReportsPage /></Shell>
         </RequireAuth>
       } />
       <Route path="/admin/validation" element={
         <RequireAuth roles={['ADMIN', 'PHYSICAL_TRAINER']}>
-          <ValidationPage />
+          <Shell><ValidationPage /></Shell>
         </RequireAuth>
       } />
       <Route path="/admin/festivals" element={
         <RequireAuth roles={['ADMIN', 'PHYSICAL_TRAINER']}>
-          <FestivalsPage />
+          <Shell><FestivalsPage /></Shell>
         </RequireAuth>
       } />
       <Route path="/admin/alerts" element={
         <RequireAuth roles={['ADMIN', 'PHYSICAL_TRAINER']}>
-          <AlertsPage />
+          <Shell><AlertsPage /></Shell>
         </RequireAuth>
       } />
       {/* ADMIN-only routes */}
       <Route path="/admin/payroll" element={
         <RequireAuth roles={['ADMIN']}>
-          <PayrollPage />
+          <Shell><PayrollPage /></Shell>
         </RequireAuth>
       } />
       <Route path="/admin/config" element={
         <RequireAuth roles={['ADMIN']}>
-          <ConfigPage />
+          <Shell><ConfigPage /></Shell>
         </RequireAuth>
       } />
       <Route path="/admin/enrollment" element={
         <RequireAuth roles={['ADMIN']}>
-          <EnrollmentRequestsPage />
+          <Shell><EnrollmentRequestsPage /></Shell>
         </RequireAuth>
       } />
       <Route path="/admin/professors" element={
         <RequireAuth roles={['ADMIN']}>
-          <ProfessorsPage />
+          <Shell><ProfessorsPage /></Shell>
         </RequireAuth>
       } />
       <Route path="/admin/assistants" element={
         <RequireAuth roles={['ADMIN']}>
-          <AssistantsPage />
+          <Shell><AssistantsPage /></Shell>
         </RequireAuth>
       } />
       <Route path="/admin/users" element={
         <RequireAuth roles={['ADMIN']}>
-          <UsersPage />
+          <Shell><UsersPage /></Shell>
         </RequireAuth>
       } />
 
