@@ -7,7 +7,7 @@ const router = express.Router();
 
 router.get('/', async (req, res, next) => {
   try {
-    if (req.user.role === 'PHYSICAL_TRAINER') {
+    if (['PHYSICAL_TRAINER', 'RECEPTION'].includes(req.user.role)) {
       return res.status(403).json({ success: false, error: 'Acceso no autorizado' });
     }
 

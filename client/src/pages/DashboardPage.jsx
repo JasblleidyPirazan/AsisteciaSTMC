@@ -5,6 +5,7 @@ import { useAuth } from '../hooks/useAuth';
 import GroupCard from '../components/GroupCard';
 import OfflineBanner from '../components/OfflineBanner';
 import { fmtDate } from '../utils/dates';
+import { roleLabel } from '../utils/roles';
 
 function todayStr() {
   return new Date().toISOString().slice(0, 10);
@@ -61,13 +62,13 @@ export default function DashboardPage() {
       <div className="page-header">
         <div style={{ flex: 1 }}>
           <h1>🎾 STMC</h1>
-          <p className="text-xs text-gray">{user?.email} · {user?.role}</p>
+          <p className="text-xs text-gray">{user?.email} · {roleLabel(user?.role)}</p>
         </div>
         <div style={{ display: 'flex', gap: 8 }}>
           {(isAdmin || isPhysicalTrainer) && (
             <button className="btn btn-outline" style={{ minHeight: 36, padding: '0 12px', fontSize: '0.875rem' }}
               onClick={() => navigate('/admin')}>
-              {isAdmin ? 'Admin' : 'Gestión'}
+              {isAdmin ? 'Admin' : 'Coordinación'}
             </button>
           )}
           {(user?.role === 'TEACHER' || isAssistant) && (

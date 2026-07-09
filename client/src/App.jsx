@@ -20,6 +20,7 @@ import PayrollPage from './pages/admin/PayrollPage';
 import ConfigPage from './pages/admin/ConfigPage';
 import EnrollmentRequestsPage from './pages/admin/EnrollmentRequestsPage';
 import MakeupsPage from './pages/admin/MakeupsPage';
+import UsersPage from './pages/admin/UsersPage';
 
 class ErrorBoundary extends Component {
   constructor(props) {
@@ -69,7 +70,9 @@ function AppRoutes() {
 
       <Route path="/" element={
         <RequireAuth>
-          {user?.role === 'PARENT' ? <Navigate to="/parent" /> : <DashboardPage />}
+          {user?.role === 'PARENT' ? <Navigate to="/parent" />
+            : user?.role === 'RECEPTION' ? <Navigate to="/admin/students" />
+            : <DashboardPage />}
         </RequireAuth>
       } />
 
@@ -98,12 +101,12 @@ function AppRoutes() {
       } />
 
       <Route path="/admin" element={
-        <RequireAuth roles={['ADMIN', 'PHYSICAL_TRAINER']}>
+        <RequireAuth roles={['ADMIN', 'PHYSICAL_TRAINER', 'RECEPTION']}>
           <AdminDashboard />
         </RequireAuth>
       } />
       <Route path="/admin/students" element={
-        <RequireAuth roles={['ADMIN', 'PHYSICAL_TRAINER']}>
+        <RequireAuth roles={['ADMIN', 'PHYSICAL_TRAINER', 'RECEPTION']}>
           <StudentsPage />
         </RequireAuth>
       } />
@@ -151,6 +154,11 @@ function AppRoutes() {
       <Route path="/admin/assistants" element={
         <RequireAuth roles={['ADMIN']}>
           <AssistantsPage />
+        </RequireAuth>
+      } />
+      <Route path="/admin/users" element={
+        <RequireAuth roles={['ADMIN']}>
+          <UsersPage />
         </RequireAuth>
       } />
 

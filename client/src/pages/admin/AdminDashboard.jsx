@@ -8,17 +8,20 @@ function fmt(n) {
 }
 
 const ALL_SECTIONS = [
-  { label: 'Estudiantes', path: '/admin/students', icon: '👤', roles: ['ADMIN', 'PHYSICAL_TRAINER'] },
+  { label: 'Estudiantes', path: '/admin/students', icon: '👤', roles: ['ADMIN', 'PHYSICAL_TRAINER', 'RECEPTION'] },
   { label: 'Grupos', path: '/admin/groups', icon: '🎾', roles: ['ADMIN', 'PHYSICAL_TRAINER'] },
   { label: 'Reposiciones', path: '/admin/makeups', icon: '🔁', roles: ['ADMIN', 'PHYSICAL_TRAINER'] },
   { label: 'Eventos', path: '/admin/events', icon: '🏆', roles: ['ADMIN', 'PHYSICAL_TRAINER'] },
   { label: 'Reportes', path: '/admin/reports', icon: '📊', roles: ['ADMIN', 'PHYSICAL_TRAINER'] },
   { label: 'Profesores', path: '/admin/professors', icon: '🏫', roles: ['ADMIN'] },
   { label: 'Asistentes', path: '/admin/assistants', icon: '🤝', roles: ['ADMIN'] },
+  { label: 'Usuarios', path: '/admin/users', icon: '🔑', roles: ['ADMIN'] },
   { label: 'Liquidación', path: '/admin/payroll', icon: '💰', roles: ['ADMIN'] },
   { label: 'Inscripciones', path: '/admin/enrollment', icon: '📋', roles: ['ADMIN'] },
   { label: 'Configuración', path: '/admin/config', icon: '⚙️', roles: ['ADMIN'] },
 ];
+
+const TITLES = { ADMIN: 'Administración', PHYSICAL_TRAINER: 'Coordinación', RECEPTION: 'Recepción' };
 
 export default function AdminDashboard() {
   const navigate = useNavigate();
@@ -36,7 +39,7 @@ export default function AdminDashboard() {
     <div className="page">
       <div className="page-header">
         <button className="nav-back" onClick={() => navigate('/')}>←</button>
-        <h1>{isAdmin ? 'Administración' : 'Gestión'}</h1>
+        <h1>{TITLES[user?.role] || 'Gestión'}</h1>
       </div>
 
       <div className="page-content">
