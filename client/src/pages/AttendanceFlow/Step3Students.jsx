@@ -18,7 +18,7 @@ export default function Step3Students({ groupId, records, onChange, onNext }) {
   useEffect(() => {
     Promise.all([
       api.get(`/groups/${groupId}/students`),
-      api.get('/students', { active: 'true' }),
+      api.get('/students', { active: 'true', excludeSuspended: 'true' }),
     ]).then(([group, all]) => {
       setStudents(group);
       setAllStudents(all);

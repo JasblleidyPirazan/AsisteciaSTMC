@@ -74,6 +74,10 @@ model Student {
   email              String?
   parentUserId       String?   @map("parent_user_id")
   classesAcquired    Int       @default(0) @map("classes_acquired")
+  paymentComplete    Boolean   @default(false) @map("payment_complete")
+  suspendedFrom      DateTime? @map("suspended_from") @db.Date
+  suspendedUntil     DateTime? @map("suspended_until") @db.Date
+  suspensionReason   String?   @map("suspension_reason")
   active             Boolean   @default(true)
   deactivationReason String?   @map("deactivation_reason")
   deactivatedAt      DateTime? @map("deactivated_at")

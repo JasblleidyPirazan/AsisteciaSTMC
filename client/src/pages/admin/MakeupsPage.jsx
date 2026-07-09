@@ -45,7 +45,7 @@ export default function MakeupsPage() {
         api.get('/makeups'),
         api.get('/professors', { active: 'true' }),
         api.get('/assistants', { active: 'true' }),
-        api.get('/students', { active: 'true' }),
+        api.get('/students', { active: 'true', excludeSuspended: 'true' }),
       ]);
       setMakeups(m);
       setProfessors(p);

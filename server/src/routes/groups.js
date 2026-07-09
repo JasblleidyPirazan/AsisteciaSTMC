@@ -1,6 +1,7 @@
 const express = require('express');
 const prisma = require('../lib/prisma');
 const { requireRole } = require('../middleware/auth');
+const { notSuspended } = require('../lib/filters');
 
 const router = express.Router();
 
@@ -70,8 +71,9 @@ router.get('/:id/students', async (req, res, next) => {
       }
     }
 
+    // Suspended students are hidden from rosters while their suspension lasts
     const enrollments = await prisma.studentEnrollment.findMany({
-      where: { groupId: req.params.id, student: { active: true } },
+      where: { groupId: req.params.id, student: { active: true, ...notSuspended() } },
       include: { student: true },
       orderBy: { student: { name: 'asc' } },
     });

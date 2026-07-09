@@ -1,9 +1,20 @@
 import { useState, useEffect, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { api } from '../../api/client';
+import { useAuth } from '../../hooks/useAuth';
+
+const STATUS_BADGE = {
+  MATRICULADO: { cls: 'badge-green', label: 'Matriculado' },
+  INSCRITO: { cls: 'badge-blue', label: 'Inscrito' },
+  SUSPENDIDO: { cls: 'badge-yellow', label: 'Suspendido' },
+  INACTIVO: { cls: 'badge-gray', label: 'Inactivo' },
+};
 
 export default function StudentsPage() {
   const navigate = useNavigate();
+  const { user } = useAuth();
+  // Recepción only manages the payment status (Inscrito ↔ Matriculado)
+  const isReception = user?.role === 'RECEPTION';
   const [students, setStudents] = useState([]);
   const [groups, setGroups] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -14,9 +25,15 @@ export default function StudentsPage() {
 
   // Edit modal
   const [editTarget, setEditTarget] = useState(null); // student object
-  const [editForm, setEditForm] = useState({ name: '', email: '', classesAcquired: '' });
+  const [editForm, setEditForm] = useState({ name: '', email: '', classesAcquired: '', paymentComplete: false });
   const [editError, setEditError] = useState('');
   const [editSaving, setEditSaving] = useState(false);
+
+  // Suspension modal
+  const [suspendTarget, setSuspendTarget] = useState(null); // student object
+  const [suspendForm, setSuspendForm] = useState({ from: '', until: '', reason: '' });
+  const [suspendError, setSuspendError] = useState('');
+  const [suspendSaving, setSuspendSaving] = useState(false);
 
   // Sort: 'name' or 'group'
   const [sortBy, setSortBy] = useState('name');
@@ -79,6 +96,7 @@ export default function StudentsPage() {
       name: student.name,
       email: student.email || '',
       classesAcquired: student.classesAcquired != null ? String(student.classesAcquired) : '',
+      paymentComplete: !!student.paymentComplete,
     });
     setEditError('');
   }
@@ -88,17 +106,58 @@ export default function StudentsPage() {
     setEditSaving(true);
     setEditError('');
     try {
-      const updated = await api.put(`/students/${editTarget.id}`, {
-        name: editForm.name,
-        email: editForm.email || null,
-        classesAcquired: parseInt(editForm.classesAcquired) || 0,
-      });
+      let updated = editTarget;
+      // General fields — not editable by Recepción
+      if (!isReception) {
+        updated = await api.put(`/students/${editTarget.id}`, {
+          name: editForm.name,
+          email: editForm.email || null,
+          classesAcquired: parseInt(editForm.classesAcquired) || 0,
+        });
+      }
+      // Payment status (Admin y Recepción) via its dedicated endpoint
+      if (editForm.paymentComplete !== !!editTarget.paymentComplete && user?.role !== 'PHYSICAL_TRAINER') {
+        updated = await api.patch(`/students/${editTarget.id}/payment-status`, {
+          paymentComplete: editForm.paymentComplete,
+        });
+      }
       setStudents(students.map((s) => (s.id === editTarget.id ? { ...s, ...updated } : s)));
       setEditTarget(null);
     } catch (err) {
       setEditError(err.message);
     } finally {
       setEditSaving(false);
+    }
+  }
+
+  function openSuspend(student) {
+    setSuspendTarget(student);
+    setSuspendForm({ from: '', until: '', reason: '' });
+    setSuspendError('');
+  }
+
+  async function handleSuspend(e) {
+    e.preventDefault();
+    setSuspendSaving(true);
+    setSuspendError('');
+    try {
+      const updated = await api.post(`/students/${suspendTarget.id}/suspend`, suspendForm);
+      setStudents(students.map((s) => (s.id === suspendTarget.id ? { ...s, ...updated } : s)));
+      setSuspendTarget(null);
+    } catch (err) {
+      setSuspendError(err.message);
+    } finally {
+      setSuspendSaving(false);
+    }
+  }
+
+  async function handleUnsuspend(student) {
+    if (!confirm(`¿Levantar la suspensión de ${student.name}?`)) return;
+    try {
+      const updated = await api.post(`/students/${student.id}/unsuspend`, {});
+      setStudents(students.map((s) => (s.id === student.id ? { ...s, ...updated } : s)));
+    } catch (err) {
+      alert(err.message);
     }
   }
 
@@ -179,10 +238,12 @@ export default function StudentsPage() {
       <div className="page-header">
         <button className="nav-back" onClick={() => navigate('/admin')}>←</button>
         <h1>Estudiantes</h1>
-        <button className="btn btn-primary" style={{ marginLeft: 'auto', minHeight: 36, padding: '0 12px', fontSize: '0.875rem' }}
-          onClick={() => setShowForm(true)}>
-          + Nuevo
-        </button>
+        {!isReception && (
+          <button className="btn btn-primary" style={{ marginLeft: 'auto', minHeight: 36, padding: '0 12px', fontSize: '0.875rem' }}
+            onClick={() => setShowForm(true)}>
+            + Nuevo
+          </button>
+        )}
       </div>
 
       <div className="page-content">
@@ -261,15 +322,28 @@ export default function StudentsPage() {
             <div key={s.id} className="card mb-2">
               <div className="flex items-center justify-between">
                 <div style={{ flex: 1, minWidth: 0 }}>
-                  <div className="font-medium">{s.name}</div>
+                  <div className="flex items-center gap-2">
+                    <span className="font-medium">{s.name}</span>
+                    {STATUS_BADGE[s.studentStatus] && (
+                      <span className={`badge ${STATUS_BADGE[s.studentStatus].cls}`}>
+                        {STATUS_BADGE[s.studentStatus].label}
+                      </span>
+                    )}
+                  </div>
                   {s.enrollments?.length > 0 && (
                     <div className="text-xs text-gray">
                       {s.enrollments.map((e) => e.group?.code).join(' · ')}
                     </div>
                   )}
                   <div className="text-xs text-gray">Clases adquiridas: {s.classesAcquired ?? 0}</div>
+                  {s.studentStatus === 'SUSPENDIDO' && (
+                    <div className="text-xs" style={{ color: 'var(--yellow)' }}>
+                      Suspendido hasta {String(s.suspendedUntil).slice(0, 10)}
+                      {s.suspensionReason ? ` — ${s.suspensionReason}` : ''}
+                    </div>
+                  )}
                 </div>
-                <div style={{ display: 'flex', gap: 6, flexShrink: 0 }}>
+                <div style={{ display: 'flex', gap: 6, flexShrink: 0, flexWrap: 'wrap', justifyContent: 'flex-end' }}>
                   <button
                     className="btn btn-ghost"
                     style={{ minHeight: 32, padding: '0 8px', fontSize: '0.75rem' }}
@@ -277,20 +351,41 @@ export default function StudentsPage() {
                   >
                     Editar
                   </button>
-                  <button
-                    className="btn btn-ghost"
-                    style={{ minHeight: 32, padding: '0 8px', fontSize: '0.75rem', color: 'var(--primary)' }}
-                    onClick={() => openManageGroups(s)}
-                  >
-                    Grupos
-                  </button>
-                  <button
-                    className="btn btn-ghost"
-                    style={{ minHeight: 32, padding: '0 8px', fontSize: '0.75rem', color: 'var(--red)' }}
-                    onClick={() => openDeactivate(s)}
-                  >
-                    Desactivar
-                  </button>
+                  {!isReception && (
+                    <>
+                      <button
+                        className="btn btn-ghost"
+                        style={{ minHeight: 32, padding: '0 8px', fontSize: '0.75rem', color: 'var(--primary)' }}
+                        onClick={() => openManageGroups(s)}
+                      >
+                        Grupos
+                      </button>
+                      {s.studentStatus === 'SUSPENDIDO' ? (
+                        <button
+                          className="btn btn-ghost"
+                          style={{ minHeight: 32, padding: '0 8px', fontSize: '0.75rem', color: 'var(--green)' }}
+                          onClick={() => handleUnsuspend(s)}
+                        >
+                          Levantar
+                        </button>
+                      ) : (
+                        <button
+                          className="btn btn-ghost"
+                          style={{ minHeight: 32, padding: '0 8px', fontSize: '0.75rem', color: 'var(--yellow)' }}
+                          onClick={() => openSuspend(s)}
+                        >
+                          Suspender
+                        </button>
+                      )}
+                      <button
+                        className="btn btn-ghost"
+                        style={{ minHeight: 32, padding: '0 8px', fontSize: '0.75rem', color: 'var(--red)' }}
+                        onClick={() => openDeactivate(s)}
+                      >
+                        Desactivar
+                      </button>
+                    </>
+                  )}
                 </div>
               </div>
             </div>
@@ -307,21 +402,33 @@ export default function StudentsPage() {
             <form onSubmit={handleEdit}>
               <div className="form-group">
                 <label className="form-label">Nombre *</label>
-                <input type="text" className="form-input" required maxLength={200}
+                <input type="text" className="form-input" required maxLength={200} disabled={isReception}
                   value={editForm.name} onChange={(e) => setEditForm({ ...editForm, name: e.target.value })} />
               </div>
               <div className="form-group">
                 <label className="form-label">Email</label>
-                <input type="email" className="form-input" maxLength={254}
+                <input type="email" className="form-input" maxLength={254} disabled={isReception}
                   value={editForm.email} onChange={(e) => setEditForm({ ...editForm, email: e.target.value })} />
               </div>
               <div className="form-group">
                 <label className="form-label">Clases adquiridas</label>
-                <input type="number" className="form-input" min={0}
+                <input type="number" className="form-input" min={0} disabled={isReception}
                   value={editForm.classesAcquired}
                   onChange={(e) => setEditForm({ ...editForm, classesAcquired: e.target.value })} />
                 <span className="text-xs text-gray">Total de clases que el estudiante compró para el semestre.</span>
               </div>
+              {user?.role !== 'PHYSICAL_TRAINER' && (
+                <label style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 16, cursor: 'pointer' }}>
+                  <input type="checkbox" checked={editForm.paymentComplete}
+                    onChange={(e) => setEditForm({ ...editForm, paymentComplete: e.target.checked })} />
+                  <span className="text-sm">
+                    Pago completo — <strong>Matriculado</strong>
+                    <span className="text-xs text-gray" style={{ display: 'block' }}>
+                      Sin marcar, el estudiante figura como Inscrito (pagos pendientes).
+                    </span>
+                  </span>
+                </label>
+              )}
               <div className="flex gap-2 mt-2">
                 <button type="button" className="btn btn-outline" style={{ flex: 1 }}
                   onClick={() => setEditTarget(null)}>
@@ -329,6 +436,54 @@ export default function StudentsPage() {
                 </button>
                 <button type="submit" className="btn btn-primary" style={{ flex: 2 }} disabled={editSaving}>
                   {editSaving ? 'Guardando...' : 'Guardar cambios'}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* Suspension modal */}
+      {suspendTarget && (
+        <div className="modal-overlay" onClick={() => setSuspendTarget(null)}>
+          <div className="modal-content" onClick={(e) => e.stopPropagation()}>
+            <h3 className="mb-1">Suspender estudiante</h3>
+            <p className="text-sm text-gray mb-3">{suspendTarget.name}</p>
+            <p className="text-xs text-gray mb-3">
+              Retiro temporal mayor a dos semanas y menor al semestre. Mientras dure, el
+              estudiante no aparece en los grupos ni en las listas de asistencia; al vencer
+              la fecha de fin reaparece automáticamente.
+            </p>
+            {suspendError && <div className="alert alert-error mb-2">{suspendError}</div>}
+            <form onSubmit={handleSuspend}>
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+                <div className="form-group">
+                  <label className="form-label">Desde *</label>
+                  <input type="date" className="form-input" required value={suspendForm.from}
+                    onChange={(e) => setSuspendForm({ ...suspendForm, from: e.target.value })} />
+                </div>
+                <div className="form-group">
+                  <label className="form-label">Hasta *</label>
+                  <input type="date" className="form-input" required value={suspendForm.until}
+                    onChange={(e) => setSuspendForm({ ...suspendForm, until: e.target.value })} />
+                </div>
+              </div>
+              <div className="form-group">
+                <label className="form-label">Razón *</label>
+                <textarea className="form-input" rows={2} required
+                  placeholder="Ej: Lesión, intercambio, viaje..."
+                  value={suspendForm.reason}
+                  onChange={(e) => setSuspendForm({ ...suspendForm, reason: e.target.value })}
+                  style={{ resize: 'vertical' }} />
+              </div>
+              <div className="flex gap-2 mt-2">
+                <button type="button" className="btn btn-outline" style={{ flex: 1 }}
+                  onClick={() => setSuspendTarget(null)}>
+                  Cancelar
+                </button>
+                <button type="submit" className="btn" disabled={suspendSaving}
+                  style={{ flex: 2, background: 'var(--yellow)', color: '#fff' }}>
+                  {suspendSaving ? 'Suspendiendo...' : 'Suspender'}
                 </button>
               </div>
             </form>
