@@ -5,31 +5,75 @@
 }
 
 :root {
-  --blue: #2563eb;
-  --blue-dark: #1d4ed8;
-  --blue-light: #eff6ff;
-  --primary: #2563eb;
-  --green: #16a34a;
-  --green-light: #f0fdf4;
-  --red: #dc2626;
-  --red-light: #fef2f2;
-  --yellow: #d97706;
-  --yellow-light: #fffbeb;
-  --orange: #ea580c;
-  --orange-light: #fff7ed;
-  --gray-50: #f9fafb;
-  --gray-100: #f3f4f6;
-  --gray-200: #e5e7eb;
-  --gray-300: #d1d5db;
-  --gray-400: #9ca3af;
-  --gray-500: #6b7280;
-  --gray-600: #4b5563;
-  --gray-700: #374151;
-  --gray-800: #1f2937;
-  --radius: 12px;
-  --radius-sm: 8px;
-  --shadow: 0 1px 3px rgba(0,0,0,0.1), 0 1px 2px rgba(0,0,0,0.06);
-  --shadow-md: 0 4px 6px rgba(0,0,0,0.07), 0 2px 4px rgba(0,0,0,0.05);
+  /* ===== Sistema de diseño "Santa María OS" ===== */
+  /* Marca */
+  --brand-navy: #141E45;
+  --brand-navy-2: #1A2450;
+  --brand-indigo: #3F52A8;
+  --brand-violet: #7A5AF8;
+  --brand-aqua: #4F9FB2;
+
+  /* Semánticos existentes remapeados a la nueva paleta (las páginas los heredan) */
+  --blue: #3F52A8;
+  --blue-dark: #33428A;
+  --blue-light: #EAEFFB;
+  --primary: #3F52A8;
+  --green: #1FA971;
+  --green-light: #E4F6EE;
+  --red: #E8526A;
+  --red-light: #FCE9EC;
+  --yellow: #E8A23B;
+  --yellow-light: #FBF0DD;
+  --orange: #E8A23B;
+  --orange-light: #FBF0DD;
+
+  /* Neutrales con matiz lavanda */
+  --gray-50: #F4F6FC;
+  --gray-100: #EEF1F8;
+  --gray-200: #E6EAF3;
+  --gray-300: #C9D2EC;
+  --gray-400: #8B96BE;
+  --gray-500: #7C8BA8;
+  --gray-600: #6F7BA6;
+  --gray-700: #3F4A6B;
+  --gray-800: #141E45;
+
+  /* Alias semánticos del design system */
+  --surface: #ffffff;
+  --surface-2: #EEF1F8;
+  --surface-3: #EAEFFB;
+  --border: #E6EAF3;
+  --border-strong: #C9D2EC;
+  --text: #141E45;
+  --text-soft: #6F7BA6;
+  --text-muted: #8B96BE;
+  --success: #1FA971;
+  --warning: #E8A23B;
+  --danger: #E8526A;
+
+  /* Radios */
+  --radius: 14px;
+  --radius-sm: 10px;
+  --r-sm: 10px;
+  --r-md: 14px;
+  --r-lg: 18px;
+  --r-pill: 999px;
+
+  /* Sombras (con reflejo superior interno característico) */
+  --inner-top: inset 0 1px 0 rgba(255,255,255,0.7);
+  --shadow-xs: 0 1px 2px rgba(20,30,69,0.06);
+  --shadow: 0 1px 2px rgba(20,30,69,0.06), 0 3px 10px rgba(20,30,69,0.06);
+  --shadow-md: 0 8px 24px rgba(20,30,69,0.10);
+  --shadow-lg: 0 18px 46px rgba(20,30,69,0.16);
+  --shadow-primary: 0 8px 20px rgba(63,82,168,0.32);
+
+  /* Gradientes */
+  --grad-primary: linear-gradient(135deg, #4A5DBE 0%, #3F52A8 100%);
+  --grad-sidebar: linear-gradient(180deg, #1A2450 0%, #141E45 100%);
+  --grad-card: linear-gradient(180deg, #ffffff 0%, #FBFCFF 100%);
+
+  --ease: cubic-bezier(0.22, 1, 0.36, 1);
+
   /* Content column width — widens on larger screens (see media queries) */
   --page-max: 480px;
 }
@@ -38,15 +82,13 @@ html { font-size: 16px; }
 
 body {
   font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
-  /* Fondo branded: degradado suave con acento de cancha (azul → verde tenis).
-     En móvil queda cubierto por la columna blanca de .page; se ve alrededor
-     de la columna centrada en pantallas anchas. */
-  background-color: var(--gray-50);
+  /* Fondo lavanda del design system con acentos índigo/aqua muy sutiles. */
+  background-color: #F4F6FC;
   background-image:
-    radial-gradient(1200px 600px at 100% -10%, rgba(37, 99, 235, 0.10), transparent 60%),
-    radial-gradient(1000px 500px at -10% 110%, rgba(22, 163, 74, 0.10), transparent 60%);
+    radial-gradient(1200px 620px at 100% -10%, rgba(63, 82, 168, 0.08), transparent 60%),
+    radial-gradient(1000px 520px at -10% 110%, rgba(79, 159, 178, 0.08), transparent 60%);
   background-attachment: fixed;
-  color: var(--gray-800);
+  color: var(--text);
   min-height: 100vh;
   -webkit-font-smoothing: antialiased;
 }
@@ -91,8 +133,8 @@ p { line-height: 1.5; }
   text-decoration: none;
 }
 .btn:active { transform: scale(0.97); }
-.btn-primary { background: var(--blue); color: #fff; }
-.btn-primary:hover { background: var(--blue-dark); }
+.btn-primary { background: var(--grad-primary); color: #fff; box-shadow: var(--shadow-primary), var(--inner-top); }
+.btn-primary:hover { filter: brightness(1.05); }
 .btn-success { background: var(--green); color: #fff; }
 .btn-success:hover { background: #15803d; }
 .btn-danger { background: var(--red); color: #fff; }
@@ -125,11 +167,11 @@ p { line-height: 1.5; }
 
 /* Cards */
 .card {
-  background: #fff;
-  border: 1.5px solid var(--gray-200);
+  background: var(--grad-card);
+  border: 1px solid var(--border);
   border-radius: var(--radius);
   padding: 16px;
-  box-shadow: var(--shadow);
+  box-shadow: var(--shadow), var(--inner-top);
 }
 .card-tap {
   cursor: pointer;
@@ -506,4 +548,185 @@ input.form-input, select.form-select, textarea.form-input {
   background: var(--blue);
   color: #fff;
   border-color: var(--blue);
+}
+
+/* ============================================================
+   App Shell — sidebar navy (escritorio) + drawer (móvil)
+   ============================================================ */
+.app-shell { min-height: 100dvh; }
+
+.app-shell-sidebar {
+  position: fixed;
+  top: 0; left: 0; bottom: 0;
+  width: 264px;
+  background: var(--grad-sidebar);
+  color: #C9D2EC;
+  display: flex;
+  flex-direction: column;
+  z-index: 60;
+  transform: translateX(-100%);
+  transition: transform 0.28s var(--ease);
+  box-shadow: var(--shadow-lg);
+}
+.app-shell-sidebar.open { transform: translateX(0); }
+
+.app-shell-brand {
+  padding: 16px 16px 12px;
+  flex: 0 0 auto;
+}
+.app-shell-brand-card {
+  background: #fff;
+  border-radius: var(--r-md);
+  padding: 12px 14px;
+  box-shadow: var(--shadow-md), var(--inner-top);
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-height: 48px;
+}
+.app-shell-brand-card .logo-emoji { font-size: 1.5rem; }
+.app-shell-brand-card .logo-text { font-weight: 700; color: var(--brand-navy); font-size: 1.05rem; }
+
+.app-shell-nav {
+  flex: 1 1 auto;
+  overflow-y: auto;
+  padding: 8px 12px 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.app-shell-nav::-webkit-scrollbar { width: 7px; }
+.app-shell-nav::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.16); border-radius: 999px; }
+
+.nav-item {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+  padding: 10px 12px;
+  border: none;
+  background: transparent;
+  color: #B9C2E0;
+  border-radius: var(--r-md);
+  font-size: 0.9rem;
+  font-weight: 500;
+  font-family: inherit;
+  cursor: pointer;
+  text-align: left;
+  transition: background 0.15s, color 0.15s;
+}
+.nav-item .nav-ico { font-size: 1.1rem; width: 22px; text-align: center; flex-shrink: 0; }
+.nav-item:hover { background: rgba(255,255,255,0.07); color: #fff; }
+.nav-item.active {
+  background: rgba(122,90,248,0.22);
+  color: #fff;
+  box-shadow: var(--inner-top);
+}
+.nav-section {
+  font-size: 0.68rem;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: #6F7BA6;
+  padding: 14px 12px 4px;
+  font-weight: 700;
+}
+
+.app-shell-foot {
+  flex: 0 0 auto;
+  padding: 12px;
+  border-top: 1px solid rgba(255,255,255,0.08);
+}
+.app-shell-user {
+  font-size: 0.78rem;
+  color: #9AA6CE;
+  padding: 4px 8px 10px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.app-shell-logout {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  padding: 10px 12px;
+  border: 1px solid rgba(255,255,255,0.14);
+  background: rgba(255,255,255,0.04);
+  color: #E6EAF3;
+  border-radius: var(--r-md);
+  font-size: 0.86rem;
+  font-weight: 500;
+  font-family: inherit;
+  cursor: pointer;
+}
+.app-shell-logout:hover { background: rgba(232,82,106,0.18); border-color: rgba(232,82,106,0.5); color: #fff; }
+
+.app-shell-backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(20,30,69,0.5);
+  z-index: 55;
+}
+
+.app-shell-main {
+  min-height: 100dvh;
+  display: flex;
+  flex-direction: column;
+}
+.app-shell-topbar {
+  position: sticky;
+  top: 0;
+  z-index: 40;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 16px;
+  background: rgba(244,246,252,0.85);
+  backdrop-filter: blur(8px);
+  border-bottom: 1px solid var(--border);
+}
+.app-shell-hamburger {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 40px;
+  height: 40px;
+  border: 1px solid var(--border);
+  background: #fff;
+  border-radius: var(--r-md);
+  font-size: 1.15rem;
+  cursor: pointer;
+  color: var(--brand-navy);
+  box-shadow: var(--shadow-xs);
+}
+.app-shell-topbar-title { font-weight: 700; color: var(--brand-navy); font-size: 1rem; }
+.app-shell-content { flex: 1 1 auto; padding: 18px; }
+
+/* Página dentro del shell: pierde la columna blanca/centro; el shell manda */
+.app-shell-content .page {
+  max-width: 900px;
+  margin: 0 auto;
+  background: transparent;
+  min-height: auto;
+  border: none;
+  box-shadow: none;
+}
+.app-shell-content .page.page-wide { max-width: 1240px; }
+.app-shell-content .page-header {
+  position: static;
+  background: transparent;
+  border-bottom: 1px solid var(--border);
+  padding: 4px 4px 14px;
+  margin-bottom: 16px;
+}
+.app-shell-content .page-content { padding: 0 4px; }
+
+/* Escritorio: sidebar fija visible, contenido corrido a la derecha */
+@media (min-width: 1024px) {
+  .app-shell-sidebar { transform: none; box-shadow: none; }
+  .app-shell-main { margin-left: 264px; }
+  .app-shell-hamburger { display: none; }
+  .app-shell-backdrop { display: none; }
+  .app-shell-topbar { background: transparent; backdrop-filter: none; border-bottom: none; padding: 16px 24px 0; }
+  .app-shell-content { padding: 12px 24px 32px; }
 }
