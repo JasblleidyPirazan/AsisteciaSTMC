@@ -21,6 +21,7 @@ import ConfigPage from './pages/admin/ConfigPage';
 import EnrollmentRequestsPage from './pages/admin/EnrollmentRequestsPage';
 import MakeupsPage from './pages/admin/MakeupsPage';
 import UsersPage from './pages/admin/UsersPage';
+import ValidationPage from './pages/admin/ValidationPage';
 
 class ErrorBoundary extends Component {
   constructor(props) {
@@ -128,6 +129,11 @@ function AppRoutes() {
       <Route path="/admin/reports" element={
         <RequireAuth roles={['ADMIN', 'PHYSICAL_TRAINER']}>
           <ReportsPage />
+        </RequireAuth>
+      } />
+      <Route path="/admin/validation" element={
+        <RequireAuth roles={['ADMIN', 'PHYSICAL_TRAINER']}>
+          <ValidationPage />
         </RequireAuth>
       } />
       {/* ADMIN-only routes */}

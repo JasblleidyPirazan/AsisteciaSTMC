@@ -51,6 +51,7 @@ async function calculateCosts(sessionId) {
           'rate_4_students',
           'rate_5plus_students',
           'assistant_fixed_rate',
+          'assistant_match_start_date',
         ],
       },
     },
@@ -107,6 +108,18 @@ async function calculateCosts(sessionId) {
   }
 
   if (session.assistant) {
+    // Triple coincidence rule: the assistant's pay turns "green" (PAYABLE) only
+    // when the professor's report, the assistant's confirmation and the
+    // coordinator's validation all point to the SAME assistant. Sessions dated
+    // before the deployment cutoff stay PAYABLE so editing old sessions never
+    // retains pay that was already settled.
+    const matchStart = cfg.assistant_match_start_date || null;
+    const beforeCutoff = matchStart && dbDateStr(session.date) < matchStart;
+    const tripleMatch =
+      session.assistantConfirmedId === session.assistantId &&
+      !!session.coordinatorValidatedAt;
+    const assistantPayStatus = beforeCutoff || tripleMatch ? 'PAYABLE' : 'PENDING_MATCH';
+
     const assistantTotal = assistantFixedRate * effectiveUnits;
     records.push({
       sessionId,
@@ -118,6 +131,7 @@ async function calculateCosts(sessionId) {
       rate: assistantFixedRate,
       total: assistantTotal,
       period,
+      payStatus: assistantPayStatus,
     });
   }
 

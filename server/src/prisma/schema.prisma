@@ -60,10 +60,11 @@ model Assistant {
   active    Boolean  @default(true)
   createdAt DateTime @default(now()) @map("created_at")
 
-  user          User?          @relation(fields: [userId], references: [id])
-  sessions      ClassSession[]
-  costRecords   CostRecord[]   @relation("AssistantCosts")
-  makeupClasses MakeupClass[]
+  user              User?          @relation(fields: [userId], references: [id])
+  sessions          ClassSession[]
+  confirmedSessions ClassSession[] @relation("AssistantConfirmations")
+  costRecords       CostRecord[]   @relation("AssistantCosts")
+  makeupClasses     MakeupClass[]
 
   @@map("assistants")
 }
@@ -163,12 +164,20 @@ model ClassSession {
   firstReportedAt       DateTime?     @map("first_reported_at")
   paymentUnlockedById   String?       @map("payment_unlocked_by_id")
   paymentUnlockedAt     DateTime?     @map("payment_unlocked_at")
+  // Triple coincidencia para el pago del asistente:
+  // assistantId = lo que reportó el profesor; assistantConfirmedId = lo que
+  // confirmó el asistente; coordinatorValidated* = validación del coordinador
+  assistantConfirmedId  String?       @map("assistant_confirmed_id")
+  assistantConfirmedAt  DateTime?     @map("assistant_confirmed_at")
+  coordinatorValidatedById String?    @map("coordinator_validated_by_id")
+  coordinatorValidatedAt   DateTime?  @map("coordinator_validated_at")
   createdAt             DateTime      @default(now()) @map("created_at")
 
   group               Group?              @relation(fields: [groupId], references: [id])
   makeupProfessor     Professor?          @relation("MakeupProfessor", fields: [makeupProfessorId], references: [id])
   substituteProfessor Professor?          @relation("SubstituteProfessor", fields: [substituteProfessorId], references: [id])
   assistant           Assistant?          @relation(fields: [assistantId], references: [id])
+  assistantConfirmed  Assistant?          @relation("AssistantConfirmations", fields: [assistantConfirmedId], references: [id])
   reportedBy          User?               @relation("SessionReporter", fields: [reportedById], references: [id])
   attendanceRecords   AttendanceRecord[]
   makeupParticipants  MakeupParticipant[]

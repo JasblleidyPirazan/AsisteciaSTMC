@@ -4,6 +4,7 @@ import { api } from '../api/client';
 import { useAuth } from '../hooks/useAuth';
 import GroupCard from '../components/GroupCard';
 import OfflineBanner from '../components/OfflineBanner';
+import AssistantDayView from '../components/AssistantDayView';
 import { fmtDate } from '../utils/dates';
 import { roleLabel } from '../utils/roles';
 
@@ -96,7 +97,7 @@ export default function DashboardPage() {
         </div>
 
         {isAssistant ? (
-          <AssistantView groups={groups} loading={loading} date={date} />
+          <AssistantDayView groups={groups} loading={loading} date={date} />
         ) : (
           <>
             <PendingReportsAlert />
@@ -192,81 +193,3 @@ function PendingMakeups() {
   );
 }
 
-function AssistantView({ groups, loading, date }) {
-  const { user } = useAuth();
-  const [sessionsByGroup, setSessionsByGroup] = useState({});
-  const [myAssistantId, setMyAssistantId] = useState(null);
-  const [saving, setSaving] = useState({});
-  const [loadingSessions, setLoadingSessions] = useState(true);
-  const [error, setError] = useState('');
-
-  useEffect(() => {
-    setLoadingSessions(true);
-    Promise.all([
-      api.get('/sessions', { date }),
-      api.get('/assistants', { active: 'true' }),
-    ]).then(([sessions, assistants]) => {
-      const map = {};
-      sessions.forEach((s) => { map[s.groupId || s.group?.id] = s; });
-      setSessionsByGroup(map);
-      const mine = assistants.find((a) => a.user?.email === user?.email);
-      setMyAssistantId(mine?.id || null);
-    }).catch(() => {}).finally(() => setLoadingSessions(false));
-  }, [date, user?.email]);
-
-  async function toggleAssist(group) {
-    const session = sessionsByGroup[group.id];
-    if (!session) return;
-    const isMarked = session.assistantId === myAssistantId;
-    setSaving((s) => ({ ...s, [group.id]: true }));
-    setError('');
-    try {
-      const updated = await api.post(`/sessions/${session.id}/assist`, isMarked ? { remove: true } : {});
-      setSessionsByGroup((m) => ({ ...m, [group.id]: { ...session, assistantId: updated.assistantId } }));
-    } catch (err) {
-      setError(err.message);
-    } finally {
-      setSaving((s) => ({ ...s, [group.id]: false }));
-    }
-  }
-
-  if (loading || loadingSessions) return <div className="spinner" />;
-
-  return (
-    <>
-      <h2 className="mb-3">Clases que acompañé</h2>
-      {error && <div className="alert alert-error mb-3">{error}</div>}
-      {groups.length === 0 && <div className="alert alert-info">No hay grupos programados para este día.</div>}
-      {groups.map((g) => {
-        const session = sessionsByGroup[g.id];
-        const isMarked = !!session && !!myAssistantId && session.assistantId === myAssistantId;
-        const markedByOther = !!session?.assistantId && !isMarked;
-        return (
-          <div key={g.id} className="card mb-3">
-            <div className="flex items-center justify-between">
-              <div>
-                <div className="font-medium">{g.code}</div>
-                <div className="text-sm text-gray">{g.startTime}–{g.endTime}</div>
-                {!session && (
-                  <div className="text-xs text-gray">La clase aún no ha sido reportada</div>
-                )}
-                {markedByOther && (
-                  <div className="text-xs text-gray">Acompañada por otro asistente</div>
-                )}
-              </div>
-              <label className="toggle">
-                <input
-                  type="checkbox"
-                  checked={isMarked}
-                  onChange={() => toggleAssist(g)}
-                  disabled={!session || markedByOther || saving[g.id] || !myAssistantId}
-                />
-                <span className="toggle-slider" />
-              </label>
-            </div>
-          </div>
-        );
-      })}
-    </>
-  );
-}

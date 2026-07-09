@@ -28,6 +28,9 @@ async function main() {
     { key: 'rate_4_students', value: '60000' },
     { key: 'rate_5plus_students', value: '75000' },
     { key: 'assistant_fixed_rate', value: '12000' },
+    // Cutoff for the assistant triple-match rule: sessions dated before this
+    // stay PAYABLE (upsert only creates it once, on first deploy of the rule)
+    { key: 'assistant_match_start_date', value: new Date().toISOString().slice(0, 10) },
   ];
 
   for (const config of defaults) {
