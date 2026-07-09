@@ -7,42 +7,47 @@ function fmt(n) {
   return new Intl.NumberFormat('es-CO', { style: 'currency', currency: 'COP', maximumFractionDigits: 0 }).format(n || 0);
 }
 
-const ALL_SECTIONS = [
-  { label: 'Estudiantes', path: '/admin/students', icon: '👤', roles: ['ADMIN', 'PHYSICAL_TRAINER', 'RECEPTION'] },
-  { label: 'Grupos', path: '/admin/groups', icon: '🎾', roles: ['ADMIN', 'PHYSICAL_TRAINER'] },
-  { label: 'Reposiciones', path: '/admin/makeups', icon: '🔁', roles: ['ADMIN', 'PHYSICAL_TRAINER'] },
-  { label: 'Festivales', path: '/admin/festivals', icon: '🎉', roles: ['ADMIN', 'PHYSICAL_TRAINER'] },
-  { label: 'Eventos', path: '/admin/events', icon: '🏆', roles: ['ADMIN', 'PHYSICAL_TRAINER'] },
-  { label: 'Reportes', path: '/admin/reports', icon: '📊', roles: ['ADMIN', 'PHYSICAL_TRAINER'] },
-  { label: 'Validación', path: '/admin/validation', icon: '✅', roles: ['ADMIN', 'PHYSICAL_TRAINER'] },
-  { label: 'Alertas', path: '/admin/alerts', icon: '🚨', roles: ['ADMIN', 'PHYSICAL_TRAINER'] },
-  { label: 'Profesores', path: '/admin/professors', icon: '🏫', roles: ['ADMIN'] },
-  { label: 'Asistentes', path: '/admin/assistants', icon: '🤝', roles: ['ADMIN'] },
-  { label: 'Usuarios y roles', path: '/admin/users', icon: '🔑', roles: ['ADMIN'] },
-  { label: 'Liquidación', path: '/admin/payroll', icon: '💰', roles: ['ADMIN'] },
-  { label: 'Inscripciones', path: '/admin/enrollment', icon: '📋', roles: ['ADMIN'] },
-  { label: 'Configuración', path: '/admin/config', icon: '⚙️', roles: ['ADMIN'] },
-];
-
 const TITLES = { ADMIN: 'Administración', PHYSICAL_TRAINER: 'Coordinación', RECEPTION: 'Recepción' };
+
+// Items del bloque "Requiere atención". Cada uno se muestra solo si tiene
+// pendientes (> 0) y si el rol lo puede atender.
+const ATTENTION = [
+  { key: 'reports', label: 'Clases sin reportar', icon: '⚠️', to: '/', accent: 'var(--red)', roles: ['ADMIN', 'PHYSICAL_TRAINER'] },
+  { key: 'enrollments', label: 'Inscripciones por aprobar', icon: '📋', to: '/admin/enrollment', accent: 'var(--warning)', roles: ['ADMIN'] },
+  { key: 'makeups', label: 'Reposiciones pendientes', icon: '🔁', to: '/admin/makeups', accent: 'var(--blue)', roles: ['ADMIN', 'PHYSICAL_TRAINER'] },
+  { key: 'festivals', label: 'Festivales pendientes', icon: '🎉', to: '/admin/festivals', accent: 'var(--green)', roles: ['ADMIN', 'PHYSICAL_TRAINER'] },
+];
 
 export default function AdminDashboard() {
   const navigate = useNavigate();
   const { user } = useAuth();
   const [stats, setStats] = useState(null);
-  const isAdmin = user?.role === 'ADMIN';
-
-  const sections = ALL_SECTIONS.filter((s) => s.roles.includes(user?.role));
+  const [pending, setPending] = useState({});
+  const role = user?.role;
+  const isAdmin = role === 'ADMIN';
 
   useEffect(() => {
     api.get('/reports/dashboard').then(setStats).catch(() => {});
-  }, []);
+
+    const jobs = [];
+    if (['ADMIN', 'PHYSICAL_TRAINER'].includes(role)) {
+      jobs.push(api.get('/alerts/pending-reports').then((d) => ['reports', d?.totalPending || 0]).catch(() => ['reports', 0]));
+      jobs.push(api.get('/makeups', { status: 'PROGRAMADA' }).then((d) => ['makeups', (d || []).length]).catch(() => ['makeups', 0]));
+      jobs.push(api.get('/festivals', { status: 'PROGRAMADA' }).then((d) => ['festivals', (d || []).length]).catch(() => ['festivals', 0]));
+    }
+    if (isAdmin) {
+      jobs.push(api.get('/enrollment/requests', { status: 'PENDING' }).then((d) => ['enrollments', (d || []).length]).catch(() => ['enrollments', 0]));
+    }
+    Promise.all(jobs).then((entries) => setPending(Object.fromEntries(entries)));
+  }, [role, isAdmin]);
+
+  const attentionItems = ATTENTION
+    .filter((a) => a.roles.includes(role) && (pending[a.key] || 0) > 0);
 
   return (
     <div className="page">
       <div className="page-header">
-        <button className="nav-back" onClick={() => navigate('/')}>←</button>
-        <h1>{TITLES[user?.role] || 'Gestión'}</h1>
+        <h1>{TITLES[role] || 'Gestión'}</h1>
       </div>
 
       <div className="page-content">
@@ -79,20 +84,30 @@ export default function AdminDashboard() {
           </>
         )}
 
-        <h2 className="mb-3">Módulos</h2>
-        <div className="module-grid">
-          {sections.map((s) => (
-            <button
-              key={s.path}
-              className="card card-tap"
-              style={{ textAlign: 'center', padding: '20px 12px', border: '1.5px solid var(--gray-200)' }}
-              onClick={() => navigate(s.path)}
+        <h2 className="mb-3">Requiere atención</h2>
+        {attentionItems.length === 0 ? (
+          <div className="alert alert-success">✅ Todo al día — no hay pendientes.</div>
+        ) : (
+          attentionItems.map((a) => (
+            <div
+              key={a.key}
+              className="card card-tap mb-2"
+              style={{ borderLeft: `3px solid ${a.accent}` }}
+              onClick={() => navigate(a.to)}
             >
-              <div style={{ fontSize: '1.75rem', marginBottom: 6 }}>{s.icon}</div>
-              <div className="font-medium text-sm">{s.label}</div>
-            </button>
-          ))}
-        </div>
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-3">
+                  <span style={{ fontSize: '1.3rem' }}>{a.icon}</span>
+                  <span className="font-medium">{a.label}</span>
+                </div>
+                <div className="flex items-center gap-2">
+                  <span className="badge badge-blue">{pending[a.key]}</span>
+                  <span style={{ fontSize: '1.2rem', color: 'var(--text-muted)' }}>›</span>
+                </div>
+              </div>
+            </div>
+          ))
+        )}
       </div>
     </div>
   );
