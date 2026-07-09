@@ -69,9 +69,6 @@ export default function AppShell({ children }) {
     setOpen(false);
   };
 
-  // Título de la sección actual para el topbar.
-  const current = NAV.find((n) => n.path && isActive(n.path, location.pathname));
-
   return (
     <div className="app-shell">
       {open && <div className="app-shell-backdrop" onClick={() => setOpen(false)} />}
@@ -118,10 +115,8 @@ export default function AppShell({ children }) {
           >
             ☰
           </button>
-          <span className="app-shell-topbar-title">{current?.label || 'STMC'}</span>
-          <span style={{ marginLeft: 'auto', fontSize: '0.78rem', color: 'var(--text-soft)' }}>
-            {roleLabel(role)}
-          </span>
+          <span className="topbar-brand">🎾 STMC</span>
+          <span className="topbar-role">{roleLabel(role)}</span>
         </div>
         <div className="app-shell-content">{children}</div>
       </div>

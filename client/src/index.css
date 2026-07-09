@@ -216,7 +216,7 @@ p { line-height: 1.5; }
   transition: border-color 0.15s;
   min-height: 48px;
 }
-.form-input:focus { border-color: var(--blue); }
+.form-input:focus { border-color: var(--blue); box-shadow: 0 0 0 3px rgba(63,82,168,0.14); }
 .form-select { appearance: none; }
 .form-error { font-size: 0.8125rem; color: var(--red); }
 
@@ -255,11 +255,12 @@ p { line-height: 1.5; }
 .stats-row { display: flex; gap: 12px; margin-bottom: 16px; }
 .stat-box {
   flex: 1;
-  background: #fff;
-  border: 1.5px solid var(--gray-200);
-  border-radius: var(--radius-sm);
-  padding: 12px;
+  background: var(--grad-card);
+  border: 1px solid var(--border);
+  border-radius: var(--r-md);
+  padding: 14px 12px;
   text-align: center;
+  box-shadow: var(--shadow), var(--inner-top);
 }
 .stat-box .num { font-size: 1.75rem; font-weight: 700; }
 .stat-box .lbl { font-size: 0.75rem; color: var(--gray-600); margin-top: 2px; }
@@ -341,7 +342,7 @@ p { line-height: 1.5; }
 /* Cost summary */
 .cost-box {
   background: var(--blue-light);
-  border: 1.5px solid #bfdbfe;
+  border: 1px solid var(--border-strong);
   border-radius: var(--radius-sm);
   padding: 14px 16px;
 }
@@ -699,7 +700,8 @@ input.form-input, select.form-select, textarea.form-input {
   color: var(--brand-navy);
   box-shadow: var(--shadow-xs);
 }
-.app-shell-topbar-title { font-weight: 700; color: var(--brand-navy); font-size: 1rem; }
+.topbar-brand { font-weight: 700; color: var(--brand-navy); font-size: 1rem; }
+.topbar-role { margin-left: auto; font-size: 0.78rem; color: var(--text-soft); }
 .app-shell-content { flex: 1 1 auto; padding: 18px; }
 
 /* Página dentro del shell: pierde la columna blanca/centro; el shell manda */
@@ -720,6 +722,8 @@ input.form-input, select.form-select, textarea.form-input {
   margin-bottom: 16px;
 }
 .app-shell-content .page-content { padding: 0 4px; }
+/* La flecha "atrás" es redundante dentro del shell (el sidebar navega) */
+.app-shell-content .nav-back { display: none; }
 
 /* Escritorio: sidebar fija visible, contenido corrido a la derecha */
 @media (min-width: 1024px) {
@@ -727,6 +731,7 @@ input.form-input, select.form-select, textarea.form-input {
   .app-shell-main { margin-left: 264px; }
   .app-shell-hamburger { display: none; }
   .app-shell-backdrop { display: none; }
+  .topbar-brand { display: none; }
   .app-shell-topbar { background: transparent; backdrop-filter: none; border-bottom: none; padding: 16px 24px 0; }
   .app-shell-content { padding: 12px 24px 32px; }
 }

@@ -115,25 +115,56 @@ export default function AssistantsPage() {
         {assistants.length === 0 ? (
           <div className="alert alert-info">No hay asistentes activos.</div>
         ) : (
-          assistants.map((a) => (
-            <div key={a.id} className="card mb-2">
-              <div className="flex items-center justify-between">
-                <div>
-                  <div className="font-medium">{a.name}</div>
-                  {a.user?.email && (
-                    <div className="text-xs text-gray">{a.user.email}</div>
-                  )}
-                </div>
-                <button
-                  className="btn btn-ghost"
-                  style={{ minHeight: 32, padding: '0 8px', fontSize: '0.8rem', color: 'var(--red)' }}
-                  onClick={() => handleDeactivate(a.id)}
-                >
-                  Desactivar
-                </button>
-              </div>
+          <>
+            {/* Escritorio: tabla */}
+            <div className="only-desktop table-wrap">
+              <table className="data-table">
+                <thead>
+                  <tr><th>Nombre</th><th>Cuenta de acceso</th><th></th></tr>
+                </thead>
+                <tbody>
+                  {assistants.map((a) => (
+                    <tr key={a.id}>
+                      <td className="font-medium">{a.name}</td>
+                      <td className="text-gray">{a.user?.email || '— sin cuenta'}</td>
+                      <td className="num">
+                        <button
+                          className="btn btn-ghost"
+                          style={{ minHeight: 30, padding: '0 8px', fontSize: '0.78rem', color: 'var(--red)' }}
+                          onClick={() => handleDeactivate(a.id)}
+                        >
+                          Desactivar
+                        </button>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
             </div>
-          ))
+
+            {/* Móvil: cards */}
+            <div className="only-mobile">
+              {assistants.map((a) => (
+                <div key={a.id} className="card mb-2">
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <div className="font-medium">{a.name}</div>
+                      {a.user?.email && (
+                        <div className="text-xs text-gray">{a.user.email}</div>
+                      )}
+                    </div>
+                    <button
+                      className="btn btn-ghost"
+                      style={{ minHeight: 32, padding: '0 8px', fontSize: '0.8rem', color: 'var(--red)' }}
+                      onClick={() => handleDeactivate(a.id)}
+                    >
+                      Desactivar
+                    </button>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </>
         )}
       </div>
     </div>
