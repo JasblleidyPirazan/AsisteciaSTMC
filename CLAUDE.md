@@ -117,16 +117,17 @@ CORS_ORIGIN        # URL del dominio en Railway (ej: https://asisteciastmc.up.ra
 
 | Modelo | Descripción |
 |---|---|
-| `User` | Cuentas de acceso. Roles: ADMIN, TEACHER, ASSISTANT, PARENT |
+| `User` | Cuentas de acceso. Roles: ADMIN, TEACHER, ASSISTANT, PARENT, PHYSICAL_TRAINER (mostrado como **"Coordinador"** en la UI), RECEPTION. `policiesAcceptedAt` = aceptación de políticas |
 | `Professor` | Profesores (puede tener User vinculado) |
 | `Assistant` | Asistentes (puede tener User vinculado) |
-| `Student` | Estudiantes, vinculados a un padre (parentUserId). `classesAcquired` = total de clases compradas para el semestre (lo fija el admin) |
-| `Group` | Grupos de clase: días, horario, cancha, nivel de bola, tipo sencilla/doble |
+| `Student` | Estudiantes, vinculados a un padre (parentUserId). `classesAcquired` = clases compradas. `paymentComplete` → estado derivado `studentStatus`: MATRICULADO/INSCRITO/SUSPENDIDO/INACTIVO. Suspensión temporal con `suspendedFrom/Until/Reason` (excluido de rosters por query, sin cron) |
+| `Group` | Grupos de clase: días, horario, cancha, nivel (Roja/Naranja/Verde/Amarilla/Intermedio/Avanzado) + `subLevel` A/B/C informativo (solo los 4 colores) |
 | `StudentEnrollment` | Relación estudiante↔grupo (PRIMARY o SECONDARY) |
-| `ClassSession` | Sesión de clase: PROGRAMADA/REALIZADA/CANCELADA/CANCELADA_MITAD. `kind` REGULAR/MAKEUP; las reposiciones grupales tienen `groupId` null, `makeupProfessorId`, `title` y `effectiveUnits` = "por cuántas asistencias cuenta" |
+| `ClassSession` | Sesión de clase: PROGRAMADA/REALIZADA/CANCELADA/CANCELADA_MITAD(legacy). `kind` REGULAR/MAKEUP/FESTIVAL. Cancelación estructurada (`cancellationCategory` LLUVIA/SIN_ESTUDIANTES/OTRA). "No dicté la clase yo": `dictatedByOwner` + `notDictatedNote` obligatoria. Pago suspendido: `firstReportedAt` (solo primer reporte) + `paymentUnlocked*`. Triple coincidencia: `assistantConfirmedId/At` + `coordinatorValidated*`. Festivales: `festivalRate` |
+| `FestivalProfessor` | Profesores participantes de un festival (M2M sessionId+professorId); cada uno cobra `festivalRate` (pago igualitario) |
 | `MakeupParticipant` | Estudiantes asignados a una reposición grupal (sessionId + studentId) |
 | `AttendanceRecord` | Asistencia por estudiante: PRESENTE/AUSENTE/JUSTIFICADA + tipo REGULAR/REPOSICION |
-| `CostRecord` | Costos calculados por sesión (professorId XOR assistantId, payeeType) |
+| `CostRecord` | Costos calculados por sesión (professorId XOR assistantId, payeeType). `payStatus`: PAYABLE / SUSPENDED_LATE (reporte tardío, desbloquea solo ADMIN) / PENDING_MATCH (asistente sin triple coincidencia). Liquidación y export separan habilitado vs retenido |
 | `MakeupClass` | (Legacy, sin uso) — las reposiciones grupales ahora viven en `ClassSession` con `kind=MAKEUP` |
 | `Event` | Torneos/clínicas con pago fijo |
 | `EnrollmentRequest` | Solicitudes de inscripción (estado PENDING/APPROVED/REJECTED) |
@@ -411,3 +412,19 @@ cd client && npm run build
 19. **Sin grupos dobles:** El sistema ya no maneja clases dobles. Grupos se crean con `classUnits = 1.0`, las sesiones regulares finalizan con `effectiveUnits = 1.0` y ya no se genera el estado `CANCELADA_MITAD` ni el toggle "¿se canceló a la mitad?". Las columnas/enum se conservan solo para datos históricos.
 
 20. **Responsive:** El layout es mobile-first pero la columna de contenido (`--page-max` en `index.css`) se ensancha por breakpoints: 480px (móvil) → 680px (≥768px) → 820px (≥1024px). `.action-bar` y `.modal-content` usan la misma variable. `.module-grid` (dashboard admin) y `.card-grid` (grupos del día) aumentan columnas en pantallas anchas.
+
+21. **Roles Coordinador y Recepción:** El rol `PHYSICAL_TRAINER` se muestra como **"Coordinador"** en la UI (`ROLE_LABELS` en `client/src/utils/roles.js`); el valor del enum no cambió. Rol nuevo `RECEPTION`: entra directo a `/admin/students`, solo ve/edita el **estado de pago** de estudiantes (`PATCH /students/:id/payment-status`), sin dinero ni asistencia. Cuentas de ambos se crean en `/admin/users` (`/api/users`, solo ADMIN).
+
+22. **Estados de estudiante:** `studentStatus` derivado server-side (`students.js`): INACTIVO / SUSPENDIDO / MATRICULADO / INSCRITO. Suspensión (`POST /students/:id/suspend`, ADMIN/Coordinador): fechas+razón obligatorias, mín. 15 días, no excede el semestre; el suspendido desaparece de rosters vía `notSuspended()` (`lib/filters.js`) y reaparece al vencer. `POST /:id/unsuspend` levanta antes.
+
+23. **Pago suspendido por reporte tardío:** una clase no reportada el mismo día (America/Bogota, `lib/dates.js`) genera CostRecord `SUSPENDED_LATE`. `firstReportedAt` se estampa SOLO en el primer finalize (editar no re-suspende). Desbloqueo: `POST /sessions/:id/unlock-payment` (solo ADMIN, botón en PayrollPage). Alerta in-app: `GET /alerts/pending-reports` + banner rojo en Dashboard. Histórico protegido (`firstReportedAt` null → nunca tardía).
+
+24. **Triple coincidencia asistentes:** el pago del asistente queda PAYABLE solo si coinciden: `assistantId` (reporte del profesor en el flujo) == `assistantConfirmedId` (toggle del asistente vía `/assist`, que YA NO escribe `assistantId`) + `coordinatorValidatedAt` (`POST /sessions/:id/validate-assistant`, cola en `/admin/validation` sin montos). Corte `assistant_match_start_date` (SystemConfig, seed): sesiones anteriores siguen PAYABLE.
+
+25. **Festivales:** `ClassSession kind=FESTIVAL` (`/api/festivals`, UI `/admin/festivals` + `/festivals/:id/attendance`). Multi-profesor vía `FestivalProfessor`; pago igualitario = `festivalRate` para cada participante (costEngine branch, siempre PAYABLE). Participantes en `MakeupParticipant`. **P y A cuentan como clase vista; J no** — regla centralizada en `services/attendanceStats.js` y aplicada en groups/reports/parent. TEACHER solo reporta festivales donde participa.
+
+26. **Alertas de asistencia:** `GET /alerts/attendance` (ADMIN/Coordinador; UI `/admin/alerts`): desviación = esperadas − vistas, donde esperadas = fechas del calendario de los grupos del estudiante en el semestre activo (menos exclusiones, piso en `enrolledAt`; `services/schedule.js` + `services/attendanceAlerts.js`). Amarilla >2, roja >4. `GET /alerts/rain`: grupos con ≥`rain_alert_threshold` (SystemConfig, default 3) canceladas por LLUVIA. El padre ve la alerta del hijo en `GET /parent/children` (`attendanceAlert`).
+
+27. **Políticas:** texto único en `client/src/utils/policies.js`. Primer ingreso del PARENT al portal → `PoliciesModal` bloqueante (checkbox + aceptar) → `POST /auth/accept-policies` fija `User.policiesAcceptedAt`. `/auth/login` y `/me` exponen el campo.
+
+28. **Cancelación estructurada:** `/cancel` de sesiones/reposiciones/festivales exige `cancellationCategory` (LLUVIA/SIN_ESTUDIANTES/OTRA; texto libre solo OTRA). "No dicté la clase yo" (toggle en Step2): exige quién dictó + observación obligatoria (`dictatedByOwner/notDictatedNote`), visible en Reportes → Clase y en la cola de validación.

@@ -31,6 +31,8 @@ async function main() {
     // Cutoff for the assistant triple-match rule: sessions dated before this
     // stay PAYABLE (upsert only creates it once, on first deploy of the rule)
     { key: 'assistant_match_start_date', value: new Date().toISOString().slice(0, 10) },
+    // Group rain alert: classes cancelled by rain in the active semester
+    { key: 'rain_alert_threshold', value: '3' },
   ];
 
   for (const config of defaults) {

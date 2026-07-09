@@ -2,6 +2,7 @@ const express = require('express');
 const prisma = require('../lib/prisma');
 const { requireRole } = require('../middleware/auth');
 const { expectedDatesForGroup } = require('../services/schedule');
+const { computeAttendanceDeviations, RED_THRESHOLD, YELLOW_THRESHOLD } = require('../services/attendanceAlerts');
 const { bogotaToday, dbDateStr } = require('../lib/dates');
 
 const router = express.Router();
@@ -65,6 +66,72 @@ router.get('/pending-reports', requireRole('ADMIN', 'PHYSICAL_TRAINER', 'TEACHER
     }
 
     res.json({ success: true, data: { groups: result, totalPending } });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// Individual attendance alerts vs the ideal progress level.
+// Roja: desviación > 4 clases · Amarilla: > 2 clases.
+router.get('/attendance', requireRole('ADMIN', 'PHYSICAL_TRAINER'), async (req, res, next) => {
+  try {
+    const rows = await computeAttendanceDeviations();
+    const { onlyAlerts } = req.query;
+    const data = onlyAlerts === 'true' ? rows.filter((r) => r.level) : rows;
+    res.json({
+      success: true,
+      data: {
+        students: data,
+        thresholds: { red: RED_THRESHOLD, yellow: YELLOW_THRESHOLD },
+        alertCount: rows.filter((r) => r.level).length,
+      },
+    });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// Group-level rain alert: groups whose rain-cancelled class count in the
+// active semester reaches the configurable threshold.
+router.get('/rain', requireRole('ADMIN', 'PHYSICAL_TRAINER'), async (req, res, next) => {
+  try {
+    const semester = await prisma.semester.findFirst({ where: { active: true } });
+    if (!semester) return res.json({ success: true, data: { groups: [], threshold: null } });
+
+    const cfg = await prisma.systemConfig.findUnique({ where: { key: 'rain_alert_threshold' } });
+    const threshold = parseInt(cfg?.value) || 3;
+
+    const rainSessions = await prisma.classSession.findMany({
+      where: {
+        status: 'CANCELADA',
+        cancellationCategory: 'LLUVIA',
+        groupId: { not: null },
+        date: { gte: new Date(semester.startDate), lte: new Date(semester.endDate) },
+      },
+      select: { groupId: true },
+    });
+    const countByGroup = {};
+    for (const s of rainSessions) countByGroup[s.groupId] = (countByGroup[s.groupId] || 0) + 1;
+
+    const groupIds = Object.keys(countByGroup);
+    const groups = groupIds.length > 0
+      ? await prisma.group.findMany({
+          where: { id: { in: groupIds } },
+          include: { professor: { select: { id: true, name: true } } },
+        })
+      : [];
+
+    const data = groups
+      .map((g) => ({
+        groupId: g.id,
+        code: g.code,
+        professor: g.professor,
+        rainCancelled: countByGroup[g.id],
+        alert: countByGroup[g.id] >= threshold,
+      }))
+      .sort((a, b) => b.rainCancelled - a.rainCancelled);
+
+    res.json({ success: true, data: { groups: data, threshold } });
   } catch (err) {
     next(err);
   }

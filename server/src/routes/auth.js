@@ -37,7 +37,10 @@ router.post('/login', async (req, res, next) => {
 
     res.json({
       success: true,
-      data: { token, user: { id: user.id, email: user.email, role: user.role } },
+      data: {
+        token,
+        user: { id: user.id, email: user.email, role: user.role, policiesAcceptedAt: user.policiesAcceptedAt },
+      },
     });
   } catch (err) {
     next(err);
@@ -48,11 +51,25 @@ router.get('/me', authMiddleware, async (req, res, next) => {
   try {
     const user = await prisma.user.findUnique({
       where: { id: req.user.id },
-      select: { id: true, email: true, role: true, active: true },
+      select: { id: true, email: true, role: true, active: true, policiesAcceptedAt: true },
     });
     if (!user || !user.active) {
       return res.status(401).json({ success: false, error: 'Usuario no encontrado o inactivo' });
     }
+    res.json({ success: true, data: user });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// Explicit acceptance of the school policies (first login gate in parent portal)
+router.post('/accept-policies', authMiddleware, async (req, res, next) => {
+  try {
+    const user = await prisma.user.update({
+      where: { id: req.user.id },
+      data: { policiesAcceptedAt: new Date() },
+      select: { id: true, policiesAcceptedAt: true },
+    });
     res.json({ success: true, data: user });
   } catch (err) {
     next(err);

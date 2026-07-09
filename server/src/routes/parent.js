@@ -2,6 +2,7 @@ const express = require('express');
 const prisma = require('../lib/prisma');
 const { requireRole } = require('../middleware/auth');
 const { isSeenRecord } = require('../services/attendanceStats');
+const { computeAttendanceDeviations } = require('../services/attendanceAlerts');
 
 const router = express.Router();
 
@@ -14,7 +15,28 @@ router.get('/children', requireRole('PARENT', 'ADMIN'), async (req, res, next) =
         enrollments: { include: { group: { include: { professor: { select: { name: true } } } } } },
       },
     });
-    res.json({ success: true, data: students });
+
+    // Attendance alert for each child (deviation vs the ideal progress level)
+    let alertsById = {};
+    try {
+      const deviations = await computeAttendanceDeviations({ studentIds: students.map((s) => s.id) });
+      alertsById = Object.fromEntries(deviations.map((d) => [d.studentId, d]));
+    } catch { /* alerts are best-effort here */ }
+
+    res.json({
+      success: true,
+      data: students.map((s) => ({
+        ...s,
+        attendanceAlert: alertsById[s.id]
+          ? {
+              expected: alertsById[s.id].expected,
+              seen: alertsById[s.id].seen,
+              deviation: alertsById[s.id].deviation,
+              level: alertsById[s.id].level,
+            }
+          : null,
+      })),
+    });
   } catch (err) {
     next(err);
   }
