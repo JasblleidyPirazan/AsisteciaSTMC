@@ -36,11 +36,49 @@ async function calculateCosts(sessionId) {
       substituteProfessor: true,
       assistant: true,
       attendanceRecords: true,
+      festivalProfessors: true,
     },
   });
 
   if (!session) throw new Error('Sesión no encontrada');
   if (!['REALIZADA', 'CANCELADA_MITAD'].includes(session.status)) return;
+
+  // Festivals pay every participating professor the SAME fixed amount defined
+  // at creation (pago igualitario) — no bracket, no assistant, always PAYABLE
+  // (the coordinator reports it, so late-report suspension doesn't apply).
+  if (session.kind === 'FESTIVAL') {
+    const festivalRate = parseFloat(session.festivalRate || 0);
+    // Present AND absent both count; justified absences are omitted
+    const countedAttendance = session.attendanceRecords.filter(
+      (r) => r.status === 'PRESENTE' || r.status === 'AUSENTE'
+    ).length;
+    const period = getPeriodForDate(session.date);
+
+    await prisma.costRecord.deleteMany({ where: { sessionId } });
+
+    if (festivalRate > 0 && session.festivalProfessors.length > 0) {
+      await prisma.costRecord.createMany({
+        data: session.festivalProfessors.map((fp) => ({
+          sessionId,
+          professorId: fp.professorId,
+          assistantId: null,
+          payeeType: 'PROFESSOR',
+          presentCount: countedAttendance,
+          effectiveUnits: session.effectiveUnits,
+          rate: festivalRate,
+          total: festivalRate,
+          period,
+          payStatus: 'PAYABLE',
+        })),
+      });
+    }
+
+    return {
+      professorTotal: festivalRate,
+      professorCount: session.festivalProfessors.length,
+      assistantTotal: 0,
+    };
+  }
 
   const configs = await prisma.systemConfig.findMany({
     where: {

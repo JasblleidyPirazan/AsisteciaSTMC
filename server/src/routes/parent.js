@@ -1,6 +1,7 @@
 const express = require('express');
 const prisma = require('../lib/prisma');
 const { requireRole } = require('../middleware/auth');
+const { isSeenRecord } = require('../services/attendanceStats');
 
 const router = express.Router();
 
@@ -51,6 +52,7 @@ router.get('/attendance/:studentId', requireRole('PARENT', 'ADMIN', 'TEACHER'), 
 
     const total = records.length;
     const present = records.filter((r) => r.status === 'PRESENTE').length;
+    const classesSeen = records.filter((r) => isSeenRecord(r, r.session?.kind)).length;
 
     res.json({
       success: true,
@@ -61,6 +63,7 @@ router.get('/attendance/:studentId', requireRole('PARENT', 'ADMIN', 'TEACHER'), 
           present,
           absent: records.filter((r) => r.status === 'AUSENTE').length,
           justified: records.filter((r) => r.status === 'JUSTIFICADA').length,
+          classesSeen,
           attendanceRate: total > 0 ? Math.round((present / total) * 100) : 0,
         },
       },

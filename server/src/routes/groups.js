@@ -2,6 +2,7 @@ const express = require('express');
 const prisma = require('../lib/prisma');
 const { requireRole } = require('../middleware/auth');
 const { notSuspended } = require('../lib/filters');
+const { seenAttendanceFilter } = require('../services/attendanceStats');
 
 const router = express.Router();
 
@@ -105,8 +106,10 @@ router.get('/:id/students', async (req, res, next) => {
       const present = await prisma.attendanceRecord.findMany({
         where: {
           studentId: { in: studentIds },
-          status: 'PRESENTE',
-          ...(dateFilter ? { session: { date: dateFilter } } : {}),
+          AND: [
+            seenAttendanceFilter(),
+            ...(dateFilter ? [{ session: { date: dateFilter } }] : []),
+          ],
         },
         select: { studentId: true },
       });

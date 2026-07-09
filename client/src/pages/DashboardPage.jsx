@@ -102,6 +102,7 @@ export default function DashboardPage() {
           <>
             <PendingReportsAlert />
             <PendingMakeups />
+            <PendingFestivals />
             <div className="flex items-center justify-between mb-3">
               <h2>Grupos del día</h2>
               <span className="badge badge-blue">{groups.length}</span>
@@ -153,6 +154,43 @@ function PendingReportsAlert() {
           </div>
         ))}
       </div>
+    </div>
+  );
+}
+
+function PendingFestivals() {
+  const navigate = useNavigate();
+  const [festivals, setFestivals] = useState([]);
+
+  useEffect(() => {
+    api.get('/festivals', { status: 'PROGRAMADA' })
+      .then((data) => setFestivals(data || []))
+      .catch(() => {});
+  }, []);
+
+  if (festivals.length === 0) return null;
+
+  return (
+    <div className="mb-4">
+      <div className="flex items-center justify-between mb-3">
+        <h2>Festivales pendientes</h2>
+        <span className="badge badge-blue">{festivals.length}</span>
+      </div>
+      {festivals.map((f) => (
+        <div key={f.id} className="card card-tap mb-2" style={{ borderLeft: '3px solid var(--green)' }}
+          onClick={() => navigate(`/festivals/${f.id}/attendance`)}>
+          <div className="flex items-center justify-between">
+            <div>
+              <div className="font-medium">🎉 {f.title || 'Festival'}</div>
+              <div className="text-sm text-gray">
+                {fmtDate(f.date)} · {(f.festivalProfessors || []).map((fp) => fp.professor?.name).join(', ') || '—'}
+                {' · '}{f.makeupParticipants?.length || 0} est.
+              </div>
+            </div>
+            <span style={{ fontSize: '1.2rem' }}>›</span>
+          </div>
+        </div>
+      ))}
     </div>
   );
 }

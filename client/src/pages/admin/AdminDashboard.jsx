@@ -11,6 +11,7 @@ const ALL_SECTIONS = [
   { label: 'Estudiantes', path: '/admin/students', icon: '👤', roles: ['ADMIN', 'PHYSICAL_TRAINER', 'RECEPTION'] },
   { label: 'Grupos', path: '/admin/groups', icon: '🎾', roles: ['ADMIN', 'PHYSICAL_TRAINER'] },
   { label: 'Reposiciones', path: '/admin/makeups', icon: '🔁', roles: ['ADMIN', 'PHYSICAL_TRAINER'] },
+  { label: 'Festivales', path: '/admin/festivals', icon: '🎉', roles: ['ADMIN', 'PHYSICAL_TRAINER'] },
   { label: 'Eventos', path: '/admin/events', icon: '🏆', roles: ['ADMIN', 'PHYSICAL_TRAINER'] },
   { label: 'Reportes', path: '/admin/reports', icon: '📊', roles: ['ADMIN', 'PHYSICAL_TRAINER'] },
   { label: 'Validación', path: '/admin/validation', icon: '✅', roles: ['ADMIN', 'PHYSICAL_TRAINER'] },

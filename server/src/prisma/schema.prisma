@@ -46,6 +46,7 @@ model Professor {
   groups              Group[]
   substitutedSessions ClassSession[] @relation("SubstituteProfessor")
   makeupSessions      ClassSession[] @relation("MakeupProfessor")
+  festivalSessions    FestivalProfessor[] @relation("FestivalProfessors")
   costRecords         CostRecord[]   @relation("ProfessorCosts")
   makeupClasses       MakeupClass[]
   events              Event[]
@@ -171,6 +172,8 @@ model ClassSession {
   assistantConfirmedAt  DateTime?     @map("assistant_confirmed_at")
   coordinatorValidatedById String?    @map("coordinator_validated_by_id")
   coordinatorValidatedAt   DateTime?  @map("coordinator_validated_at")
+  // Festivales: pago fijo igualitario por profesor participante
+  festivalRate          Decimal?      @map("festival_rate") @db.Decimal(12, 2)
   createdAt             DateTime      @default(now()) @map("created_at")
 
   group               Group?              @relation(fields: [groupId], references: [id])
@@ -181,6 +184,7 @@ model ClassSession {
   reportedBy          User?               @relation("SessionReporter", fields: [reportedById], references: [id])
   attendanceRecords   AttendanceRecord[]
   makeupParticipants  MakeupParticipant[]
+  festivalProfessors  FestivalProfessor[]
   costRecords         CostRecord[]
   editLogs            SessionEditLog[]
 
@@ -188,9 +192,22 @@ model ClassSession {
   @@map("class_sessions")
 }
 
+// Profesores participantes de un festival (pago igualitario a cada uno)
+model FestivalProfessor {
+  sessionId   String @map("session_id")
+  professorId String @map("professor_id")
+
+  session   ClassSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  professor Professor    @relation("FestivalProfessors", fields: [professorId], references: [id])
+
+  @@id([sessionId, professorId])
+  @@map("festival_professors")
+}
+
 enum SessionKind {
   REGULAR
   MAKEUP
+  FESTIVAL
 }
 
 enum CancellationCategory {
