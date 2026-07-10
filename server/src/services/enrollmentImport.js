@@ -223,10 +223,11 @@ async function importFromBuffer(buffer, { dryRun = false } = {}) {
           }
         }
       }
+      const startAt = recs[i].startDate ? { enrolledAt: recs[i].startDate } : {};
       await prisma.studentEnrollment.upsert({
         where: { studentId_groupId: { studentId: student.id, groupId } },
-        create: { studentId: student.id, groupId, enrollmentType: type, ...(recs[i].startDate ? { enrolledAt: recs[i].startDate } : {}) },
-        update: { enrollmentType: type },
+        create: { studentId: student.id, groupId, enrollmentType: type, ...startAt },
+        update: { enrollmentType: type, ...startAt },  // aplica "Fecha de inicio" también al re-importar
       });
     }
   }

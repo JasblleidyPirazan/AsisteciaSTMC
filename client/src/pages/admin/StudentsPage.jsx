@@ -59,6 +59,10 @@ function fmtDay(d) {
   if (!d) return '';
   return new Date(d).toLocaleDateString('es-CO', { day: 'numeric', month: 'short', timeZone: 'UTC' });
 }
+function fmtFullDate(d) {
+  if (!d) return '';
+  return new Date(d).toLocaleDateString('es-CO', { day: 'numeric', month: 'short', year: 'numeric', timeZone: 'UTC' });
+}
 
 export default function StudentsPage() {
   const navigate = useNavigate();
@@ -276,6 +280,10 @@ export default function StudentsPage() {
     setEditForm({
       name: student.name,
       email: student.email || '',
+      document: student.document || '',
+      phone: student.phone || '',
+      guardianName: student.guardianName || '',
+      birthDate: student.birthDate ? String(student.birthDate).slice(0, 10) : '',
       classesAcquired: student.classesAcquired != null ? String(student.classesAcquired) : '',
       paymentComplete: !!student.paymentComplete,
     });
@@ -293,6 +301,10 @@ export default function StudentsPage() {
         updated = await api.put(`/students/${editTarget.id}`, {
           name: editForm.name,
           email: editForm.email || null,
+          document: editForm.document || null,
+          phone: editForm.phone || null,
+          guardianName: editForm.guardianName || null,
+          birthDate: editForm.birthDate || null,
           classesAcquired: parseInt(editForm.classesAcquired) || 0,
         });
       }
@@ -607,7 +619,10 @@ export default function StudentsPage() {
                     {st.guardianName && <>Acudiente: <strong>{st.guardianName}</strong></>}
                     {st.phone && <> · 📞 {st.phone}</>}
                   </div>
-                  {st.email && <div className="text-xs text-gray mb-3">✉️ {st.email}</div>}
+                  <div className="text-xs text-gray mb-3">
+                    {st.email && <>✉️ {st.email}</>}
+                    {primaryEnrollment(st)?.enrolledAt && <> · Ingreso {fmtFullDate(primaryEnrollment(st).enrolledAt)}</>}
+                  </div>
 
                   <div className="flex gap-2 mb-3">
                     {wa && <a className="btn btn-success" style={{ flex: 1 }} href={`https://wa.me/57${wa}`} target="_blank" rel="noreferrer">WhatsApp</a>}
@@ -687,6 +702,31 @@ export default function StudentsPage() {
                 <label className="form-label">Email</label>
                 <input type="email" className="form-input" maxLength={254} disabled={!canEdit}
                   value={editForm.email} onChange={(e) => setEditForm({ ...editForm, email: e.target.value })} />
+              </div>
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+                <div className="form-group">
+                  <label className="form-label">Documento</label>
+                  <input type="text" className="form-input" maxLength={40} disabled={!canEdit}
+                    value={editForm.document} onChange={(e) => setEditForm({ ...editForm, document: e.target.value })} />
+                </div>
+                <div className="form-group">
+                  <label className="form-label">WhatsApp</label>
+                  <input type="text" className="form-input" maxLength={40} disabled={!canEdit}
+                    value={editForm.phone} onChange={(e) => setEditForm({ ...editForm, phone: e.target.value })} />
+                </div>
+              </div>
+              <div className="form-group">
+                <label className="form-label">Acudiente</label>
+                <input type="text" className="form-input" maxLength={200} disabled={!canEdit}
+                  value={editForm.guardianName} onChange={(e) => setEditForm({ ...editForm, guardianName: e.target.value })} />
+              </div>
+              <div className="form-group">
+                <label className="form-label">Fecha de nacimiento</label>
+                <input type="date" className="form-input" disabled={!canEdit}
+                  value={editForm.birthDate} onChange={(e) => setEditForm({ ...editForm, birthDate: e.target.value })} />
+                {editForm.birthDate && ageFrom(editForm.birthDate) != null && (
+                  <span className="text-xs text-gray">Edad: {ageFrom(editForm.birthDate)} años</span>
+                )}
               </div>
               <div className="form-group">
                 <label className="form-label">Clases adquiridas</label>
