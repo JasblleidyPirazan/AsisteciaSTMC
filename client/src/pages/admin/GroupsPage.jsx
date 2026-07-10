@@ -1,35 +1,46 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { api } from '../../api/client';
+import { usePermissions } from '../../hooks/usePermissions';
 
 const DAYS = [
-  { key: 'lunes', label: 'L' },
-  { key: 'martes', label: 'M' },
-  { key: 'miercoles', label: 'X' },
-  { key: 'jueves', label: 'J' },
-  { key: 'viernes', label: 'V' },
-  { key: 'sabado', label: 'S' },
-  { key: 'domingo', label: 'D' },
+  { key: 'lunes', label: 'Lun' },
+  { key: 'martes', label: 'Mar' },
+  { key: 'miercoles', label: 'Mié' },
+  { key: 'jueves', label: 'Jue' },
+  { key: 'viernes', label: 'Vie' },
+  { key: 'sabado', label: 'Sáb' },
+  { key: 'domingo', label: 'Dom' },
+];
+const DAY_TOGGLE = [
+  { key: 'lunes', label: 'L' }, { key: 'martes', label: 'M' }, { key: 'miercoles', label: 'X' },
+  { key: 'jueves', label: 'J' }, { key: 'viernes', label: 'V' }, { key: 'sabado', label: 'S' }, { key: 'domingo', label: 'D' },
 ];
 
-const BALL_LEVELS = ['Roja', 'Naranja', 'Verde', 'Amarilla', 'Intermedio', 'Avanzado'];
-// Intermedio y Avanzado no manejan subnivel (pendiente de definición)
-const LEVELS_WITH_SUBLEVEL = ['Roja', 'Naranja', 'Verde', 'Amarilla'];
-const SUB_LEVELS = ['A', 'B', 'C'];
+// Niveles y sus subniveles (definición del cliente).
+const LEVELS = {
+  Roja: ['A', 'B', 'C'],
+  Naranja: ['A', 'B', 'C'],
+  Verde: ['A', 'B', 'C'],
+  Amarilla: ['Principiante', 'Intermedio', 'Avanzado'],
+};
+const BALL_COLOR = { Roja: '#E8526A', Naranja: '#EA8A2E', Verde: '#1FA971', Amarilla: '#E8A23B' };
 
 const EMPTY_FORM = {
   code: '', professorId: '', startTime: '15:00', endTime: '15:45',
-  court: '', ballLevel: '', subLevel: '',
+  court: '', capacity: 8, ballLevel: '', subLevel: '',
   lunes: false, martes: false, miercoles: false, jueves: false,
   viernes: false, sabado: false, domingo: false,
 };
 
-function daysLabel(g) {
-  return DAYS.filter((d) => g[d.key]).map((d) => d.label).join(' ');
+function daysText(g) {
+  return DAYS.filter((d) => g[d.key]).map((d) => d.label).join(', ');
 }
 
 export default function GroupsPage() {
   const navigate = useNavigate();
+  const { can } = usePermissions();
+  const canEdit = can('grupos', 'edit');
   const [groups, setGroups] = useState([]);
   const [professors, setProfessors] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -37,41 +48,46 @@ export default function GroupsPage() {
   const [form, setForm] = useState(EMPTY_FORM);
   const [error, setError] = useState('');
   const [saving, setSaving] = useState(false);
+  const [search, setSearch] = useState('');
+  const [exporting, setExporting] = useState(false);
 
-  // Deactivation modal
   const [deactivateTarget, setDeactivateTarget] = useState(null);
   const [deactivateReason, setDeactivateReason] = useState('');
   const [deactivating, setDeactivating] = useState(false);
 
   useEffect(() => {
     Promise.all([
-      api.get('/groups', { active: 'true' }),
+      api.get('/groups', { active: 'all' }),
       api.get('/professors', { active: 'true' }),
     ]).then(([g, p]) => { setGroups(g); setProfessors(p); }).finally(() => setLoading(false));
   }, []);
 
-  function toggleDay(key) {
-    setForm((f) => ({ ...f, [key]: !f[key] }));
-  }
+  function setField(key, val) { setForm((f) => ({ ...f, [key]: val })); }
+  function toggleDay(key) { setForm((f) => ({ ...f, [key]: !f[key] })); }
 
-  function setField(key, val) {
-    setForm((f) => ({ ...f, [key]: val }));
-  }
+  const active = useMemo(() => groups.filter((g) => g.active), [groups]);
+  const summary = useMemo(() => ({
+    activos: active.length,
+    inactivos: groups.length - active.length,
+    canchas: new Set(active.map((g) => g.court).filter((c) => c != null)).size,
+  }), [groups, active]);
+
+  const visible = useMemo(() => {
+    const q = search.trim().toLowerCase();
+    if (!q) return active;
+    return active.filter((g) =>
+      [g.code, g.professor?.name, g.ballLevel, g.subLevel, g.court && `cancha ${g.court}`]
+        .filter(Boolean).join(' ').toLowerCase().includes(q));
+  }, [active, search]);
 
   async function handleCreate(e) {
     e.preventDefault();
-    setSaving(true);
-    setError('');
+    setSaving(true); setError('');
     try {
       const g = await api.post('/groups', form);
       setGroups([...groups, g]);
-      setShowForm(false);
-      setForm(EMPTY_FORM);
-    } catch (err) {
-      setError(err.message);
-    } finally {
-      setSaving(false);
-    }
+      setShowForm(false); setForm(EMPTY_FORM);
+    } catch (err) { setError(err.message); } finally { setSaving(false); }
   }
 
   async function confirmDeactivate() {
@@ -79,32 +95,76 @@ export default function GroupsPage() {
     setDeactivating(true);
     try {
       await api.delete(`/groups/${deactivateTarget.id}`, { reason: deactivateReason.trim() });
-      setGroups(groups.filter((g) => g.id !== deactivateTarget.id));
+      setGroups(groups.map((g) => (g.id === deactivateTarget.id ? { ...g, active: false } : g)));
       setDeactivateTarget(null);
-    } catch (err) {
-      alert(err.message);
-    } finally {
-      setDeactivating(false);
-    }
+    } catch (err) { alert(err.message); } finally { setDeactivating(false); }
+  }
+
+  async function handleExport() {
+    setExporting(true);
+    try {
+      const token = localStorage.getItem('stmc_token');
+      const base = import.meta.env.VITE_API_URL || '/api';
+      const res = await fetch(`${base}/groups/export`, { headers: { Authorization: `Bearer ${token}` } });
+      if (!res.ok) throw new Error('Error al exportar');
+      const blob = await res.blob();
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url; a.download = 'grupos.xlsx'; a.click();
+      URL.revokeObjectURL(url);
+    } catch (err) { alert(err.message); } finally { setExporting(false); }
   }
 
   if (loading) return <div className="page"><div className="spinner" /></div>;
 
+  const subOptions = LEVELS[form.ballLevel] || null;
+
+  function OccBar({ g }) {
+    const enrolled = g._count?.enrollments ?? 0;
+    const cap = g.capacity || 8;
+    const pct = Math.min(100, Math.round((enrolled / cap) * 100));
+    // El color de la barra sigue el nivel del grupo (como el mockup).
+    const color = BALL_COLOR[g.ballLevel] || 'var(--brand-indigo)';
+    return (
+      <div className="flex items-center gap-2">
+        <div className="load-bar" style={{ width: 90 }}><span style={{ width: `${pct}%`, background: color }} /></div>
+        <span className="text-xs text-gray" style={{ whiteSpace: 'nowrap' }}>{enrolled}/{cap}</span>
+      </div>
+    );
+  }
+
   return (
-    <div className="page">
+    <div className="page page-wide">
       <div className="page-header">
         <button className="nav-back" onClick={() => navigate('/admin')}>←</button>
-        <h1>Grupos</h1>
-        <button
-          className="btn btn-primary"
-          style={{ marginLeft: 'auto', minHeight: 36, padding: '0 12px', fontSize: '0.875rem' }}
-          onClick={() => setShowForm(true)}
-        >
-          + Nuevo
-        </button>
+        <div style={{ flex: 1 }}>
+          <h1>Grupos</h1>
+          <p className="text-xs text-gray">{summary.activos} grupos activos en {summary.canchas} canchas</p>
+        </div>
+        <div style={{ display: 'flex', gap: 8 }}>
+          {canEdit && (
+            <button className="btn btn-primary" style={{ minHeight: 36, padding: '0 12px', fontSize: '0.875rem' }}
+              onClick={() => setShowForm(true)}>+ Agregar grupo</button>
+          )}
+          <button className="btn btn-outline" style={{ minHeight: 36, padding: '0 12px', fontSize: '0.875rem' }}
+            onClick={handleExport} disabled={exporting}>{exporting ? '...' : '⬇ Exportar Excel'}</button>
+        </div>
       </div>
 
       <div className="page-content">
+        {/* Resumen */}
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(120px, 1fr))', gap: 8 }} className="mb-3">
+          <div className="stat-box"><div className="num">{summary.activos}</div><div className="lbl">Activos</div></div>
+          <div className="stat-box"><div className="num" style={{ color: 'var(--gray-400)' }}>{summary.inactivos}</div><div className="lbl">Inactivos</div></div>
+          <div className="stat-box"><div className="num" style={{ color: 'var(--brand-aqua)' }}>{summary.canchas}</div><div className="lbl">Canchas</div></div>
+        </div>
+
+        <div className="flex items-center justify-between mb-3" style={{ gap: 12, flexWrap: 'wrap' }}>
+          <input className="form-input" style={{ maxWidth: 320 }} placeholder="🔎 Filtrar filas..."
+            value={search} onChange={(e) => setSearch(e.target.value)} />
+          <span className="text-xs text-gray">{visible.length} / {active.length} filas</span>
+        </div>
+
         {showForm && (
           <div className="card mb-4">
             <h3 className="mb-3">Nuevo grupo</h3>
@@ -112,7 +172,7 @@ export default function GroupsPage() {
             <form onSubmit={handleCreate}>
               <div className="form-group">
                 <label className="form-label">Código *</label>
-                <input type="text" className="form-input" required placeholder="Ej: LM-15:45-Brayan-Verde"
+                <input type="text" className="form-input" required placeholder="Ej: LM1314"
                   value={form.code} onChange={(e) => setField('code', e.target.value)} maxLength={100} />
               </div>
               <div className="form-group">
@@ -126,21 +186,14 @@ export default function GroupsPage() {
               <div className="form-group">
                 <label className="form-label">Días</label>
                 <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-                  {DAYS.map((d) => (
-                    <button
-                      key={d.key}
-                      type="button"
-                      onClick={() => toggleDay(d.key)}
+                  {DAY_TOGGLE.map((d) => (
+                    <button key={d.key} type="button" onClick={() => toggleDay(d.key)}
                       style={{
                         width: 40, height: 40, borderRadius: '50%', border: '2px solid',
                         borderColor: form[d.key] ? 'var(--primary)' : 'var(--gray-300)',
                         background: form[d.key] ? 'var(--primary)' : 'transparent',
-                        color: form[d.key] ? '#fff' : 'var(--gray-500)',
-                        fontWeight: 600, cursor: 'pointer', fontSize: '0.85rem',
-                      }}
-                    >
-                      {d.label}
-                    </button>
+                        color: form[d.key] ? '#fff' : 'var(--gray-500)', fontWeight: 600, cursor: 'pointer', fontSize: '0.85rem',
+                      }}>{d.label}</button>
                   ))}
                 </div>
               </div>
@@ -163,42 +216,33 @@ export default function GroupsPage() {
                     value={form.court} onChange={(e) => setField('court', e.target.value)} />
                 </div>
                 <div className="form-group">
-                  <label className="form-label">Nivel</label>
-                  <select className="form-input form-select" value={form.ballLevel}
-                    onChange={(e) => {
-                      const level = e.target.value;
-                      setForm((f) => ({
-                        ...f,
-                        ballLevel: level,
-                        subLevel: LEVELS_WITH_SUBLEVEL.includes(level) ? f.subLevel : '',
-                      }));
-                    }}>
-                    <option value="">Sin especificar</option>
-                    {BALL_LEVELS.map((b) => <option key={b} value={b}>{b}</option>)}
-                  </select>
+                  <label className="form-label">Cupo máximo *</label>
+                  <input type="number" className="form-input" min={1} max={30} required
+                    value={form.capacity} onChange={(e) => setField('capacity', e.target.value)} />
                 </div>
               </div>
-              {LEVELS_WITH_SUBLEVEL.includes(form.ballLevel) && (
+              <div style={{ display: 'grid', gridTemplateColumns: subOptions ? '1fr 1fr' : '1fr', gap: 12 }}>
                 <div className="form-group">
-                  <label className="form-label">Subnivel</label>
-                  <div style={{ display: 'flex', gap: 8 }}>
-                    {SUB_LEVELS.map((s) => (
-                      <button key={s} type="button"
-                        className={`btn ${form.subLevel === s ? 'btn-primary' : 'btn-outline'}`}
-                        style={{ flex: 1, minHeight: 40 }}
-                        onClick={() => setField('subLevel', form.subLevel === s ? '' : s)}>
-                        {s}
-                      </button>
-                    ))}
-                  </div>
-                  <span className="text-xs text-gray">Informativo, para seguimiento del nivel.</span>
+                  <label className="form-label">Nivel</label>
+                  <select className="form-input form-select" value={form.ballLevel}
+                    onChange={(e) => setForm((f) => ({ ...f, ballLevel: e.target.value, subLevel: '' }))}>
+                    <option value="">Sin especificar</option>
+                    {Object.keys(LEVELS).map((b) => <option key={b} value={b}>{b}</option>)}
+                  </select>
                 </div>
-              )}
+                {subOptions && (
+                  <div className="form-group">
+                    <label className="form-label">Subnivel</label>
+                    <select className="form-input form-select" value={form.subLevel}
+                      onChange={(e) => setField('subLevel', e.target.value)}>
+                      <option value="">Sin subnivel</option>
+                      {subOptions.map((s) => <option key={s} value={s}>{s}</option>)}
+                    </select>
+                  </div>
+                )}
+              </div>
               <div className="flex gap-2 mt-2">
-                <button type="button" className="btn btn-outline" style={{ flex: 1 }}
-                  onClick={() => setShowForm(false)}>
-                  Cancelar
-                </button>
+                <button type="button" className="btn btn-outline" style={{ flex: 1 }} onClick={() => setShowForm(false)}>Cancelar</button>
                 <button type="submit" className="btn btn-primary" style={{ flex: 2 }} disabled={saving}>
                   {saving ? 'Guardando...' : 'Crear grupo'}
                 </button>
@@ -207,35 +251,42 @@ export default function GroupsPage() {
           </div>
         )}
 
-        {groups.length === 0 ? (
-          <div className="alert alert-info">No hay grupos activos.</div>
+        {visible.length === 0 ? (
+          <div className="alert alert-info">No hay grupos que coincidan.</div>
         ) : (
-          groups.map((g) => (
-            <div key={g.id} className="card mb-2">
-              <div className="flex items-center justify-between">
-                <div style={{ flex: 1, minWidth: 0 }}>
-                  <div className="font-medium">{g.code}</div>
-                  <div className="text-xs text-gray">
-                    {g.professor?.name} · {g.startTime}–{g.endTime}
-                    {g.court ? ` · Cancha ${g.court}` : ''}
-                    {g.ballLevel ? ` · ${g.ballLevel}${g.subLevel ? ` ${g.subLevel}` : ''}` : ''}
-                  </div>
-                  {daysLabel(g) && (
-                    <div className="text-xs" style={{ color: 'var(--primary)', marginTop: 2 }}>
-                      {daysLabel(g)}
-                    </div>
-                  )}
-                </div>
-                <button
-                  className="btn btn-ghost"
-                  style={{ minHeight: 32, padding: '0 8px', fontSize: '0.8rem', color: 'var(--red)', flexShrink: 0 }}
-                  onClick={() => { setDeactivateTarget(g); setDeactivateReason(''); }}
-                >
-                  Desactivar
-                </button>
-              </div>
-            </div>
-          ))
+          <div className="table-wrap">
+            <table className="data-table">
+              <thead>
+                <tr>
+                  <th>Grupo</th><th>Días</th><th>Hora</th><th>Profesor</th><th>Cancha</th>
+                  <th>Nivel</th><th>Ocupación</th>{canEdit && <th></th>}
+                </tr>
+              </thead>
+              <tbody>
+                {visible.map((g) => (
+                  <tr key={g.id}>
+                    <td><span className="badge badge-gray" style={{ fontFamily: 'monospace' }}>{g.code}</span></td>
+                    <td style={{ whiteSpace: 'nowrap' }}>{daysText(g) || '—'}</td>
+                    <td style={{ whiteSpace: 'nowrap' }}>{g.startTime} – {g.endTime}</td>
+                    <td>{g.professor?.name || '—'}</td>
+                    <td style={{ whiteSpace: 'nowrap' }}>{g.court ? `Cancha ${g.court}` : '—'}</td>
+                    <td style={{ whiteSpace: 'nowrap' }}>
+                      {g.ballLevel ? (
+                        <><span className="legend-dot" style={{ background: BALL_COLOR[g.ballLevel] || 'var(--gray-400)' }} /> {g.ballLevel}{g.subLevel ? ` ${g.subLevel}` : ''}</>
+                      ) : '—'}
+                    </td>
+                    <td><OccBar g={g} /></td>
+                    {canEdit && (
+                      <td className="num">
+                        <button className="btn btn-ghost" style={{ minHeight: 28, padding: '0 8px', fontSize: '0.72rem', color: 'var(--red)' }}
+                          onClick={() => { setDeactivateTarget(g); setDeactivateReason(''); }}>Desactivar</button>
+                      </td>
+                    )}
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
         )}
       </div>
 
@@ -248,25 +299,13 @@ export default function GroupsPage() {
             </p>
             <div className="form-group">
               <label className="form-label">Motivo *</label>
-              <textarea
-                className="form-input"
-                rows={3}
-                placeholder="Ej: Fin de semestre, grupo disuelto por falta de estudiantes..."
-                value={deactivateReason}
-                onChange={(e) => setDeactivateReason(e.target.value)}
-                style={{ resize: 'vertical' }}
-              />
+              <textarea className="form-input" rows={3} placeholder="Ej: Fin de semestre, grupo disuelto..."
+                value={deactivateReason} onChange={(e) => setDeactivateReason(e.target.value)} style={{ resize: 'vertical' }} />
             </div>
             <div className="flex gap-2 mt-2">
-              <button className="btn btn-outline" style={{ flex: 1 }} onClick={() => setDeactivateTarget(null)}>
-                Cancelar
-              </button>
-              <button
-                className="btn"
-                style={{ flex: 2, background: 'var(--red)', color: '#fff' }}
-                disabled={!deactivateReason.trim() || deactivating}
-                onClick={confirmDeactivate}
-              >
+              <button className="btn btn-outline" style={{ flex: 1 }} onClick={() => setDeactivateTarget(null)}>Cancelar</button>
+              <button className="btn" style={{ flex: 2, background: 'var(--red)', color: '#fff' }}
+                disabled={!deactivateReason.trim() || deactivating} onClick={confirmDeactivate}>
                 {deactivating ? 'Desactivando...' : 'Confirmar'}
               </button>
             </div>

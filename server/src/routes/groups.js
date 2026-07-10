@@ -1,4 +1,5 @@
 const express = require('express');
+const XLSX = require('xlsx');
 const prisma = require('../lib/prisma');
 const { requireRole, requirePermission } = require('../middleware/auth');
 const { notSuspended } = require('../lib/filters');
@@ -6,17 +7,25 @@ const { seenAttendanceFilter } = require('../services/attendanceStats');
 
 const router = express.Router();
 
-const SUB_LEVELS = ['A', 'B', 'C'];
-// Intermedio y Avanzado no manejan subnivel (pendiente de definición del cliente)
-const LEVELS_WITHOUT_SUBLEVEL = ['Intermedio', 'Avanzado'];
+const DAY_SHORT = [['lunes', 'Lun'], ['martes', 'Mar'], ['miercoles', 'Mié'], ['jueves', 'Jue'], ['viernes', 'Vie'], ['sabado', 'Sáb'], ['domingo', 'Dom']];
+function daysText(g) {
+  return DAY_SHORT.filter(([k]) => g[k]).map(([, l]) => l).join(', ');
+}
+
+// Subniveles válidos por nivel (definición del cliente).
+const SUBLEVELS_BY_LEVEL = {
+  Roja: ['A', 'B', 'C'],
+  Naranja: ['A', 'B', 'C'],
+  Verde: ['A', 'B', 'C'],
+  Amarilla: ['Principiante', 'Intermedio', 'Avanzado'],
+};
 
 // Returns the validated subLevel value or an error string.
 function validateSubLevel(subLevel, ballLevel) {
   if (subLevel === undefined || subLevel === null || subLevel === '') return { value: null };
-  if (!SUB_LEVELS.includes(subLevel)) return { error: 'Subnivel inválido (A, B o C)' };
-  if (LEVELS_WITHOUT_SUBLEVEL.includes(ballLevel)) {
-    return { error: `El nivel ${ballLevel} no maneja subniveles` };
-  }
+  const allowed = SUBLEVELS_BY_LEVEL[ballLevel];
+  if (!allowed) return { error: `El nivel ${ballLevel || '(sin nivel)'} no maneja subniveles` };
+  if (!allowed.includes(subLevel)) return { error: `Subnivel inválido para ${ballLevel}` };
   return { value: subLevel };
 }
 
@@ -33,7 +42,8 @@ const DAY_MAP = {
 router.get('/', async (req, res, next) => {
   try {
     const { today, active } = req.query;
-    const where = { active: active !== 'false' };
+    // active='all' → activos e inactivos (para el resumen de la página de grupos)
+    const where = active === 'all' ? {} : { active: active !== 'false' };
 
     if (today === 'true') {
       const dayField = DAY_MAP[new Date().getDay()];
@@ -48,11 +58,46 @@ router.get('/', async (req, res, next) => {
 
     const groups = await prisma.group.findMany({
       where,
-      include: { professor: { select: { id: true, name: true } } },
+      include: {
+        professor: { select: { id: true, name: true } },
+        _count: { select: { enrollments: true } },
+      },
       orderBy: [{ startTime: 'asc' }],
     });
 
     res.json({ success: true, data: groups });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// Exportar grupos a Excel.
+router.get('/export', requirePermission('grupos', 'view'), async (req, res, next) => {
+  try {
+    const groups = await prisma.group.findMany({
+      where: { active: true },
+      include: { professor: { select: { name: true } }, _count: { select: { enrollments: true } } },
+      orderBy: [{ court: 'asc' }, { startTime: 'asc' }],
+    });
+    const rows = groups.map((g) => ({
+      Grupo: g.code,
+      Días: daysText(g),
+      Hora: `${g.startTime} - ${g.endTime}`,
+      Profesor: g.professor?.name || '',
+      Cancha: g.court || '',
+      Nivel: g.ballLevel || '',
+      Subnivel: g.subLevel || '',
+      Cupo: g.capacity,
+      Inscritos: g._count.enrollments,
+      'Ocupación %': g.capacity ? Math.round((g._count.enrollments / g.capacity) * 100) : 0,
+    }));
+    const ws = XLSX.utils.json_to_sheet(rows.length ? rows : [{ Grupo: 'Sin grupos' }]);
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, 'Grupos');
+    const buffer = XLSX.write(wb, { type: 'buffer', bookType: 'xlsx' });
+    res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+    res.setHeader('Content-Disposition', 'attachment; filename="grupos.xlsx"');
+    res.send(buffer);
   } catch (err) {
     next(err);
   }
@@ -132,7 +177,7 @@ router.get('/:id/students', async (req, res, next) => {
 router.post('/', requirePermission('grupos', 'edit'), async (req, res, next) => {
   try {
     const { code, name, professorId, lunes, martes, miercoles, jueves, viernes, sabado, domingo,
-      startTime, endTime, court, ballLevel, subLevel } = req.body;
+      startTime, endTime, court, capacity, ballLevel, subLevel } = req.body;
 
     if (!code || !professorId || !startTime || !endTime) {
       return res.status(400).json({ success: false, error: 'Código, profesor y horario requeridos' });
@@ -148,11 +193,13 @@ router.post('/', requirePermission('grupos', 'edit'), async (req, res, next) => 
     const group = await prisma.group.create({
       data: {
         code, name, professorId, startTime, endTime, durationMinutes, classUnits: 1.0,
-        court: court ? parseInt(court) : null, ballLevel, subLevel: sub.value,
+        court: court ? parseInt(court) : null,
+        capacity: Number.isFinite(+capacity) ? Math.max(1, parseInt(capacity)) : 8,
+        ballLevel, subLevel: sub.value,
         lunes: !!lunes, martes: !!martes, miercoles: !!miercoles, jueves: !!jueves,
         viernes: !!viernes, sabado: !!sabado, domingo: !!domingo,
       },
-      include: { professor: { select: { id: true, name: true } } },
+      include: { professor: { select: { id: true, name: true } }, _count: { select: { enrollments: true } } },
     });
     res.status(201).json({ success: true, data: group });
   } catch (err) {
@@ -163,12 +210,13 @@ router.post('/', requirePermission('grupos', 'edit'), async (req, res, next) => 
 router.put('/:id', requirePermission('grupos', 'edit'), async (req, res, next) => {
   try {
     const { code, name, professorId, lunes, martes, miercoles, jueves, viernes, sabado, domingo,
-      startTime, endTime, court, ballLevel, subLevel, active } = req.body;
+      startTime, endTime, court, capacity, ballLevel, subLevel, active } = req.body;
 
     const data = {};
     if (code !== undefined) data.code = code;
     if (name !== undefined) data.name = name;
     if (professorId !== undefined) data.professorId = professorId;
+    if (capacity !== undefined) data.capacity = Math.max(1, parseInt(capacity) || 8);
     if (ballLevel !== undefined) data.ballLevel = ballLevel;
     if (subLevel !== undefined || ballLevel !== undefined) {
       const current = await prisma.group.findUnique({ where: { id: req.params.id } });
@@ -202,7 +250,7 @@ router.put('/:id', requirePermission('grupos', 'edit'), async (req, res, next) =
     const group = await prisma.group.update({
       where: { id: req.params.id },
       data,
-      include: { professor: { select: { id: true, name: true } } },
+      include: { professor: { select: { id: true, name: true } }, _count: { select: { enrollments: true } } },
     });
     res.json({ success: true, data: group });
   } catch (err) {

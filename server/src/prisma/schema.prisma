@@ -121,8 +121,9 @@ model Group {
   durationMinutes    Int       @map("duration_minutes")
   classUnits         Decimal   @map("class_units") @db.Decimal(3, 1)
   court              Int?
+  capacity           Int       @default(8) @map("capacity")
   ballLevel          String?   @map("ball_level")
-  subLevel           String?   @map("sub_level") // 'A' | 'B' | 'C' — informativo
+  subLevel           String?   @map("sub_level") // A/B/C, o Principiante/Intermedio/Avanzado (Amarilla)
   active             Boolean   @default(true)
   deactivationReason String?   @map("deactivation_reason")
   deactivatedAt      DateTime? @map("deactivated_at")
