@@ -37,6 +37,12 @@ function daysText(g) {
   return DAYS.filter((d) => g[d.key]).map((d) => d.label).join(', ');
 }
 
+// deactivatedAt es un timestamp; se formatea en UTC para no correr el día.
+function fmtDeactivated(v) {
+  if (!v) return '—';
+  return new Date(v).toLocaleDateString('es-CO', { day: '2-digit', month: 'short', year: 'numeric', timeZone: 'UTC' });
+}
+
 export default function GroupsPage() {
   const navigate = useNavigate();
   const { can } = usePermissions();
@@ -46,9 +52,11 @@ export default function GroupsPage() {
   const [loading, setLoading] = useState(true);
   const [showForm, setShowForm] = useState(false);
   const [form, setForm] = useState(EMPTY_FORM);
+  const [editingId, setEditingId] = useState(null);
   const [error, setError] = useState('');
   const [saving, setSaving] = useState(false);
   const [search, setSearch] = useState('');
+  const [showInactive, setShowInactive] = useState(false);
   const [exporting, setExporting] = useState(false);
 
   const [deactivateTarget, setDeactivateTarget] = useState(null);
@@ -66,28 +74,60 @@ export default function GroupsPage() {
   function toggleDay(key) { setForm((f) => ({ ...f, [key]: !f[key] })); }
 
   const active = useMemo(() => groups.filter((g) => g.active), [groups]);
+  const inactive = useMemo(() => groups.filter((g) => !g.active), [groups]);
   const summary = useMemo(() => ({
     activos: active.length,
-    inactivos: groups.length - active.length,
+    inactivos: inactive.length,
     canchas: new Set(active.map((g) => g.court).filter((c) => c != null)).size,
-  }), [groups, active]);
+  }), [active, inactive]);
 
   const visible = useMemo(() => {
+    const base = showInactive ? inactive : active;
     const q = search.trim().toLowerCase();
-    if (!q) return active;
-    return active.filter((g) =>
+    if (!q) return base;
+    return base.filter((g) =>
       [g.code, g.professor?.name, g.ballLevel, g.subLevel, g.court && `cancha ${g.court}`]
         .filter(Boolean).join(' ').toLowerCase().includes(q));
-  }, [active, search]);
+  }, [active, inactive, showInactive, search]);
 
-  async function handleCreate(e) {
+  function closeForm() { setShowForm(false); setForm(EMPTY_FORM); setEditingId(null); setError(''); }
+
+  function startCreate() { setEditingId(null); setForm(EMPTY_FORM); setError(''); setShowForm(true); }
+
+  function startEdit(g) {
+    setEditingId(g.id);
+    setForm({
+      code: g.code, professorId: g.professorId,
+      startTime: g.startTime, endTime: g.endTime,
+      court: g.court ?? '', capacity: g.capacity ?? 8,
+      ballLevel: g.ballLevel || '', subLevel: g.subLevel || '',
+      lunes: g.lunes, martes: g.martes, miercoles: g.miercoles, jueves: g.jueves,
+      viernes: g.viernes, sabado: g.sabado, domingo: g.domingo,
+    });
+    setError('');
+    setShowForm(true);
+  }
+
+  async function handleSubmit(e) {
     e.preventDefault();
     setSaving(true); setError('');
     try {
-      const g = await api.post('/groups', form);
-      setGroups([...groups, g]);
-      setShowForm(false); setForm(EMPTY_FORM);
+      if (editingId) {
+        const g = await api.put(`/groups/${editingId}`, form);
+        setGroups(groups.map((x) => (x.id === editingId ? g : x)));
+      } else {
+        const g = await api.post('/groups', form);
+        setGroups([...groups, g]);
+      }
+      closeForm();
     } catch (err) { setError(err.message); } finally { setSaving(false); }
+  }
+
+  async function handleReactivate(g) {
+    try {
+      const updated = await api.put(`/groups/${g.id}`, { active: true });
+      setGroups(groups.map((x) => (x.id === g.id ? updated : x)));
+    } catch (err) { alert(err.message); }
   }
 
   async function confirmDeactivate() {
@@ -144,7 +184,7 @@ export default function GroupsPage() {
         <div style={{ display: 'flex', gap: 8 }}>
           {canEdit && (
             <button className="btn btn-primary" style={{ minHeight: 36, padding: '0 12px', fontSize: '0.875rem' }}
-              onClick={() => setShowForm(true)}>+ Agregar grupo</button>
+              onClick={startCreate}>+ Agregar grupo</button>
           )}
           <button className="btn btn-outline" style={{ minHeight: 36, padding: '0 12px', fontSize: '0.875rem' }}
             onClick={handleExport} disabled={exporting}>{exporting ? '...' : '⬇ Exportar Excel'}</button>
@@ -159,17 +199,32 @@ export default function GroupsPage() {
           <div className="stat-box"><div className="num" style={{ color: 'var(--brand-aqua)' }}>{summary.canchas}</div><div className="lbl">Canchas</div></div>
         </div>
 
+        <div className="flex items-center gap-2 mb-3" style={{ flexWrap: 'wrap' }}>
+          <button className={`btn ${!showInactive ? 'btn-primary' : 'btn-outline'}`}
+            style={{ minHeight: 34, padding: '0 12px', fontSize: '0.85rem' }}
+            onClick={() => setShowInactive(false)}>Activos ({summary.activos})</button>
+          <button className={`btn ${showInactive ? 'btn-primary' : 'btn-outline'}`}
+            style={{ minHeight: 34, padding: '0 12px', fontSize: '0.85rem' }}
+            onClick={() => setShowInactive(true)}>Desactivados ({summary.inactivos})</button>
+        </div>
+
+        {showInactive && (
+          <div className="alert alert-info mb-3">
+            Los grupos desactivados conservan su historial de clases y asistencias. Puedes reactivarlos cuando quieras.
+          </div>
+        )}
+
         <div className="flex items-center justify-between mb-3" style={{ gap: 12, flexWrap: 'wrap' }}>
           <input className="form-input" style={{ maxWidth: 320 }} placeholder="🔎 Filtrar filas..."
             value={search} onChange={(e) => setSearch(e.target.value)} />
-          <span className="text-xs text-gray">{visible.length} / {active.length} filas</span>
+          <span className="text-xs text-gray">{visible.length} / {(showInactive ? inactive : active).length} filas</span>
         </div>
 
         {showForm && (
           <div className="card mb-4">
-            <h3 className="mb-3">Nuevo grupo</h3>
+            <h3 className="mb-3">{editingId ? 'Editar grupo' : 'Nuevo grupo'}</h3>
             {error && <div className="alert alert-error">{error}</div>}
-            <form onSubmit={handleCreate}>
+            <form onSubmit={handleSubmit}>
               <div className="form-group">
                 <label className="form-label">Código *</label>
                 <input type="text" className="form-input" required placeholder="Ej: LM1314"
@@ -242,9 +297,9 @@ export default function GroupsPage() {
                 )}
               </div>
               <div className="flex gap-2 mt-2">
-                <button type="button" className="btn btn-outline" style={{ flex: 1 }} onClick={() => setShowForm(false)}>Cancelar</button>
+                <button type="button" className="btn btn-outline" style={{ flex: 1 }} onClick={closeForm}>Cancelar</button>
                 <button type="submit" className="btn btn-primary" style={{ flex: 2 }} disabled={saving}>
-                  {saving ? 'Guardando...' : 'Crear grupo'}
+                  {saving ? 'Guardando...' : (editingId ? 'Guardar cambios' : 'Crear grupo')}
                 </button>
               </div>
             </form>
@@ -253,13 +308,46 @@ export default function GroupsPage() {
 
         {visible.length === 0 ? (
           <div className="alert alert-info">No hay grupos que coincidan.</div>
+        ) : showInactive ? (
+          <div className="table-wrap">
+            <table className="data-table">
+              <thead>
+                <tr>
+                  <th>Grupo</th><th>Nivel</th><th>Subnivel</th><th>Profesor</th>
+                  <th>Desactivado el</th><th>Motivo</th>{canEdit && <th></th>}
+                </tr>
+              </thead>
+              <tbody>
+                {visible.map((g) => (
+                  <tr key={g.id}>
+                    <td><span className="badge badge-gray" style={{ fontFamily: 'monospace' }}>{g.code}</span></td>
+                    <td style={{ whiteSpace: 'nowrap' }}>
+                      {g.ballLevel ? (
+                        <><span className="legend-dot" style={{ background: BALL_COLOR[g.ballLevel] || 'var(--gray-400)' }} /> {g.ballLevel}</>
+                      ) : '—'}
+                    </td>
+                    <td style={{ whiteSpace: 'nowrap' }}>{g.subLevel || '—'}</td>
+                    <td>{g.professor?.name || '—'}</td>
+                    <td style={{ whiteSpace: 'nowrap' }}>{fmtDeactivated(g.deactivatedAt)}</td>
+                    <td className="text-sm text-gray">{g.deactivationReason || '—'}</td>
+                    {canEdit && (
+                      <td className="num">
+                        <button className="btn btn-ghost" style={{ minHeight: 28, padding: '0 8px', fontSize: '0.72rem', color: 'var(--green)' }}
+                          onClick={() => handleReactivate(g)}>Reactivar</button>
+                      </td>
+                    )}
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
         ) : (
           <div className="table-wrap">
             <table className="data-table">
               <thead>
                 <tr>
                   <th>Grupo</th><th>Días</th><th>Hora</th><th>Profesor</th><th>Cancha</th>
-                  <th>Nivel</th><th>Ocupación</th>{canEdit && <th></th>}
+                  <th>Nivel</th><th>Subnivel</th><th>Ocupación</th>{canEdit && <th></th>}
                 </tr>
               </thead>
               <tbody>
@@ -272,14 +360,19 @@ export default function GroupsPage() {
                     <td style={{ whiteSpace: 'nowrap' }}>{g.court ? `Cancha ${g.court}` : '—'}</td>
                     <td style={{ whiteSpace: 'nowrap' }}>
                       {g.ballLevel ? (
-                        <><span className="legend-dot" style={{ background: BALL_COLOR[g.ballLevel] || 'var(--gray-400)' }} /> {g.ballLevel}{g.subLevel ? ` ${g.subLevel}` : ''}</>
+                        <><span className="legend-dot" style={{ background: BALL_COLOR[g.ballLevel] || 'var(--gray-400)' }} /> {g.ballLevel}</>
                       ) : '—'}
                     </td>
+                    <td style={{ whiteSpace: 'nowrap' }}>{g.subLevel || '—'}</td>
                     <td><OccBar g={g} /></td>
                     {canEdit && (
                       <td className="num">
-                        <button className="btn btn-ghost" style={{ minHeight: 28, padding: '0 8px', fontSize: '0.72rem', color: 'var(--red)' }}
-                          onClick={() => { setDeactivateTarget(g); setDeactivateReason(''); }}>Desactivar</button>
+                        <div className="flex gap-1" style={{ justifyContent: 'flex-end' }}>
+                          <button className="btn btn-ghost" style={{ minHeight: 28, padding: '0 8px', fontSize: '0.72rem' }}
+                            onClick={() => startEdit(g)}>Editar</button>
+                          <button className="btn btn-ghost" style={{ minHeight: 28, padding: '0 8px', fontSize: '0.72rem', color: 'var(--red)' }}
+                            onClick={() => { setDeactivateTarget(g); setDeactivateReason(''); }}>Desactivar</button>
+                        </div>
                       </td>
                     )}
                   </tr>

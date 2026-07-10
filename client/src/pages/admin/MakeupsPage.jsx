@@ -18,7 +18,7 @@ const EMPTY_FORM = {
   date: todayStr(),
   title: '',
   professorId: '',
-  assistantId: '',
+  court: '',
   countsAsUnits: '1',
   studentIds: [],
 };
@@ -27,7 +27,6 @@ export default function MakeupsPage() {
   const navigate = useNavigate();
   const [makeups, setMakeups] = useState([]);
   const [professors, setProfessors] = useState([]);
-  const [assistants, setAssistants] = useState([]);
   const [students, setStudents] = useState([]);
   const [loading, setLoading] = useState(true);
   const [creating, setCreating] = useState(false);
@@ -41,15 +40,13 @@ export default function MakeupsPage() {
   async function loadAll() {
     setLoading(true);
     try {
-      const [m, p, a, s] = await Promise.all([
+      const [m, p, s] = await Promise.all([
         api.get('/makeups'),
         api.get('/professors', { active: 'true' }),
-        api.get('/assistants', { active: 'true' }),
         api.get('/students', { active: 'true', excludeSuspended: 'true' }),
       ]);
       setMakeups(m);
       setProfessors(p);
-      setAssistants(a);
       setStudents(s);
     } catch (err) {
       setError(err.message);
@@ -85,7 +82,7 @@ export default function MakeupsPage() {
         date: form.date,
         title: form.title || undefined,
         professorId: form.professorId,
-        assistantId: form.assistantId || undefined,
+        court: form.court || undefined,
         countsAsUnits: parseFloat(form.countsAsUnits),
         studentIds: form.studentIds,
       });
@@ -153,12 +150,10 @@ export default function MakeupsPage() {
             </div>
 
             <div className="form-group">
-              <label className="form-label">Asistente (opcional)</label>
-              <select className="form-input form-select" value={form.assistantId}
-                onChange={(e) => update('assistantId', e.target.value)}>
-                <option value="">Sin asistente</option>
-                {assistants.map((a) => <option key={a.id} value={a.id}>{a.name}</option>)}
-              </select>
+              <label className="form-label">Cancha</label>
+              <input type="number" className="form-input" min={1} max={20}
+                placeholder="Ej: 3" value={form.court}
+                onChange={(e) => update('court', e.target.value)} />
             </div>
 
             <div className="form-group">
@@ -188,7 +183,7 @@ export default function MakeupsPage() {
               <div style={{ maxHeight: 220, overflowY: 'auto' }}>
                 {students
                   .filter((s) => s.name.toLowerCase().includes(studentSearch.toLowerCase()))
-                  .slice(0, 30)
+                  .slice(0, 200)
                   .map((s) => {
                     const selected = form.studentIds.includes(s.id);
                     return (
@@ -233,6 +228,7 @@ export default function MakeupsPage() {
                 <div className="text-sm text-gray">📅 {fmtDate(m.date)}</div>
                 <div className="text-sm text-gray">🏫 {m.makeupProfessor?.name || '—'}
                   {m.substituteProfessor && ` (sustituto: ${m.substituteProfessor.name})`}</div>
+                {m.court != null && <div className="text-sm text-gray">🎾 Cancha {m.court}</div>}
                 {m.assistant && <div className="text-sm text-gray">🤝 {m.assistant.name}</div>}
                 <div className="text-sm text-gray">
                   👥 {participantCount} estudiante{participantCount !== 1 ? 's' : ''}

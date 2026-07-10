@@ -84,7 +84,7 @@ router.get('/:id', requirePermission('reposiciones', 'view'), async (req, res, n
 // Create a makeup class — ADMIN / PHYSICAL_TRAINER
 router.post('/', requirePermission('reposiciones', 'edit'), async (req, res, next) => {
   try {
-    const { date, title, professorId, assistantId, countsAsUnits, studentIds } = req.body;
+    const { date, title, professorId, court, countsAsUnits, studentIds } = req.body;
 
     if (!date) return res.status(400).json({ success: false, error: 'Fecha requerida' });
     if (!professorId) return res.status(400).json({ success: false, error: 'Profesor requerido' });
@@ -109,7 +109,7 @@ router.post('/', requirePermission('reposiciones', 'edit'), async (req, res, nex
         status: 'PROGRAMADA',
         effectiveUnits: units,
         makeupProfessorId: professorId,
-        assistantId: assistantId || null,
+        court: court ? parseInt(court) : null,
         reportedById: req.user.id,
         makeupParticipants: {
           create: [...new Set(studentIds)].map((studentId) => ({ studentId })),
@@ -126,7 +126,7 @@ router.post('/', requirePermission('reposiciones', 'edit'), async (req, res, nex
 // Edit makeup meta (only while still scheduled) — ADMIN / PHYSICAL_TRAINER
 router.put('/:id', requirePermission('reposiciones', 'edit'), async (req, res, next) => {
   try {
-    const { date, title, professorId, assistantId, countsAsUnits, studentIds } = req.body;
+    const { date, title, professorId, court, assistantId, countsAsUnits, studentIds } = req.body;
 
     const existing = await prisma.classSession.findUnique({ where: { id: req.params.id } });
     if (!existing || existing.kind !== 'MAKEUP') {
@@ -137,6 +137,7 @@ router.put('/:id', requirePermission('reposiciones', 'edit'), async (req, res, n
     if (date !== undefined) data.date = new Date(date);
     if (title !== undefined) data.title = title?.slice(0, 200) || 'Reposición grupal';
     if (professorId !== undefined) data.makeupProfessorId = professorId;
+    if (court !== undefined) data.court = court ? parseInt(court) : null;
     if (assistantId !== undefined) data.assistantId = assistantId || null;
     if (countsAsUnits !== undefined) {
       const units = parseFloat(countsAsUnits);

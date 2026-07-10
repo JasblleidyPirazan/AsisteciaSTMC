@@ -5,6 +5,20 @@ const XLSX = require('xlsx');
 
 const router = express.Router();
 
+// Clave estable de un pago por clase (independiente del CostRecord, que se recrea).
+function paidKey(sessionId, payeeType, payeeId) {
+  return `${sessionId}|${payeeType}|${payeeId}`;
+}
+
+// Carga los pagos marcados de un período como un Set de claves.
+async function loadPaidSet(period) {
+  const payments = await prisma.payrollClassPayment.findMany({
+    where: { period, paid: true },
+    select: { sessionId: true, payeeType: true, payeeId: true },
+  });
+  return new Set(payments.map((p) => paidKey(p.sessionId, p.payeeType, p.payeeId)));
+}
+
 router.get('/', async (req, res, next) => {
   try {
     if (['PHYSICAL_TRAINER', 'RECEPTION'].includes(req.user.role)) {
@@ -42,6 +56,10 @@ router.get('/', async (req, res, next) => {
       orderBy: { session: { date: 'asc' } },
     });
 
+    // Marcado de pago por clase (clave sesión+beneficiario). Sobrevive a la
+    // recreación de CostRecord porque vive en su propia tabla.
+    const paidSet = await loadPaidSet(period);
+
     const byPayee = {};
     for (const r of records) {
       const id = r.professorId || r.assistantId;
@@ -50,15 +68,18 @@ router.get('/', async (req, res, next) => {
         byPayee[id] = {
           payeeId: id, payeeType: r.payeeType, name, period,
           total: 0, payableTotal: 0, suspendedTotal: 0, pendingTotal: 0,
+          paidTotal: 0, paidCount: 0,
           records: [],
         };
       }
       const amount = parseFloat(r.total);
+      const paid = paidSet.has(paidKey(r.sessionId, r.payeeType, id));
       byPayee[id].total += amount;
       if (r.payStatus === 'SUSPENDED_LATE') byPayee[id].suspendedTotal += amount;
       else if (r.payStatus === 'PENDING_MATCH') byPayee[id].pendingTotal += amount;
       else byPayee[id].payableTotal += amount;
-      byPayee[id].records.push(r);
+      if (paid) { byPayee[id].paidTotal += amount; byPayee[id].paidCount++; }
+      byPayee[id].records.push({ ...r, paid });
     }
 
     res.json({ success: true, data: Object.values(byPayee) });
@@ -80,6 +101,8 @@ router.get('/summary', requirePermission('nomina', 'edit'), async (req, res, nex
       },
     });
 
+    const paidSet = await loadPaidSet(period);
+
     const summary = {};
     for (const r of records) {
       const id = r.professorId || r.assistantId;
@@ -88,7 +111,8 @@ router.get('/summary', requirePermission('nomina', 'edit'), async (req, res, nex
       if (!summary[key]) {
         summary[key] = {
           payeeId: id, payeeType: r.payeeType, name,
-          total: 0, payableTotal: 0, suspendedTotal: 0, pendingTotal: 0, classCount: 0,
+          total: 0, payableTotal: 0, suspendedTotal: 0, pendingTotal: 0,
+          paidTotal: 0, paidCount: 0, classCount: 0,
         };
       }
       const amount = parseFloat(r.total);
@@ -96,6 +120,10 @@ router.get('/summary', requirePermission('nomina', 'edit'), async (req, res, nex
       if (r.payStatus === 'SUSPENDED_LATE') summary[key].suspendedTotal += amount;
       else if (r.payStatus === 'PENDING_MATCH') summary[key].pendingTotal += amount;
       else summary[key].payableTotal += amount;
+      if (paidSet.has(paidKey(r.sessionId, r.payeeType, id))) {
+        summary[key].paidTotal += amount;
+        summary[key].paidCount++;
+      }
       summary[key].classCount++;
     }
 
@@ -114,6 +142,9 @@ router.get('/summary', requirePermission('nomina', 'edit'), async (req, res, nex
       .reduce((sum, s) => sum + s.payableTotal, 0);
     const suspendedGrandTotal = sorted.reduce((sum, s) => sum + s.suspendedTotal, 0);
     const pendingGrandTotal = sorted.reduce((sum, s) => sum + s.pendingTotal, 0);
+    const paidGrandTotal = sorted.reduce((sum, s) => sum + s.paidTotal, 0);
+    const paidCountTotal = sorted.reduce((sum, s) => sum + s.paidCount, 0);
+    const classCountTotal = sorted.reduce((sum, s) => sum + s.classCount, 0);
 
     const approval = await prisma.payrollApproval.findUnique({ where: { period } });
 
@@ -126,6 +157,9 @@ router.get('/summary', requirePermission('nomina', 'edit'), async (req, res, nex
         grandTotal: totalProfessors + totalAssistants,
         suspendedGrandTotal,
         pendingGrandTotal,
+        paidGrandTotal,
+        paidCountTotal,
+        classCountTotal,
         approval: approval
           ? {
               approvedByName: approval.approvedByName,
@@ -137,6 +171,36 @@ router.get('/summary', requirePermission('nomina', 'edit'), async (req, res, nex
           : null,
       },
     });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// Marcar/desmarcar el pago de clases (a nivel de clase). Acepta un lote de
+// marcas para el botón "Guardar pagos". La clave es (sessionId, payeeType,
+// payeeId), así que sobrevive a la recreación de CostRecord al editar reportes.
+router.post('/mark', requirePermission('nomina', 'edit'), async (req, res, next) => {
+  try {
+    const { marks } = req.body;
+    if (!Array.isArray(marks) || marks.length === 0) {
+      return res.status(400).json({ success: false, error: 'marks requerido (arreglo no vacío)' });
+    }
+    const name = req.user.email;
+    for (const m of marks) {
+      const { sessionId, payeeType, payeeId, period, paid } = m || {};
+      if (!sessionId || !payeeType || !payeeId || !period) continue;
+      if (!['PROFESSOR', 'ASSISTANT'].includes(payeeType)) continue;
+      if (paid) {
+        await prisma.payrollClassPayment.upsert({
+          where: { sessionId_payeeType_payeeId: { sessionId, payeeType, payeeId } },
+          create: { sessionId, payeeType, payeeId, period, paid: true, paidById: req.user.id, paidByName: name },
+          update: { paid: true, period, paidById: req.user.id, paidByName: name, paidAt: new Date() },
+        });
+      } else {
+        await prisma.payrollClassPayment.deleteMany({ where: { sessionId, payeeType, payeeId } });
+      }
+    }
+    res.json({ success: true, data: { updated: marks.length } });
   } catch (err) {
     next(err);
   }

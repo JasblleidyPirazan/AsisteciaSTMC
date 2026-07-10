@@ -171,6 +171,7 @@ model ClassSession {
   notDictatedNote          String?               @map("not_dictated_note")
   substituteProfessorId    String?               @map("substitute_professor_id")
   assistantId              String?               @map("assistant_id")
+  court                    Int?
   reportedById             String?               @map("reported_by_id")
   firstReportedAt          DateTime?             @map("first_reported_at")
   paymentUnlockedById      String?               @map("payment_unlocked_by_id")
@@ -451,4 +452,24 @@ model PayrollApproval {
   approvedAt     DateTime @default(now()) @map("approved_at")
 
   @@map("payroll_approvals")
+}
+
+// Marcado de pago a nivel de clase. Vive aparte de CostRecord porque el motor de
+// costos borra y recrea los CostRecord en cada finalize/edición: la clave
+// (sessionId, payeeType, payeeId) sobrevive a esas recreaciones, así que el
+// "Pagado" no se pierde al editar un reporte.
+model PayrollClassPayment {
+  id         String    @id @default(cuid())
+  sessionId  String    @map("session_id")
+  payeeType  PayeeType @map("payee_type")
+  payeeId    String    @map("payee_id") // professorId o assistantId
+  period     String
+  paid       Boolean   @default(true)
+  paidById   String?   @map("paid_by_id")
+  paidByName String?   @map("paid_by_name")
+  paidAt     DateTime  @default(now()) @map("paid_at")
+
+  @@unique([sessionId, payeeType, payeeId])
+  @@index([period])
+  @@map("payroll_class_payments")
 }
