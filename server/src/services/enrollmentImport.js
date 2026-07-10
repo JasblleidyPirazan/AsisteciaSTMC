@@ -87,7 +87,7 @@ function parseRecords(wb) {
     prof: col('PROFESOR'), horario: col('HORARIO'), dias: col('DÍAS'),
     doc: col('Documento'), birth: col('Fecha de nacimiento'), wa: col('Número de WA'),
     guardian: col('Acudiente'), email: col('Correo electrónico'), start: col('Fecha de inicio'),
-    pago: col('Estado de pago'),
+    pago: col('Estado de pago'), clases: col('Clases canceladas'),
   };
   return rows.slice(hIdx + 1)
     .filter((r) => clean(r[idx.name]))
@@ -105,6 +105,8 @@ function parseRecords(wb) {
       email: clean(r[idx.email]),
       startDate: excelDate(r[idx.start]),
       paymentComplete: (Number(r[idx.pago]) || 0) > 0,
+      // "Clases adquiridas" = clases contratadas del semestre (columna «Clases canceladas»).
+      classesAcquired: (() => { const n = Number(r[idx.clases]); return Number.isFinite(n) && n > 0 ? Math.round(n) : 0; })(),
     }));
 }
 
@@ -148,7 +150,7 @@ async function importFromBuffer(buffer, { dryRun = false } = {}) {
     });
     const studentSamples = [...byStudent.values()].slice(0, 5).map((recs) => {
       const r = recs[0];
-      return { name: r.name, document: r.document, email: r.email, phone: r.phone, guardianName: r.guardianName, paymentComplete: r.paymentComplete, groups: recs.map((x) => x.code) };
+      return { name: r.name, document: r.document, email: r.email, classesAcquired: r.classesAcquired, paymentComplete: r.paymentComplete, groups: recs.map((x) => x.code) };
     });
     return { dryRun: true, counts, professors: profNames, samples: { groups: groupSamples, students: studentSamples } };
   }
@@ -196,13 +198,14 @@ async function importFromBuffer(buffer, { dryRun = false } = {}) {
       guardianName: r0.guardianName,
       birthDate: r0.birthDate,
       paymentComplete: r0.paymentComplete,
+      classesAcquired: r0.classesAcquired,
     };
 
     if (student) {
       student = await prisma.student.update({ where: { id: student.id }, data: base });
       updated++;
     } else {
-      student = await prisma.student.create({ data: { ...base, classesAcquired: 0 } });
+      student = await prisma.student.create({ data: base });
       created++;
     }
 

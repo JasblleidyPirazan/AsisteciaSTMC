@@ -11,6 +11,55 @@ const STATUS_BADGE = {
   INACTIVO: { cls: 'badge-gray', label: 'Inactivo' },
 };
 
+const BALL_COLOR = { Roja: '#E8526A', Naranja: '#EA8A2E', Verde: '#1FA971', Amarilla: '#E8A23B' };
+const AVATAR_COLORS = ['#3F52A8', '#4F9FB2', '#7A5AF8', '#E8A23B', '#1FA971', '#E8526A', '#6F7BA6'];
+
+function initials(name) {
+  const p = String(name || '').trim().split(/\s+/);
+  return ((p[0]?.[0] || '') + (p[1]?.[0] || '')).toUpperCase() || '·';
+}
+function colorFor(str) {
+  let h = 0;
+  for (const c of String(str || '')) h = (h + c.charCodeAt(0)) % AVATAR_COLORS.length;
+  return AVATAR_COLORS[h];
+}
+function primaryEnrollment(s) {
+  return s.enrollments?.find((e) => e.enrollmentType === 'PRIMARY') || s.enrollments?.[0] || null;
+}
+function groupedByCode(list) {
+  const out = {};
+  for (const s of list) {
+    const code = primaryEnrollment(s)?.group?.code || 'Sin grupo';
+    (out[code] ||= []).push(s);
+  }
+  return out;
+}
+const HISTORY_BADGE = {
+  PRESENTE: ['badge-green', 'Presente'],
+  AUSENTE: ['badge-red', 'Ausente'],
+  JUSTIFICADA: ['badge-blue', 'Justificado'],
+};
+function historyBadge(t) {
+  if (t.studentStatus === 'CANCELADA') {
+    return <span className="badge badge-gray">Cancelado{t.cancellationCategory === 'LLUVIA' ? ' por lluvia' : ''}</span>;
+  }
+  const m = HISTORY_BADGE[t.studentStatus];
+  return m ? <span className={`badge ${m[0]}`}>{m[1]}</span> : <span className="badge badge-gray">—</span>;
+}
+function ageFrom(birthDate) {
+  if (!birthDate) return null;
+  const b = new Date(birthDate);
+  if (isNaN(b)) return null;
+  const now = new Date();
+  let a = now.getFullYear() - b.getFullYear();
+  if (now.getMonth() < b.getMonth() || (now.getMonth() === b.getMonth() && now.getDate() < b.getDate())) a--;
+  return a >= 0 && a < 120 ? a : null;
+}
+function fmtDay(d) {
+  if (!d) return '';
+  return new Date(d).toLocaleDateString('es-CO', { day: 'numeric', month: 'short', timeZone: 'UTC' });
+}
+
 export default function StudentsPage() {
   const navigate = useNavigate();
   const { user } = useAuth();
@@ -49,8 +98,20 @@ export default function StudentsPage() {
   const [suspendError, setSuspendError] = useState('');
   const [suspendSaving, setSuspendSaving] = useState(false);
 
-  // Sort: 'name' or 'group'
+  // Sort: 'name' | 'group' | 'attendance'
   const [sortBy, setSortBy] = useState('name');
+  // Búsqueda y filtros
+  const [search, setSearch] = useState('');
+  const [statusFilter, setStatusFilter] = useState('ACTIVOS');
+  const [groupFilter, setGroupFilter] = useState('');
+  const [attendance, setAttendance] = useState({});
+
+  // Ficha del estudiante (modal de detalle)
+  const [detailTarget, setDetailTarget] = useState(null);
+  const [detail, setDetail] = useState(null);
+  const [detailLoading, setDetailLoading] = useState(false);
+  const [prevAmount, setPrevAmount] = useState('');
+  const [prevSaving, setPrevSaving] = useState(false);
 
   // Deactivation modal
   const [deactivateTarget, setDeactivateTarget] = useState(null);
@@ -68,25 +129,96 @@ export default function StudentsPage() {
 
   useEffect(() => {
     Promise.all([
-      api.get('/students', { active: 'true' }),
+      api.get('/students', { active: 'false' }),          // todos (activos e inactivos)
       api.get('/groups', { active: 'true' }),
-    ]).then(([s, g]) => { setStudents(s); setGroups(g); }).finally(() => setLoading(false));
+      api.get('/students/attendance-summary').catch(() => ({})),
+    ]).then(([s, g, att]) => { setStudents(s); setGroups(g); setAttendance(att || {}); }).finally(() => setLoading(false));
   }, []);
 
-  const sorted = useMemo(() => {
-    const arr = [...students];
-    if (sortBy === 'name') {
-      arr.sort((a, b) => a.name.localeCompare(b.name));
-    } else {
-      arr.sort((a, b) => {
-        const ga = a.enrollments?.[0]?.group?.code || 'zzz';
-        const gb = b.enrollments?.[0]?.group?.code || 'zzz';
-        if (ga !== gb) return ga.localeCompare(gb);
-        return a.name.localeCompare(b.name);
-      });
+  // Resumen por estado (tarjeta superior)
+  const summary = useMemo(() => {
+    const c = { total: students.length, activos: 0, matriculados: 0, suspendidos: 0, inactivos: 0 };
+    for (const s of students) {
+      if (s.studentStatus === 'INACTIVO') c.inactivos++;
+      else {
+        c.activos++;
+        if (s.studentStatus === 'MATRICULADO') c.matriculados++;
+        else if (s.studentStatus === 'SUSPENDIDO') c.suspendidos++;
+      }
     }
+    return c;
+  }, [students]);
+
+  const visible = useMemo(() => {
+    const q = search.trim().toLowerCase();
+    let arr = students.filter((s) => {
+      if (statusFilter === 'ACTIVOS' && s.studentStatus === 'INACTIVO') return false;
+      if (statusFilter !== 'ACTIVOS' && statusFilter !== 'TODOS' && s.studentStatus !== statusFilter) return false;
+      if (groupFilter && !s.enrollments?.some((e) => e.group?.id === groupFilter)) return false;
+      if (q && !s.name.toLowerCase().includes(q)) return false;
+      return true;
+    });
+    const rate = (s) => attendance[s.id]?.rate ?? -1;
+    arr.sort((a, b) => {
+      if (sortBy === 'attendance') return rate(b) - rate(a) || a.name.localeCompare(b.name);
+      if (sortBy === 'group') {
+        const ga = primaryEnrollment(a)?.group?.code || 'zzz';
+        const gb = primaryEnrollment(b)?.group?.code || 'zzz';
+        if (ga !== gb) return ga.localeCompare(gb);
+      }
+      return a.name.localeCompare(b.name);
+    });
     return arr;
-  }, [students, sortBy]);
+  }, [students, search, statusFilter, groupFilter, sortBy, attendance]);
+
+  function openDetail(s) {
+    setDetailTarget(s); setDetail(null); setDetailLoading(true); setPrevAmount('');
+    api.get(`/students/${s.id}/report`)
+      .then(setDetail).catch(() => setDetail({ error: true })).finally(() => setDetailLoading(false));
+  }
+
+  async function addPreviousClasses() {
+    const amount = parseInt(prevAmount, 10);
+    if (!Number.isFinite(amount) || amount === 0) return;
+    setPrevSaving(true);
+    try {
+      const updated = await api.post(`/students/${detailTarget.id}/previous-classes`, { amount });
+      setStudents(students.map((s) => (s.id === updated.id ? { ...s, ...updated } : s)));
+      const rep = await api.get(`/students/${detailTarget.id}/report`);
+      setDetail(rep); setPrevAmount('');
+    } catch (err) { alert(err.message); } finally { setPrevSaving(false); }
+  }
+
+  function StudentRow({ s }) {
+    const pe = primaryEnrollment(s);
+    const g = pe?.group;
+    const secondaries = (s.enrollments?.length || 0) - (pe ? 1 : 0);
+    const rate = attendance[s.id]?.rate;
+    return (
+      <div className="card card-tap mb-2" onClick={() => openDetail(s)}>
+        <div className="flex items-center gap-3">
+          <span className="avatar" style={{ background: colorFor(s.name) }}>{initials(s.name)}</span>
+          <div style={{ flex: 1, minWidth: 0 }}>
+            <div className="flex items-center gap-2" style={{ flexWrap: 'wrap' }}>
+              <span className="font-medium">{s.name}</span>
+              {STATUS_BADGE[s.studentStatus] && (
+                <span className={`badge ${STATUS_BADGE[s.studentStatus].cls}`}>{STATUS_BADGE[s.studentStatus].label}</span>
+              )}
+            </div>
+            <div className="text-xs text-gray" style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+              {g?.code || 'Sin grupo'}{secondaries > 0 ? ` +${secondaries}` : ''}{g?.professor?.name ? ` · ${g.professor.name}` : ''}
+            </div>
+          </div>
+          <div className="flex items-center gap-2" style={{ flexShrink: 0 }}>
+            {rate != null && (
+              <span className="font-medium text-sm" style={{ color: rate >= 90 ? 'var(--green)' : rate >= 75 ? 'var(--yellow)' : 'var(--red)' }}>{rate}%</span>
+            )}
+            {g?.ballLevel && <span className="legend-dot" style={{ background: BALL_COLOR[g.ballLevel] || 'var(--gray-400)' }} />}
+          </div>
+        </div>
+      </div>
+    );
+  }
 
   function openImport() {
     setShowImport(true);
@@ -220,7 +352,7 @@ export default function StudentsPage() {
     setDeactivating(true);
     try {
       await api.delete(`/students/${deactivateTarget.id}`, { reason: deactivateReason.trim() });
-      setStudents(students.filter((s) => s.id !== deactivateTarget.id));
+      setStudents(students.map((s) => (s.id === deactivateTarget.id ? { ...s, active: false, studentStatus: 'INACTIVO' } : s)));
       setDeactivateTarget(null);
     } catch (err) {
       alert(err.message);
@@ -304,22 +436,42 @@ export default function StudentsPage() {
       </div>
 
       <div className="page-content">
-        {/* Sort toggle */}
-        <div style={{ display: 'flex', gap: 8, marginBottom: 12 }}>
-          <button
-            className={`btn ${sortBy === 'name' ? 'btn-primary' : 'btn-outline'}`}
-            style={{ flex: 1, minHeight: 34, fontSize: '0.8rem' }}
-            onClick={() => setSortBy('name')}
-          >
-            Por nombre
-          </button>
-          <button
-            className={`btn ${sortBy === 'group' ? 'btn-primary' : 'btn-outline'}`}
-            style={{ flex: 1, minHeight: 34, fontSize: '0.8rem' }}
-            onClick={() => setSortBy('group')}
-          >
-            Por grupo
-          </button>
+        {/* Resumen por estado */}
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(84px, 1fr))', gap: 8 }} className="mb-3">
+          <div className="stat-box"><div className="num">{summary.total}</div><div className="lbl">Total</div></div>
+          <div className="stat-box"><div className="num" style={{ color: 'var(--blue)' }}>{summary.activos}</div><div className="lbl">Activos</div></div>
+          <div className="stat-box"><div className="num" style={{ color: 'var(--green)' }}>{summary.matriculados}</div><div className="lbl">Matriculados</div></div>
+          <div className="stat-box"><div className="num" style={{ color: 'var(--yellow)' }}>{summary.suspendidos}</div><div className="lbl">Suspendidos</div></div>
+          <div className="stat-box"><div className="num" style={{ color: 'var(--gray-400)' }}>{summary.inactivos}</div><div className="lbl">Inactivos</div></div>
+        </div>
+
+        {/* Búsqueda */}
+        <input className="form-input mb-2" placeholder="🔎 Buscar estudiante..." value={search}
+          onChange={(e) => setSearch(e.target.value)} />
+
+        {/* Filtros */}
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8, marginBottom: 8 }}>
+          <select className="form-input form-select" value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)}>
+            <option value="ACTIVOS">Activos</option>
+            <option value="TODOS">Todos</option>
+            <option value="MATRICULADO">Matriculados</option>
+            <option value="INSCRITO">Inscritos</option>
+            <option value="SUSPENDIDO">Suspendidos</option>
+            <option value="INACTIVO">Inactivos</option>
+          </select>
+          <select className="form-input form-select" value={groupFilter} onChange={(e) => setGroupFilter(e.target.value)}>
+            <option value="">Todos los grupos</option>
+            {groups.map((g) => <option key={g.id} value={g.id}>{g.code}</option>)}
+          </select>
+        </div>
+        <div className="flex items-center justify-between mb-3">
+          <span className="text-xs text-gray">{visible.length} de {students.length}</span>
+          <select className="form-input form-select" style={{ minHeight: 34, width: 'auto', fontSize: '0.85rem' }}
+            value={sortBy} onChange={(e) => setSortBy(e.target.value)}>
+            <option value="name">Nombre</option>
+            <option value="group">Grupo</option>
+            <option value="attendance">% Asistencia</option>
+          </select>
         </div>
 
         {showForm && (
@@ -404,85 +556,120 @@ export default function StudentsPage() {
           </div>
         )}
 
-        {sorted.length === 0 ? (
-          <div className="alert alert-info">No hay estudiantes activos.</div>
-        ) : (
-          sorted.map((s) => (
-            <div key={s.id} className="card mb-2">
-              <div className="flex items-center justify-between">
-                <div style={{ flex: 1, minWidth: 0 }}>
-                  <div className="flex items-center gap-2">
-                    <span className="font-medium">{s.name}</span>
-                    {STATUS_BADGE[s.studentStatus] && (
-                      <span className={`badge ${STATUS_BADGE[s.studentStatus].cls}`}>
-                        {STATUS_BADGE[s.studentStatus].label}
-                      </span>
-                    )}
-                  </div>
-                  {s.enrollments?.length > 0 && (
-                    <div className="text-xs text-gray">
-                      {s.enrollments.map((e) => e.group?.code).join(' · ')}
-                    </div>
-                  )}
-                  <div className="text-xs text-gray">Clases adquiridas: {s.classesAcquired ?? 0}</div>
-                  {s.studentStatus === 'SUSPENDIDO' && (
-                    <div className="text-xs" style={{ color: 'var(--yellow)' }}>
-                      Suspendido hasta {String(s.suspendedUntil).slice(0, 10)}
-                      {s.suspensionReason ? ` — ${s.suspensionReason}` : ''}
-                    </div>
-                  )}
-                </div>
-                <div style={{ display: 'flex', gap: 6, flexShrink: 0, flexWrap: 'wrap', justifyContent: 'flex-end' }}>
-                  {(canEdit || isReception) && (
-                    <button
-                      className="btn btn-ghost"
-                      style={{ minHeight: 32, padding: '0 8px', fontSize: '0.75rem' }}
-                      onClick={() => openEdit(s)}
-                    >
-                      Editar
-                    </button>
-                  )}
-                  {canEdit && (
-                    <>
-                      <button
-                        className="btn btn-ghost"
-                        style={{ minHeight: 32, padding: '0 8px', fontSize: '0.75rem', color: 'var(--primary)' }}
-                        onClick={() => openManageGroups(s)}
-                      >
-                        Grupos
-                      </button>
-                      {s.studentStatus === 'SUSPENDIDO' ? (
-                        <button
-                          className="btn btn-ghost"
-                          style={{ minHeight: 32, padding: '0 8px', fontSize: '0.75rem', color: 'var(--green)' }}
-                          onClick={() => handleUnsuspend(s)}
-                        >
-                          Levantar
-                        </button>
-                      ) : (
-                        <button
-                          className="btn btn-ghost"
-                          style={{ minHeight: 32, padding: '0 8px', fontSize: '0.75rem', color: 'var(--yellow)' }}
-                          onClick={() => openSuspend(s)}
-                        >
-                          Suspender
-                        </button>
-                      )}
-                      <button
-                        className="btn btn-ghost"
-                        style={{ minHeight: 32, padding: '0 8px', fontSize: '0.75rem', color: 'var(--red)' }}
-                        onClick={() => openDeactivate(s)}
-                      >
-                        Desactivar
-                      </button>
-                    </>
-                  )}
-                </div>
-              </div>
+        {visible.length === 0 ? (
+          <div className="alert alert-info">No hay estudiantes que coincidan.</div>
+        ) : sortBy === 'group' ? (
+          Object.entries(groupedByCode(visible)).map(([code, list]) => (
+            <div key={code} className="mb-3">
+              <h3 className="mb-2" style={{ color: 'var(--gray-600)', fontSize: '0.85rem', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+                {code} · {list.length}
+              </h3>
+              {list.map((s) => <StudentRow key={s.id} s={s} />)}
             </div>
           ))
+        ) : (
+          visible.map((s) => <StudentRow key={s.id} s={s} />)
         )}
       </div>
+
+      {/* Detail modal (ficha) */}
+      {detailTarget && (
+        <div className="modal-overlay" onClick={() => setDetailTarget(null)}>
+          <div className="modal-content" onClick={(e) => e.stopPropagation()} style={{ maxWidth: 640 }}>
+            {detailLoading || !detail ? <div className="spinner" /> : detail.error ? (
+              <div className="alert alert-error">No se pudo cargar la ficha.</div>
+            ) : (() => {
+              const st = detail.student;
+              const sum = detail.summary;
+              const g = primaryEnrollment(st)?.group;
+              const age = ageFrom(st.birthDate);
+              const totalClasses = (st.classesAcquired || 0) + (st.previousClasses || 0);
+              const wa = String(st.phone || '').replace(/\D/g, '');
+              return (
+                <>
+                  <div className="flex items-center gap-3 mb-3">
+                    <span className="avatar" style={{ width: 52, height: 52, fontSize: '1rem', background: colorFor(st.name) }}>{initials(st.name)}</span>
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <div className="flex items-center gap-2" style={{ flexWrap: 'wrap' }}>
+                        <h3>{st.name}</h3>
+                        {STATUS_BADGE[st.studentStatus] && <span className={`badge ${STATUS_BADGE[st.studentStatus].cls}`}>{STATUS_BADGE[st.studentStatus].label}</span>}
+                      </div>
+                      <div className="flex items-center gap-2 mt-1" style={{ flexWrap: 'wrap' }}>
+                        {g?.ballLevel && <span className="chip"><span className="legend-dot" style={{ background: BALL_COLOR[g.ballLevel] || 'var(--gray-400)' }} /> {g.ballLevel}{g.subLevel || ''}</span>}
+                        {g?.code && <span className="chip">{g.code}</span>}
+                        {g?.professor?.name && <span className="chip">{g.professor.name}</span>}
+                        {age != null && <span className="chip">{age} años</span>}
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="text-sm text-gray mb-1">
+                    {st.guardianName && <>Acudiente: <strong>{st.guardianName}</strong></>}
+                    {st.phone && <> · 📞 {st.phone}</>}
+                  </div>
+                  {st.email && <div className="text-xs text-gray mb-3">✉️ {st.email}</div>}
+
+                  <div className="flex gap-2 mb-3">
+                    {wa && <a className="btn btn-success" style={{ flex: 1 }} href={`https://wa.me/57${wa}`} target="_blank" rel="noreferrer">WhatsApp</a>}
+                    {st.email && <a className="btn btn-outline" style={{ flex: 1 }} href={`mailto:${st.email}`}>Enviar correo</a>}
+                  </div>
+
+                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(108px, 1fr))', gap: 8 }} className="mb-3">
+                    <div className="stat-box"><div className="num">{totalClasses}</div><div className="lbl">Clases adquiridas</div></div>
+                    <div className="stat-box"><div className="num">{sum.attendanceRate != null ? `${sum.attendanceRate}%` : '—'}</div><div className="lbl">Asistencia · {sum.classesSeen} clases</div></div>
+                    <div className="stat-box"><div className="num" style={{ color: 'var(--red)' }}>{sum.absent}</div><div className="lbl">Faltas</div></div>
+                    <div className="stat-box"><div className="num" style={{ color: 'var(--blue)' }}>{sum.cancelledRain}</div><div className="lbl">Canceladas · lluvia</div></div>
+                  </div>
+
+                  {isAdmin && (
+                    <div className="card mb-3" style={{ background: 'var(--surface-2)' }}>
+                      <div className="text-sm font-medium">Clases de semestre anterior</div>
+                      <div className="text-xs text-gray mb-2">Se suman a las adquiridas ({st.classesAcquired} de este semestre + {st.previousClasses} previas).</div>
+                      <div className="flex gap-2">
+                        <input type="number" className="form-input" style={{ maxWidth: 130 }} placeholder="Ej: 8"
+                          value={prevAmount} onChange={(e) => setPrevAmount(e.target.value)} />
+                        <button className="btn btn-primary" onClick={addPreviousClasses} disabled={prevSaving || !prevAmount}>
+                          {prevSaving ? '...' : 'Sumar'}
+                        </button>
+                      </div>
+                    </div>
+                  )}
+
+                  <div className="flex items-center justify-between mb-2" style={{ flexWrap: 'wrap', gap: 6 }}>
+                    <h3>Historial de asistencia</h3>
+                    <div className="flex gap-2" style={{ flexWrap: 'wrap' }}>
+                      <span className="badge badge-green">{sum.present} Presente</span>
+                      <span className="badge badge-red">{sum.absent} Ausente</span>
+                      <span className="badge badge-gray">{sum.cancelledRain} Lluvia</span>
+                      <span className="badge badge-blue">{sum.justified} Justif.</span>
+                    </div>
+                  </div>
+                  <div className="card" style={{ maxHeight: 260, overflowY: 'auto' }}>
+                    {detail.timeline.length === 0 ? <div className="text-sm text-gray">Sin registros.</div> : detail.timeline.map((t, i) => (
+                      <div key={i} className="home-list-row">
+                        <span className="text-sm text-gray" style={{ width: 56 }}>{fmtDay(t.date)}</span>
+                        <div style={{ flex: 1, minWidth: 0 }}>
+                          <div className="text-sm font-medium">{t.groupCode} <span className="text-xs text-gray">{t.kind === 'MAKEUP' ? 'Reposición' : t.kind === 'FESTIVAL' ? 'Festival' : 'Regular'}</span></div>
+                          <div className="text-xs text-gray">{t.professor}</div>
+                        </div>
+                        {historyBadge(t)}
+                      </div>
+                    ))}
+                  </div>
+
+                  <div className="flex gap-2 mt-3" style={{ flexWrap: 'wrap' }}>
+                    {(canEdit || isReception) && <button className="btn btn-outline" style={{ flex: 1 }} onClick={() => { const s = detailTarget; setDetailTarget(null); openEdit(s); }}>Editar</button>}
+                    {canEdit && <button className="btn btn-outline" style={{ flex: 1 }} onClick={() => { const s = detailTarget; setDetailTarget(null); openManageGroups(s); }}>Grupos</button>}
+                    {canEdit && st.studentStatus === 'SUSPENDIDO' && <button className="btn btn-outline" style={{ flex: 1, color: 'var(--green)' }} onClick={() => { const s = detailTarget; setDetailTarget(null); handleUnsuspend(s); }}>Levantar</button>}
+                    {canEdit && st.studentStatus !== 'SUSPENDIDO' && st.studentStatus !== 'INACTIVO' && <button className="btn btn-outline" style={{ flex: 1, color: 'var(--yellow)' }} onClick={() => { const s = detailTarget; setDetailTarget(null); openSuspend(s); }}>Suspender</button>}
+                    {canEdit && st.active && <button className="btn btn-outline" style={{ flex: 1, color: 'var(--red)' }} onClick={() => { const s = detailTarget; setDetailTarget(null); openDeactivate(s); }}>Desactivar</button>}
+                  </div>
+                </>
+              );
+            })()}
+          </div>
+        </div>
+      )}
 
       {/* Edit modal */}
       {editTarget && (

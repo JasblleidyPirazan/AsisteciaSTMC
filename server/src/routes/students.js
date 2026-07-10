@@ -4,6 +4,7 @@ const { requireRole, requirePermission } = require('../middleware/auth');
 const { bogotaToday } = require('../lib/dates');
 const { notSuspended } = require('../lib/filters');
 const { importFromBuffer } = require('../services/enrollmentImport');
+const { isSeenRecord } = require('../services/attendanceStats');
 
 const router = express.Router();
 
@@ -63,7 +64,13 @@ router.get('/', async (req, res, next) => {
       where.parentUserId = req.user.id;
     }
 
-    const include = { enrollments: { include: { group: { select: { id: true, code: true, name: true } } } } };
+    const include = {
+      enrollments: {
+        include: {
+          group: { select: { id: true, code: true, name: true, ballLevel: true, subLevel: true, professor: { select: { name: true } } } },
+        },
+      },
+    };
 
     let students;
     if (groupId) {
@@ -82,6 +89,34 @@ router.get('/', async (req, res, next) => {
     }
 
     res.json({ success: true, data: students.map(withStatus) });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// Resumen de asistencia por estudiante para la lista (1 sola query).
+// rate = present/(present+absent): las justificadas no penalizan.
+router.get('/attendance-summary', requirePermission('estudiantes', 'view'), async (req, res, next) => {
+  try {
+    const semester = await prisma.semester.findFirst({ where: { active: true } });
+    const where = { status: { in: ['PRESENTE', 'AUSENTE'] } };
+    if (semester) where.session = { date: { gte: semester.startDate, lte: semester.endDate } };
+
+    const rows = await prisma.attendanceRecord.groupBy({
+      by: ['studentId', 'status'], where, _count: { _all: true },
+    });
+    const map = {};
+    for (const r of rows) {
+      const s = (map[r.studentId] ||= { present: 0, absent: 0 });
+      if (r.status === 'PRESENTE') s.present += r._count._all;
+      else if (r.status === 'AUSENTE') s.absent += r._count._all;
+    }
+    for (const id of Object.keys(map)) {
+      const s = map[id];
+      const den = s.present + s.absent;
+      s.rate = den > 0 ? Math.round((s.present / den) * 100) : null;
+    }
+    res.json({ success: true, data: map });
   } catch (err) {
     next(err);
   }
@@ -394,6 +429,100 @@ router.delete('/:id/enrollments/:groupId', requirePermission('estudiantes', 'edi
     });
 
     res.json({ success: true, data: { message: 'Matrícula eliminada' } });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// Ficha del estudiante: datos + historial de asistencia (combina sesiones del
+// grupo —para incluir cancelaciones— con los registros del estudiante).
+router.get('/:id/report', requirePermission('estudiantes', 'view'), async (req, res, next) => {
+  try {
+    const student = await prisma.student.findUnique({
+      where: { id: req.params.id },
+      include: {
+        enrollments: {
+          include: { group: { select: { id: true, code: true, ballLevel: true, subLevel: true, professor: { select: { name: true } } } } },
+        },
+      },
+    });
+    if (!student) return res.status(404).json({ success: false, error: 'Estudiante no encontrado' });
+
+    const semester = await prisma.semester.findFirst({ where: { active: true } });
+    const dateRange = semester ? { gte: semester.startDate, lte: semester.endDate } : undefined;
+    const groupIds = student.enrollments.map((e) => e.group.id);
+
+    const groupSessions = groupIds.length ? await prisma.classSession.findMany({
+      where: { groupId: { in: groupIds }, status: { not: 'PROGRAMADA' }, ...(dateRange ? { date: dateRange } : {}) },
+      select: { id: true, date: true, status: true, cancellationCategory: true, kind: true, title: true, group: { select: { code: true, professor: { select: { name: true } } } } },
+    }) : [];
+
+    const records = await prisma.attendanceRecord.findMany({
+      where: { studentId: student.id, ...(dateRange ? { session: { date: dateRange } } : {}) },
+      include: { session: { select: { id: true, date: true, kind: true, status: true, cancellationCategory: true, title: true, group: { select: { code: true, professor: { select: { name: true } } } } } } },
+    });
+    const recBySession = Object.fromEntries(records.map((r) => [r.sessionId, r]));
+
+    const seen = new Set();
+    const timeline = [];
+    const push = (sess, rec) => {
+      if (!sess || seen.has(sess.id)) return;
+      seen.add(sess.id);
+      const cancelled = sess.status === 'CANCELADA';
+      timeline.push({
+        date: sess.date,
+        groupCode: sess.group?.code || sess.title || '—',
+        professor: sess.group?.professor?.name || '—',
+        kind: sess.kind,
+        cancellationCategory: cancelled ? sess.cancellationCategory : null,
+        studentStatus: cancelled ? 'CANCELADA' : (rec?.status || null),
+        attendanceType: rec?.attendanceType || null,
+      });
+    };
+    for (const s of groupSessions) push(s, recBySession[s.id]);
+    for (const r of records) if (!seen.has(r.sessionId)) push(r.session, r);
+    timeline.sort((a, b) => new Date(b.date) - new Date(a.date));
+
+    let present = 0, absent = 0, justified = 0, cancelledRain = 0, classesSeen = 0;
+    for (const r of records) {
+      if (r.status === 'PRESENTE') present++;
+      else if (r.status === 'AUSENTE') absent++;
+      else if (r.status === 'JUSTIFICADA') justified++;
+      if (isSeenRecord(r, r.session?.kind)) classesSeen++;
+    }
+    for (const s of groupSessions) if (s.status === 'CANCELADA' && s.cancellationCategory === 'LLUVIA') cancelledRain++;
+    const attendanceRate = (present + absent) > 0 ? Math.round((present / (present + absent)) * 100) : null;
+
+    res.json({
+      success: true,
+      data: {
+        student: withStatus(student),
+        timeline,
+        summary: {
+          present, absent, justified, cancelledRain, classesSeen, attendanceRate,
+          classesAcquired: (student.classesAcquired || 0) + (student.previousClasses || 0),
+        },
+      },
+    });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// Sumar clases de semestre anterior (solo administradores). Se acumulan aparte
+// para no ser pisadas por la importación del semestre actual.
+router.post('/:id/previous-classes', requireRole('ADMIN', 'SUPER_ADMIN', 'DEVELOPER'), async (req, res, next) => {
+  try {
+    const amount = parseInt(req.body?.amount, 10);
+    if (!Number.isFinite(amount) || amount === 0) {
+      return res.status(400).json({ success: false, error: 'Cantidad inválida' });
+    }
+    const student = await prisma.student.update({
+      where: { id: req.params.id },
+      data: { previousClasses: { increment: amount } },
+      include: { enrollments: { include: { group: true } } },
+    });
+    res.json({ success: true, data: withStatus(student) });
   } catch (err) {
     next(err);
   }
