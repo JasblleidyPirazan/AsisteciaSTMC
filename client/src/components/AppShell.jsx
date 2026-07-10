@@ -7,12 +7,13 @@ import { roleLabel } from '../utils/roles';
 // `section` agrupa visualmente (encabezado gris dentro del sidebar).
 const NAV = [
   { section: 'Principal' },
-  { label: 'Inicio', path: '/', icon: '🏠', roles: ['ADMIN', 'TEACHER', 'PHYSICAL_TRAINER', 'ASSISTANT'] },
+  { label: 'Inicio', path: '/', icon: '🏠', roles: ['ADMIN', 'PHYSICAL_TRAINER'] },
   { label: 'Panel', path: '/admin', icon: '📊', roles: ['ADMIN', 'PHYSICAL_TRAINER'] },
   { label: 'Mi quincena', path: '/my-payroll', icon: '💵', roles: ['TEACHER', 'ASSISTANT'] },
   { label: 'Portal', path: '/parent', icon: '👨‍👩‍👧', roles: ['PARENT'] },
 
-  { section: 'Operación', roles: ['ADMIN', 'PHYSICAL_TRAINER', 'RECEPTION'] },
+  { section: 'Operación' },
+  { label: 'Tomar lista', path: '/tomar-lista', icon: '📋', roles: ['ADMIN', 'TEACHER', 'PHYSICAL_TRAINER', 'ASSISTANT'] },
   { label: 'Estudiantes', path: '/admin/students', icon: '👤', roles: ['ADMIN', 'PHYSICAL_TRAINER', 'RECEPTION'] },
   { label: 'Grupos', path: '/admin/groups', icon: '🎾', roles: ['ADMIN', 'PHYSICAL_TRAINER'] },
   { label: 'Reposiciones', path: '/admin/makeups', icon: '🔁', roles: ['ADMIN', 'PHYSICAL_TRAINER'] },

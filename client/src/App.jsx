@@ -5,6 +5,7 @@ import AppShell from './components/AppShell';
 
 import LoginPage from './pages/LoginPage';
 import DashboardPage from './pages/DashboardPage';
+import TomarListaPage from './pages/TomarListaPage';
 import AttendanceFlow from './pages/AttendanceFlow/index';
 import MakeupAttendancePage from './pages/MakeupAttendancePage';
 import EnrollmentPage from './pages/EnrollmentPage';
@@ -83,7 +84,14 @@ function AppRoutes() {
         <RequireAuth>
           {user?.role === 'PARENT' ? <Navigate to="/parent" />
             : user?.role === 'RECEPTION' ? <Navigate to="/admin/students" />
+            : (user?.role === 'TEACHER' || user?.role === 'ASSISTANT') ? <Navigate to="/tomar-lista" />
             : <Shell><DashboardPage /></Shell>}
+        </RequireAuth>
+      } />
+
+      <Route path="/tomar-lista" element={
+        <RequireAuth roles={['ADMIN', 'TEACHER', 'PHYSICAL_TRAINER', 'ASSISTANT']}>
+          <Shell><TomarListaPage /></Shell>
         </RequireAuth>
       } />
 
