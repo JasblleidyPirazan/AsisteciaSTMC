@@ -1,5 +1,6 @@
 const jwt = require('jsonwebtoken');
 const prisma = require('../lib/prisma');
+const { can } = require('../services/permissions');
 
 async function authMiddleware(req, res, next) {
   const header = req.headers.authorization;
@@ -42,4 +43,18 @@ function requireRole(...roles) {
 // "Coordinador" (renamed in the UI only — the enum value stays for db compat).
 const MANAGEMENT = ['ADMIN', 'PHYSICAL_TRAINER'];
 
-module.exports = { authMiddleware, requireRole, MANAGEMENT };
+// Gate por matriz de accesos: exige que el rol pueda view/edit el módulo.
+// Reemplaza a requireRole en las rutas. El scoping por propiedad se mantiene
+// aparte dentro de cada handler.
+function requirePermission(moduleKey, action = 'view') {
+  return async (req, res, next) => {
+    try {
+      if (await can(req.user?.role, moduleKey, action)) return next();
+      return res.status(403).json({ success: false, error: 'Acceso no autorizado' });
+    } catch (err) {
+      next(err);
+    }
+  };
+}
+
+module.exports = { authMiddleware, requireRole, requirePermission, MANAGEMENT };

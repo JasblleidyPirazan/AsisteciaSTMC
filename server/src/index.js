@@ -69,6 +69,7 @@ app.use('/api/semesters', authMiddleware, require('./routes/semesters'));
 app.use('/api/parent', authMiddleware, require('./routes/parent'));
 app.use('/api/users', authMiddleware, require('./routes/users'));
 app.use('/api/alerts', authMiddleware, require('./routes/alerts'));
+app.use('/api/permissions', authMiddleware, require('./routes/permissions'));
 
 // Serve React frontend
 const clientDist = path.join(__dirname, '../../client/dist');

@@ -34,6 +34,9 @@ enum Role {
   PARENT
   PHYSICAL_TRAINER
   RECEPTION
+  SUPER_ADMIN
+  DEVELOPER
+  READ_ONLY
 }
 
 model Professor {

@@ -1,37 +1,41 @@
 import { useState, useEffect } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { useAuth } from '../hooks/useAuth';
+import { usePermissions } from '../hooks/usePermissions';
 import { roleLabel } from '../utils/roles';
 
-// Navegación de la barra lateral. Cada item declara los roles que lo ven.
-// `section` agrupa visualmente (encabezado gris dentro del sidebar).
+// Navegación de la barra lateral. Cada item declara su `module`: se muestra solo
+// si el rol tiene permiso de "ver" ese módulo en la matriz de accesos. Los ítems
+// del bloque "Principal" (puntos de entrada por rol) llevan además `roles` para
+// distinguir la variante correcta (Inicio de admin vs Portal del acudiente).
 const NAV = [
   { section: 'Principal' },
-  { label: 'Inicio', path: '/', icon: '🏠', roles: ['ADMIN', 'PHYSICAL_TRAINER'] },
-  { label: 'Panel', path: '/admin', icon: '📊', roles: ['ADMIN', 'PHYSICAL_TRAINER'] },
-  { label: 'Mi quincena', path: '/my-payroll', icon: '💵', roles: ['TEACHER', 'ASSISTANT'] },
-  { label: 'Portal', path: '/parent', icon: '👨‍👩‍👧', roles: ['PARENT'] },
+  { label: 'Inicio', path: '/', icon: '🏠', module: 'tablero', roles: ['ADMIN', 'PHYSICAL_TRAINER', 'SUPER_ADMIN', 'DEVELOPER', 'READ_ONLY'] },
+  { label: 'Panel', path: '/admin', icon: '📊', module: 'tablero', roles: ['ADMIN', 'PHYSICAL_TRAINER', 'SUPER_ADMIN', 'DEVELOPER', 'READ_ONLY'] },
+  { label: 'Mi quincena', path: '/my-payroll', icon: '💵', module: 'nomina', roles: ['TEACHER', 'ASSISTANT'] },
+  { label: 'Portal', path: '/parent', icon: '👨‍👩‍👧', module: 'tablero', roles: ['PARENT'] },
 
   { section: 'Operación' },
-  { label: 'Tomar lista', path: '/tomar-lista', icon: '📋', roles: ['ADMIN', 'TEACHER', 'PHYSICAL_TRAINER', 'ASSISTANT'] },
-  { label: 'Estudiantes', path: '/admin/students', icon: '👤', roles: ['ADMIN', 'PHYSICAL_TRAINER', 'RECEPTION'] },
-  { label: 'Grupos', path: '/admin/groups', icon: '🎾', roles: ['ADMIN', 'PHYSICAL_TRAINER'] },
-  { label: 'Reposiciones', path: '/admin/makeups', icon: '🔁', roles: ['ADMIN', 'PHYSICAL_TRAINER'] },
-  { label: 'Festivales', path: '/admin/festivals', icon: '🎉', roles: ['ADMIN', 'PHYSICAL_TRAINER'] },
-  { label: 'Eventos', path: '/admin/events', icon: '🏆', roles: ['ADMIN', 'PHYSICAL_TRAINER'] },
+  { label: 'Tomar lista', path: '/tomar-lista', icon: '📋', module: 'pasar_lista', roles: ['ADMIN', 'TEACHER', 'PHYSICAL_TRAINER', 'ASSISTANT', 'SUPER_ADMIN', 'DEVELOPER', 'READ_ONLY'] },
+  { label: 'Estudiantes', path: '/admin/students', icon: '👤', module: 'estudiantes' },
+  { label: 'Grupos', path: '/admin/groups', icon: '🎾', module: 'grupos' },
+  { label: 'Reposiciones', path: '/admin/makeups', icon: '🔁', module: 'reposiciones' },
+  { label: 'Festivales', path: '/admin/festivals', icon: '🎉', module: 'festivales' },
+  { label: 'Eventos', path: '/admin/events', icon: '🏆', module: 'festivales' },
 
-  { section: 'Seguimiento', roles: ['ADMIN', 'PHYSICAL_TRAINER'] },
-  { label: 'Reportes', path: '/admin/reports', icon: '📈', roles: ['ADMIN', 'PHYSICAL_TRAINER'] },
-  { label: 'Validación', path: '/admin/validation', icon: '✅', roles: ['ADMIN', 'PHYSICAL_TRAINER'] },
-  { label: 'Alertas', path: '/admin/alerts', icon: '🚨', roles: ['ADMIN', 'PHYSICAL_TRAINER'] },
+  { section: 'Seguimiento' },
+  { label: 'Reportes', path: '/admin/reports', icon: '📈', module: 'informes' },
+  { label: 'Validación', path: '/admin/validation', icon: '✅', module: 'revisiones' },
+  { label: 'Alertas', path: '/admin/alerts', icon: '🚨', module: 'informes' },
 
-  { section: 'Administración', roles: ['ADMIN'] },
-  { label: 'Profesores', path: '/admin/professors', icon: '🏫', roles: ['ADMIN'] },
-  { label: 'Asistentes', path: '/admin/assistants', icon: '🤝', roles: ['ADMIN'] },
-  { label: 'Usuarios y roles', path: '/admin/users', icon: '🔑', roles: ['ADMIN'] },
-  { label: 'Liquidación', path: '/admin/payroll', icon: '💰', roles: ['ADMIN'] },
-  { label: 'Inscripciones', path: '/admin/enrollment', icon: '📋', roles: ['ADMIN'] },
-  { label: 'Configuración', path: '/admin/config', icon: '⚙️', roles: ['ADMIN'] },
+  { section: 'Administración' },
+  { label: 'Profesores', path: '/admin/professors', icon: '🏫', module: 'roles_accesos' },
+  { label: 'Asistentes', path: '/admin/assistants', icon: '🤝', module: 'roles_accesos' },
+  { label: 'Usuarios y roles', path: '/admin/users', icon: '🔑', module: 'roles_accesos' },
+  { label: 'Roles y accesos', path: '/admin/roles', icon: '🛡️', module: 'roles_accesos' },
+  { label: 'Liquidación', path: '/admin/payroll', icon: '💰', module: 'nomina', roles: ['ADMIN', 'SUPER_ADMIN', 'DEVELOPER', 'READ_ONLY'] },
+  { label: 'Inscripciones', path: '/admin/enrollment', icon: '📋', module: 'estudiantes', roles: ['ADMIN', 'SUPER_ADMIN', 'DEVELOPER', 'READ_ONLY'] },
+  { label: 'Configuración', path: '/admin/config', icon: '⚙️', module: 'configuracion' },
 ];
 
 function isActive(itemPath, pathname) {
@@ -41,6 +45,7 @@ function isActive(itemPath, pathname) {
 
 export default function AppShell({ children }) {
   const { user, logout } = useAuth();
+  const { can } = usePermissions();
   const navigate = useNavigate();
   const location = useLocation();
   const [open, setOpen] = useState(false);
@@ -49,7 +54,8 @@ export default function AppShell({ children }) {
   // Cerrar el drawer al navegar (móvil).
   useEffect(() => { setOpen(false); }, [location.pathname]);
 
-  // Construir la navegación visible según rol, ocultando secciones vacías.
+  // Construir la navegación visible: cada item requiere permiso de "ver" su
+  // módulo; los que traen `roles` además deben coincidir con el rol actual.
   const items = [];
   let pendingSection = null;
   for (const entry of NAV) {
@@ -57,7 +63,8 @@ export default function AppShell({ children }) {
       pendingSection = entry;
       continue;
     }
-    if (!entry.roles.includes(role)) continue;
+    const visible = can(entry.module, 'view') && (!entry.roles || entry.roles.includes(role));
+    if (!visible) continue;
     if (pendingSection) {
       items.push({ isSection: true, label: pendingSection.section });
       pendingSection = null;

@@ -1,11 +1,13 @@
 import { Component } from 'react';
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
 import { AuthProvider, useAuth } from './hooks/useAuth';
+import { PermissionsProvider, usePermissions } from './hooks/usePermissions';
 import AppShell from './components/AppShell';
 
 import LoginPage from './pages/LoginPage';
 import DashboardPage from './pages/DashboardPage';
 import TomarListaPage from './pages/TomarListaPage';
+import RolesAccesosPage from './pages/admin/RolesAccesosPage';
 import AttendanceFlow from './pages/AttendanceFlow/index';
 import MakeupAttendancePage from './pages/MakeupAttendancePage';
 import EnrollmentPage from './pages/EnrollmentPage';
@@ -59,10 +61,16 @@ class ErrorBoundary extends Component {
   }
 }
 
-function RequireAuth({ children, roles }) {
+function RequireAuth({ children, roles, module }) {
   const { user } = useAuth();
+  const { can, loading } = usePermissions();
   if (!user) return <Navigate to="/login" replace />;
-  if (roles && !roles.includes(user.role)) return <Navigate to="/" replace />;
+  if (module) {
+    if (loading) return <div className="page"><div className="spinner" /></div>;
+    if (!can(module, 'view')) return <Navigate to="/" replace />;
+  } else if (roles && !roles.includes(user.role)) {
+    return <Navigate to="/" replace />;
+  }
   return children;
 }
 
@@ -90,115 +98,119 @@ function AppRoutes() {
       } />
 
       <Route path="/tomar-lista" element={
-        <RequireAuth roles={['ADMIN', 'TEACHER', 'PHYSICAL_TRAINER', 'ASSISTANT']}>
+        <RequireAuth module="pasar_lista">
           <Shell><TomarListaPage /></Shell>
         </RequireAuth>
       } />
 
       <Route path="/attendance/:groupId" element={
-        <RequireAuth roles={['ADMIN', 'TEACHER', 'PARENT', 'PHYSICAL_TRAINER']}>
+        <RequireAuth module="pasar_lista">
           <AttendanceFlow />
         </RequireAuth>
       } />
 
       <Route path="/makeups/:id/attendance" element={
-        <RequireAuth roles={['ADMIN', 'TEACHER', 'PHYSICAL_TRAINER']}>
+        <RequireAuth module="reposiciones">
           <MakeupAttendancePage />
         </RequireAuth>
       } />
 
       <Route path="/festivals/:id/attendance" element={
-        <RequireAuth roles={['ADMIN', 'TEACHER', 'PHYSICAL_TRAINER']}>
+        <RequireAuth module="festivales">
           <FestivalAttendancePage />
         </RequireAuth>
       } />
 
       <Route path="/parent" element={
-        <RequireAuth roles={['PARENT', 'ADMIN']}>
+        <RequireAuth module="tablero">
           <Shell><ParentPortalPage /></Shell>
         </RequireAuth>
       } />
 
       <Route path="/my-payroll" element={
-        <RequireAuth roles={['TEACHER', 'ASSISTANT']}>
+        <RequireAuth module="nomina">
           <Shell><MyPayrollPage /></Shell>
         </RequireAuth>
       } />
 
       <Route path="/admin" element={
-        <RequireAuth roles={['ADMIN', 'PHYSICAL_TRAINER', 'RECEPTION']}>
+        <RequireAuth module="tablero">
           <Shell><AdminDashboard /></Shell>
         </RequireAuth>
       } />
       <Route path="/admin/students" element={
-        <RequireAuth roles={['ADMIN', 'PHYSICAL_TRAINER', 'RECEPTION']}>
+        <RequireAuth module="estudiantes">
           <Shell><StudentsPage /></Shell>
         </RequireAuth>
       } />
       <Route path="/admin/groups" element={
-        <RequireAuth roles={['ADMIN', 'PHYSICAL_TRAINER']}>
+        <RequireAuth module="grupos">
           <Shell><GroupsPage /></Shell>
         </RequireAuth>
       } />
       <Route path="/admin/makeups" element={
-        <RequireAuth roles={['ADMIN', 'PHYSICAL_TRAINER']}>
+        <RequireAuth module="reposiciones">
           <Shell><MakeupsPage /></Shell>
         </RequireAuth>
       } />
       <Route path="/admin/events" element={
-        <RequireAuth roles={['ADMIN', 'PHYSICAL_TRAINER']}>
+        <RequireAuth module="festivales">
           <Shell><EventsPage /></Shell>
         </RequireAuth>
       } />
       <Route path="/admin/reports" element={
-        <RequireAuth roles={['ADMIN', 'PHYSICAL_TRAINER']}>
+        <RequireAuth module="informes">
           <Shell><ReportsPage /></Shell>
         </RequireAuth>
       } />
       <Route path="/admin/validation" element={
-        <RequireAuth roles={['ADMIN', 'PHYSICAL_TRAINER']}>
+        <RequireAuth module="revisiones">
           <Shell><ValidationPage /></Shell>
         </RequireAuth>
       } />
       <Route path="/admin/festivals" element={
-        <RequireAuth roles={['ADMIN', 'PHYSICAL_TRAINER']}>
+        <RequireAuth module="festivales">
           <Shell><FestivalsPage /></Shell>
         </RequireAuth>
       } />
       <Route path="/admin/alerts" element={
-        <RequireAuth roles={['ADMIN', 'PHYSICAL_TRAINER']}>
+        <RequireAuth module="informes">
           <Shell><AlertsPage /></Shell>
         </RequireAuth>
       } />
-      {/* ADMIN-only routes */}
       <Route path="/admin/payroll" element={
-        <RequireAuth roles={['ADMIN']}>
+        <RequireAuth module="nomina">
           <Shell><PayrollPage /></Shell>
         </RequireAuth>
       } />
       <Route path="/admin/config" element={
-        <RequireAuth roles={['ADMIN']}>
+        <RequireAuth module="configuracion">
           <Shell><ConfigPage /></Shell>
         </RequireAuth>
       } />
       <Route path="/admin/enrollment" element={
-        <RequireAuth roles={['ADMIN']}>
+        <RequireAuth module="estudiantes">
           <Shell><EnrollmentRequestsPage /></Shell>
         </RequireAuth>
       } />
       <Route path="/admin/professors" element={
-        <RequireAuth roles={['ADMIN']}>
+        <RequireAuth module="roles_accesos">
           <Shell><ProfessorsPage /></Shell>
         </RequireAuth>
       } />
       <Route path="/admin/assistants" element={
-        <RequireAuth roles={['ADMIN']}>
+        <RequireAuth module="roles_accesos">
           <Shell><AssistantsPage /></Shell>
         </RequireAuth>
       } />
       <Route path="/admin/users" element={
-        <RequireAuth roles={['ADMIN']}>
+        <RequireAuth module="roles_accesos">
           <Shell><UsersPage /></Shell>
+        </RequireAuth>
+      } />
+      <Route path="/admin/roles" element={
+        <RequireAuth module="roles_accesos">
+          <Shell><RolesAccesosPage /></Shell>
         </RequireAuth>
       } />
 
@@ -212,7 +224,9 @@ export default function App() {
     <ErrorBoundary>
       <BrowserRouter>
         <AuthProvider>
-          <AppRoutes />
+          <PermissionsProvider>
+            <AppRoutes />
+          </PermissionsProvider>
         </AuthProvider>
       </BrowserRouter>
     </ErrorBoundary>
