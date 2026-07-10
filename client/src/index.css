@@ -472,6 +472,15 @@ p { line-height: 1.5; }
 .home-list-row { display: flex; align-items: center; gap: 12px; padding: 12px 0; border-bottom: 1px solid var(--gray-100); }
 .home-list-row:last-child { border-bottom: none; }
 
+/* Estudiantes: panel dividido en escritorio (lista + ficha), modal en móvil/tablet */
+.students-detail { display: none; }
+@media (min-width: 1024px) {
+  .students-layout { display: grid; grid-template-columns: 360px 1fr; gap: 16px; align-items: start; }
+  .students-list { max-height: calc(100dvh - 150px); overflow-y: auto; padding-right: 4px; }
+  .students-detail { display: block; position: sticky; top: 12px; }
+  .detail-modal { display: none !important; }
+}
+
 /* Login con fondo branded a pantalla completa */
 .login-bg {
   min-height: 100vh;

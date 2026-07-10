@@ -109,6 +109,7 @@ export default function StudentsPage() {
   const [statusFilter, setStatusFilter] = useState('ACTIVOS');
   const [groupFilter, setGroupFilter] = useState('');
   const [attendance, setAttendance] = useState({});
+  const [semester, setSemester] = useState(null);
 
   // Ficha del estudiante (modal de detalle)
   const [detailTarget, setDetailTarget] = useState(null);
@@ -136,7 +137,8 @@ export default function StudentsPage() {
       api.get('/students', { active: 'false' }),          // todos (activos e inactivos)
       api.get('/groups', { active: 'true' }),
       api.get('/students/attendance-summary').catch(() => ({})),
-    ]).then(([s, g, att]) => { setStudents(s); setGroups(g); setAttendance(att || {}); }).finally(() => setLoading(false));
+      api.get('/semesters/active').catch(() => null),
+    ]).then(([s, g, att, sem]) => { setStudents(s); setGroups(g); setAttendance(att || {}); setSemester(sem); }).finally(() => setLoading(false));
   }, []);
 
   // Resumen por estado (tarjeta superior)
@@ -424,14 +426,112 @@ export default function StudentsPage() {
     }
   }
 
+  function renderDetail() {
+    if (detailLoading || !detail) return <div className="spinner" />;
+    if (detail.error) return <div className="alert alert-error">No se pudo cargar la ficha.</div>;
+    const st = detail.student;
+    const sum = detail.summary;
+    const g = primaryEnrollment(st)?.group;
+    const age = ageFrom(st.birthDate);
+    const totalClasses = (st.classesAcquired || 0) + (st.previousClasses || 0);
+    const wa = String(st.phone || '').replace(/\D/g, '');
+    return (
+      <>
+        <div className="flex items-center gap-3 mb-3">
+          <span className="avatar" style={{ width: 52, height: 52, fontSize: '1rem', background: colorFor(st.name) }}>{initials(st.name)}</span>
+          <div style={{ flex: 1, minWidth: 0 }}>
+            <div className="flex items-center gap-2" style={{ flexWrap: 'wrap' }}>
+              <h3>{st.name}</h3>
+              {STATUS_BADGE[st.studentStatus] && <span className={`badge ${STATUS_BADGE[st.studentStatus].cls}`}>{STATUS_BADGE[st.studentStatus].label}</span>}
+            </div>
+            <div className="flex items-center gap-2 mt-1" style={{ flexWrap: 'wrap' }}>
+              {g?.ballLevel && <span className="chip"><span className="legend-dot" style={{ background: BALL_COLOR[g.ballLevel] || 'var(--gray-400)' }} /> {g.ballLevel}{g.subLevel || ''}</span>}
+              {g?.code && <span className="chip">{g.code}</span>}
+              {g?.professor?.name && <span className="chip">{g.professor.name}</span>}
+              {age != null && <span className="chip">{age} años</span>}
+            </div>
+          </div>
+        </div>
+
+        <div className="text-sm text-gray mb-1">
+          {st.guardianName && <>Acudiente: <strong>{st.guardianName}</strong></>}
+          {st.phone && <> · 📞 {st.phone}</>}
+        </div>
+        <div className="text-xs text-gray mb-3">
+          {st.email && <>✉️ {st.email}</>}
+          {primaryEnrollment(st)?.enrolledAt && <> · Ingreso {fmtFullDate(primaryEnrollment(st).enrolledAt)}</>}
+        </div>
+
+        <div className="flex gap-2 mb-3">
+          {wa && <a className="btn btn-success" style={{ flex: 1 }} href={`https://wa.me/57${wa}`} target="_blank" rel="noreferrer">WhatsApp</a>}
+          {st.email && <a className="btn btn-outline" style={{ flex: 1 }} href={`mailto:${st.email}`}>Enviar correo</a>}
+        </div>
+
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(108px, 1fr))', gap: 8 }} className="mb-3">
+          <div className="stat-box"><div className="num">{totalClasses}</div><div className="lbl">Clases adquiridas</div></div>
+          <div className="stat-box"><div className="num">{sum.attendanceRate != null ? `${sum.attendanceRate}%` : '—'}</div><div className="lbl">Asistencia · {sum.classesSeen} clases</div></div>
+          <div className="stat-box"><div className="num" style={{ color: 'var(--red)' }}>{sum.absent}</div><div className="lbl">Faltas</div></div>
+          <div className="stat-box"><div className="num" style={{ color: 'var(--blue)' }}>{sum.cancelledRain}</div><div className="lbl">Canceladas · lluvia</div></div>
+        </div>
+
+        {isAdmin && (
+          <div className="card mb-3" style={{ background: 'var(--surface-2)' }}>
+            <div className="text-sm font-medium">Clases de semestre anterior</div>
+            <div className="text-xs text-gray mb-2">Se suman a las adquiridas ({st.classesAcquired} de este semestre + {st.previousClasses} previas).</div>
+            <div className="flex gap-2">
+              <input type="number" className="form-input" style={{ maxWidth: 130 }} placeholder="Ej: 8"
+                value={prevAmount} onChange={(e) => setPrevAmount(e.target.value)} />
+              <button className="btn btn-primary" onClick={addPreviousClasses} disabled={prevSaving || !prevAmount}>
+                {prevSaving ? '...' : 'Sumar'}
+              </button>
+            </div>
+          </div>
+        )}
+
+        <div className="flex items-center justify-between mb-2" style={{ flexWrap: 'wrap', gap: 6 }}>
+          <h3>Historial de asistencia</h3>
+          <div className="flex gap-2" style={{ flexWrap: 'wrap' }}>
+            <span className="badge badge-green">{sum.present} Presente</span>
+            <span className="badge badge-red">{sum.absent} Ausente</span>
+            <span className="badge badge-gray">{sum.cancelledRain} Lluvia</span>
+            <span className="badge badge-blue">{sum.justified} Justif.</span>
+          </div>
+        </div>
+        <div className="card" style={{ maxHeight: 260, overflowY: 'auto' }}>
+          {detail.timeline.length === 0 ? <div className="text-sm text-gray">Sin registros.</div> : detail.timeline.map((t, i) => (
+            <div key={i} className="home-list-row">
+              <span className="text-sm text-gray" style={{ width: 56 }}>{fmtDay(t.date)}</span>
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <div className="text-sm font-medium">{t.groupCode} <span className="text-xs text-gray">{t.kind === 'MAKEUP' ? 'Reposición' : t.kind === 'FESTIVAL' ? 'Festival' : 'Regular'}</span></div>
+                <div className="text-xs text-gray">{t.professor}</div>
+              </div>
+              {historyBadge(t)}
+            </div>
+          ))}
+        </div>
+
+        <div className="flex gap-2 mt-3" style={{ flexWrap: 'wrap' }}>
+          {(canEdit || isReception) && <button className="btn btn-outline" style={{ flex: 1 }} onClick={() => { const s = detailTarget; openEdit(s); }}>Editar</button>}
+          {canEdit && <button className="btn btn-outline" style={{ flex: 1 }} onClick={() => { const s = detailTarget; openManageGroups(s); }}>Grupos</button>}
+          {canEdit && st.studentStatus === 'SUSPENDIDO' && <button className="btn btn-outline" style={{ flex: 1, color: 'var(--green)' }} onClick={() => handleUnsuspend(detailTarget)}>Levantar</button>}
+          {canEdit && st.studentStatus !== 'SUSPENDIDO' && st.studentStatus !== 'INACTIVO' && <button className="btn btn-outline" style={{ flex: 1, color: 'var(--yellow)' }} onClick={() => openSuspend(detailTarget)}>Suspender</button>}
+          {canEdit && st.active && <button className="btn btn-outline" style={{ flex: 1, color: 'var(--red)' }} onClick={() => openDeactivate(detailTarget)}>Desactivar</button>}
+        </div>
+      </>
+    );
+  }
+
   if (loading) return <div className="page"><div className="spinner" /></div>;
 
   return (
-    <div className="page">
+    <div className="page page-wide">
       <div className="page-header">
         <button className="nav-back" onClick={() => navigate('/admin')}>←</button>
-        <h1>Estudiantes</h1>
-        <div style={{ marginLeft: 'auto', display: 'flex', gap: 8 }}>
+        <div style={{ flex: 1 }}>
+          <h1>Estudiantes</h1>
+          <p className="text-xs text-gray">{summary.activos} estudiantes{semester ? ` · ${semester.name}` : ''}</p>
+        </div>
+        <div style={{ display: 'flex', gap: 8 }}>
           {canImport && (
             <button className="btn btn-outline" style={{ minHeight: 36, padding: '0 12px', fontSize: '0.875rem' }}
               onClick={openImport}>
@@ -457,6 +557,8 @@ export default function StudentsPage() {
           <div className="stat-box"><div className="num" style={{ color: 'var(--gray-400)' }}>{summary.inactivos}</div><div className="lbl">Inactivos</div></div>
         </div>
 
+        <div className="students-layout">
+        <div className="students-list">
         {/* Búsqueda */}
         <input className="form-input mb-2" placeholder="🔎 Buscar estudiante..." value={search}
           onChange={(e) => setSearch(e.target.value)} />
@@ -582,106 +684,20 @@ export default function StudentsPage() {
         ) : (
           visible.map((s) => <StudentRow key={s.id} s={s} />)
         )}
+        </div>
+        <div className="students-detail">
+          {detailTarget ? <div className="card">{renderDetail()}</div> : (
+            <div className="card text-center text-gray" style={{ padding: 40 }}>Selecciona un estudiante para ver su ficha.</div>
+          )}
+        </div>
+        </div>
       </div>
 
-      {/* Detail modal (ficha) */}
+      {/* Ficha en modal (móvil/tablet) */}
       {detailTarget && (
-        <div className="modal-overlay" onClick={() => setDetailTarget(null)}>
+        <div className="modal-overlay detail-modal" onClick={() => setDetailTarget(null)}>
           <div className="modal-content" onClick={(e) => e.stopPropagation()} style={{ maxWidth: 640 }}>
-            {detailLoading || !detail ? <div className="spinner" /> : detail.error ? (
-              <div className="alert alert-error">No se pudo cargar la ficha.</div>
-            ) : (() => {
-              const st = detail.student;
-              const sum = detail.summary;
-              const g = primaryEnrollment(st)?.group;
-              const age = ageFrom(st.birthDate);
-              const totalClasses = (st.classesAcquired || 0) + (st.previousClasses || 0);
-              const wa = String(st.phone || '').replace(/\D/g, '');
-              return (
-                <>
-                  <div className="flex items-center gap-3 mb-3">
-                    <span className="avatar" style={{ width: 52, height: 52, fontSize: '1rem', background: colorFor(st.name) }}>{initials(st.name)}</span>
-                    <div style={{ flex: 1, minWidth: 0 }}>
-                      <div className="flex items-center gap-2" style={{ flexWrap: 'wrap' }}>
-                        <h3>{st.name}</h3>
-                        {STATUS_BADGE[st.studentStatus] && <span className={`badge ${STATUS_BADGE[st.studentStatus].cls}`}>{STATUS_BADGE[st.studentStatus].label}</span>}
-                      </div>
-                      <div className="flex items-center gap-2 mt-1" style={{ flexWrap: 'wrap' }}>
-                        {g?.ballLevel && <span className="chip"><span className="legend-dot" style={{ background: BALL_COLOR[g.ballLevel] || 'var(--gray-400)' }} /> {g.ballLevel}{g.subLevel || ''}</span>}
-                        {g?.code && <span className="chip">{g.code}</span>}
-                        {g?.professor?.name && <span className="chip">{g.professor.name}</span>}
-                        {age != null && <span className="chip">{age} años</span>}
-                      </div>
-                    </div>
-                  </div>
-
-                  <div className="text-sm text-gray mb-1">
-                    {st.guardianName && <>Acudiente: <strong>{st.guardianName}</strong></>}
-                    {st.phone && <> · 📞 {st.phone}</>}
-                  </div>
-                  <div className="text-xs text-gray mb-3">
-                    {st.email && <>✉️ {st.email}</>}
-                    {primaryEnrollment(st)?.enrolledAt && <> · Ingreso {fmtFullDate(primaryEnrollment(st).enrolledAt)}</>}
-                  </div>
-
-                  <div className="flex gap-2 mb-3">
-                    {wa && <a className="btn btn-success" style={{ flex: 1 }} href={`https://wa.me/57${wa}`} target="_blank" rel="noreferrer">WhatsApp</a>}
-                    {st.email && <a className="btn btn-outline" style={{ flex: 1 }} href={`mailto:${st.email}`}>Enviar correo</a>}
-                  </div>
-
-                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(108px, 1fr))', gap: 8 }} className="mb-3">
-                    <div className="stat-box"><div className="num">{totalClasses}</div><div className="lbl">Clases adquiridas</div></div>
-                    <div className="stat-box"><div className="num">{sum.attendanceRate != null ? `${sum.attendanceRate}%` : '—'}</div><div className="lbl">Asistencia · {sum.classesSeen} clases</div></div>
-                    <div className="stat-box"><div className="num" style={{ color: 'var(--red)' }}>{sum.absent}</div><div className="lbl">Faltas</div></div>
-                    <div className="stat-box"><div className="num" style={{ color: 'var(--blue)' }}>{sum.cancelledRain}</div><div className="lbl">Canceladas · lluvia</div></div>
-                  </div>
-
-                  {isAdmin && (
-                    <div className="card mb-3" style={{ background: 'var(--surface-2)' }}>
-                      <div className="text-sm font-medium">Clases de semestre anterior</div>
-                      <div className="text-xs text-gray mb-2">Se suman a las adquiridas ({st.classesAcquired} de este semestre + {st.previousClasses} previas).</div>
-                      <div className="flex gap-2">
-                        <input type="number" className="form-input" style={{ maxWidth: 130 }} placeholder="Ej: 8"
-                          value={prevAmount} onChange={(e) => setPrevAmount(e.target.value)} />
-                        <button className="btn btn-primary" onClick={addPreviousClasses} disabled={prevSaving || !prevAmount}>
-                          {prevSaving ? '...' : 'Sumar'}
-                        </button>
-                      </div>
-                    </div>
-                  )}
-
-                  <div className="flex items-center justify-between mb-2" style={{ flexWrap: 'wrap', gap: 6 }}>
-                    <h3>Historial de asistencia</h3>
-                    <div className="flex gap-2" style={{ flexWrap: 'wrap' }}>
-                      <span className="badge badge-green">{sum.present} Presente</span>
-                      <span className="badge badge-red">{sum.absent} Ausente</span>
-                      <span className="badge badge-gray">{sum.cancelledRain} Lluvia</span>
-                      <span className="badge badge-blue">{sum.justified} Justif.</span>
-                    </div>
-                  </div>
-                  <div className="card" style={{ maxHeight: 260, overflowY: 'auto' }}>
-                    {detail.timeline.length === 0 ? <div className="text-sm text-gray">Sin registros.</div> : detail.timeline.map((t, i) => (
-                      <div key={i} className="home-list-row">
-                        <span className="text-sm text-gray" style={{ width: 56 }}>{fmtDay(t.date)}</span>
-                        <div style={{ flex: 1, minWidth: 0 }}>
-                          <div className="text-sm font-medium">{t.groupCode} <span className="text-xs text-gray">{t.kind === 'MAKEUP' ? 'Reposición' : t.kind === 'FESTIVAL' ? 'Festival' : 'Regular'}</span></div>
-                          <div className="text-xs text-gray">{t.professor}</div>
-                        </div>
-                        {historyBadge(t)}
-                      </div>
-                    ))}
-                  </div>
-
-                  <div className="flex gap-2 mt-3" style={{ flexWrap: 'wrap' }}>
-                    {(canEdit || isReception) && <button className="btn btn-outline" style={{ flex: 1 }} onClick={() => { const s = detailTarget; setDetailTarget(null); openEdit(s); }}>Editar</button>}
-                    {canEdit && <button className="btn btn-outline" style={{ flex: 1 }} onClick={() => { const s = detailTarget; setDetailTarget(null); openManageGroups(s); }}>Grupos</button>}
-                    {canEdit && st.studentStatus === 'SUSPENDIDO' && <button className="btn btn-outline" style={{ flex: 1, color: 'var(--green)' }} onClick={() => { const s = detailTarget; setDetailTarget(null); handleUnsuspend(s); }}>Levantar</button>}
-                    {canEdit && st.studentStatus !== 'SUSPENDIDO' && st.studentStatus !== 'INACTIVO' && <button className="btn btn-outline" style={{ flex: 1, color: 'var(--yellow)' }} onClick={() => { const s = detailTarget; setDetailTarget(null); openSuspend(s); }}>Suspender</button>}
-                    {canEdit && st.active && <button className="btn btn-outline" style={{ flex: 1, color: 'var(--red)' }} onClick={() => { const s = detailTarget; setDetailTarget(null); openDeactivate(s); }}>Desactivar</button>}
-                  </div>
-                </>
-              );
-            })()}
+            {renderDetail()}
           </div>
         </div>
       )}
