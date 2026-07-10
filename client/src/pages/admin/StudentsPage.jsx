@@ -15,6 +15,16 @@ export default function StudentsPage() {
   const { user } = useAuth();
   // Recepción only manages the payment status (Inscrito ↔ Matriculado)
   const isReception = user?.role === 'RECEPTION';
+  const isAdmin = user?.role === 'ADMIN';
+
+  // Import modal (ADMIN) — subir Excel de matrícula
+  const [showImport, setShowImport] = useState(false);
+  const [importB64, setImportB64] = useState('');
+  const [importName, setImportName] = useState('');
+  const [importPreview, setImportPreview] = useState(null);
+  const [importResult, setImportResult] = useState(null);
+  const [importError, setImportError] = useState('');
+  const [importBusy, setImportBusy] = useState(false);
   const [students, setStudents] = useState([]);
   const [groups, setGroups] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -73,6 +83,41 @@ export default function StudentsPage() {
     }
     return arr;
   }, [students, sortBy]);
+
+  function openImport() {
+    setShowImport(true);
+    setImportB64(''); setImportName('');
+    setImportPreview(null); setImportResult(null); setImportError('');
+  }
+
+  function onImportFile(e) {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setImportName(file.name);
+    setImportPreview(null); setImportResult(null); setImportError('');
+    const reader = new FileReader();
+    reader.onload = () => setImportB64(String(reader.result).split(',')[1] || '');
+    reader.onerror = () => setImportError('No se pudo leer el archivo');
+    reader.readAsDataURL(file);
+  }
+
+  async function runImport(dryRun) {
+    if (!importB64) { setImportError('Selecciona un archivo .xlsx'); return; }
+    setImportBusy(true); setImportError('');
+    try {
+      const data = await api.post('/students/import', { fileBase64: importB64, dryRun });
+      if (dryRun) { setImportPreview(data); setImportResult(null); }
+      else {
+        setImportResult(data);
+        const s = await api.get('/students', { active: 'true' });
+        setStudents(s);
+      }
+    } catch (err) {
+      setImportError(err.message);
+    } finally {
+      setImportBusy(false);
+    }
+  }
 
   async function handleCreate(e) {
     e.preventDefault();
@@ -238,12 +283,20 @@ export default function StudentsPage() {
       <div className="page-header">
         <button className="nav-back" onClick={() => navigate('/admin')}>←</button>
         <h1>Estudiantes</h1>
-        {!isReception && (
-          <button className="btn btn-primary" style={{ marginLeft: 'auto', minHeight: 36, padding: '0 12px', fontSize: '0.875rem' }}
-            onClick={() => setShowForm(true)}>
-            + Nuevo
-          </button>
-        )}
+        <div style={{ marginLeft: 'auto', display: 'flex', gap: 8 }}>
+          {isAdmin && (
+            <button className="btn btn-outline" style={{ minHeight: 36, padding: '0 12px', fontSize: '0.875rem' }}
+              onClick={openImport}>
+              ⬆ Importar
+            </button>
+          )}
+          {!isReception && (
+            <button className="btn btn-primary" style={{ minHeight: 36, padding: '0 12px', fontSize: '0.875rem' }}
+              onClick={() => setShowForm(true)}>
+              + Nuevo
+            </button>
+          )}
+        </div>
       </div>
 
       <div className="page-content">
@@ -471,6 +524,73 @@ export default function StudentsPage() {
                 </button>
               </div>
             </form>
+          </div>
+        </div>
+      )}
+
+      {/* Import modal (ADMIN) */}
+      {showImport && (
+        <div className="modal-overlay" onClick={() => !importBusy && setShowImport(false)}>
+          <div className="modal-content" onClick={(e) => e.stopPropagation()}>
+            <h3 className="mb-1">Importar matrícula (Excel)</h3>
+            <p className="text-xs text-gray mb-3">
+              Sube el archivo <strong>.xlsx</strong> de preinscripción. Se leen los estudiantes de la hoja
+              «Consolidado Matrícula». Actualiza los existentes (por documento) y agrega los nuevos; no borra a nadie.
+            </p>
+
+            {importError && <div className="alert alert-error">{importError}</div>}
+
+            <div className="form-group">
+              <label className="form-label">Archivo</label>
+              <input type="file" accept=".xlsx,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+                onChange={onImportFile} disabled={importBusy} />
+              {importName && <span className="text-xs text-gray mt-1">{importName}</span>}
+            </div>
+
+            {importPreview && !importResult && (
+              <div className="card mb-3" style={{ background: 'var(--surface-2)' }}>
+                <div className="font-medium mb-1">Vista previa</div>
+                <div className="text-sm">
+                  {importPreview.counts.students} estudiantes · {importPreview.counts.groups} grupos ·{' '}
+                  {importPreview.counts.professors} profesores
+                </div>
+                <div className="text-xs text-gray mt-1">
+                  {importPreview.counts.multiGroup} con más de un grupo · Profesores: {importPreview.professors.join(', ')}
+                </div>
+                <div className="text-xs text-gray mt-2">
+                  Revisa que los números cuadren y luego presiona <strong>Importar</strong>.
+                </div>
+              </div>
+            )}
+
+            {importResult && (
+              <div className="alert alert-success">
+                ✅ Importación completa: {importResult.result.created} creados,{' '}
+                {importResult.result.updated} actualizados, {importResult.result.moved} cambios de grupo.
+                {importResult.warnings?.length > 0 && (
+                  <div className="text-xs mt-1">Avisos: {importResult.warnings.join('; ')}</div>
+                )}
+              </div>
+            )}
+
+            <div className="flex gap-2 mt-2">
+              <button type="button" className="btn btn-outline" style={{ flex: 1 }}
+                onClick={() => setShowImport(false)} disabled={importBusy}>
+                {importResult ? 'Cerrar' : 'Cancelar'}
+              </button>
+              {!importResult && (
+                <>
+                  <button type="button" className="btn btn-outline" style={{ flex: 1 }}
+                    onClick={() => runImport(true)} disabled={importBusy || !importB64}>
+                    {importBusy ? '...' : 'Previsualizar'}
+                  </button>
+                  <button type="button" className="btn btn-primary" style={{ flex: 1 }}
+                    onClick={() => runImport(false)} disabled={importBusy || !importB64}>
+                    {importBusy ? 'Importando...' : 'Importar'}
+                  </button>
+                </>
+              )}
+            </div>
           </div>
         </div>
       )}

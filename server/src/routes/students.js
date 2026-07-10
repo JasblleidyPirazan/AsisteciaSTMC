@@ -3,8 +3,33 @@ const prisma = require('../lib/prisma');
 const { requireRole } = require('../middleware/auth');
 const { bogotaToday } = require('../lib/dates');
 const { notSuspended } = require('../lib/filters');
+const { importFromBuffer } = require('../services/enrollmentImport');
 
 const router = express.Router();
+
+// Importar matrícula desde un Excel subido por el admin. El archivo llega en
+// base64 (JSON) para reutilizar el parser de body existente. dryRun=true solo
+// previsualiza. Solo ADMIN (procesa archivos de confianza, subidos por el admin).
+router.post('/import', requireRole('ADMIN'), async (req, res, next) => {
+  try {
+    const { fileBase64, dryRun } = req.body || {};
+    if (!fileBase64 || typeof fileBase64 !== 'string') {
+      return res.status(400).json({ success: false, error: 'Archivo requerido (fileBase64)' });
+    }
+    const buffer = Buffer.from(fileBase64, 'base64');
+    if (buffer.length === 0) {
+      return res.status(400).json({ success: false, error: 'El archivo está vacío o no es válido' });
+    }
+    const summary = await importFromBuffer(buffer, { dryRun: !!dryRun });
+    res.json({ success: true, data: summary });
+  } catch (err) {
+    // Errores de formato del Excel se devuelven como 400 legible
+    if (/hoja|encabezados|Consolidado/i.test(err.message)) {
+      return res.status(400).json({ success: false, error: err.message });
+    }
+    next(err);
+  }
+});
 
 // Derived state shown across the app:
 // INACTIVO (soft-deleted) | SUSPENDIDO (today inside suspension range) |
