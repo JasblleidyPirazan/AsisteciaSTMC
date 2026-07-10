@@ -8,6 +8,9 @@ import LoginPage from './pages/LoginPage';
 import DashboardPage from './pages/DashboardPage';
 import TomarListaPage from './pages/TomarListaPage';
 import RolesAccesosPage from './pages/admin/RolesAccesosPage';
+import AuditoriaPage from './pages/admin/AuditoriaPage';
+import HorariosPage from './pages/admin/HorariosPage';
+import AsistenciaPage from './pages/admin/AsistenciaPage';
 import AttendanceFlow from './pages/AttendanceFlow/index';
 import MakeupAttendancePage from './pages/MakeupAttendancePage';
 import EnrollmentPage from './pages/EnrollmentPage';
@@ -211,6 +214,21 @@ function AppRoutes() {
       <Route path="/admin/roles" element={
         <RequireAuth module="roles_accesos">
           <Shell><RolesAccesosPage /></Shell>
+        </RequireAuth>
+      } />
+      <Route path="/admin/horarios" element={
+        <RequireAuth module="horarios">
+          <Shell><HorariosPage /></Shell>
+        </RequireAuth>
+      } />
+      <Route path="/admin/asistencia" element={
+        <RequireAuth module="asistencia">
+          <Shell><AsistenciaPage /></Shell>
+        </RequireAuth>
+      } />
+      <Route path="/admin/auditoria" element={
+        <RequireAuth module="auditoria">
+          <Shell><AuditoriaPage /></Shell>
         </RequireAuth>
       } />
 

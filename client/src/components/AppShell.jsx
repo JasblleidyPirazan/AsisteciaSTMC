@@ -19,12 +19,14 @@ const NAV = [
   { label: 'Tomar lista', path: '/tomar-lista', icon: '📋', module: 'pasar_lista', roles: ['ADMIN', 'TEACHER', 'PHYSICAL_TRAINER', 'ASSISTANT', 'SUPER_ADMIN', 'DEVELOPER', 'READ_ONLY'] },
   { label: 'Estudiantes', path: '/admin/students', icon: '👤', module: 'estudiantes' },
   { label: 'Grupos', path: '/admin/groups', icon: '🎾', module: 'grupos' },
+  { label: 'Horarios', path: '/admin/horarios', icon: '🗓️', module: 'horarios' },
   { label: 'Reposiciones', path: '/admin/makeups', icon: '🔁', module: 'reposiciones' },
   { label: 'Festivales', path: '/admin/festivals', icon: '🎉', module: 'festivales' },
   { label: 'Eventos', path: '/admin/events', icon: '🏆', module: 'festivales' },
 
   { section: 'Seguimiento' },
   { label: 'Reportes', path: '/admin/reports', icon: '📈', module: 'informes' },
+  { label: 'Asistencia', path: '/admin/asistencia', icon: '🧾', module: 'asistencia', roles: ['ADMIN', 'PHYSICAL_TRAINER', 'SUPER_ADMIN', 'DEVELOPER', 'READ_ONLY'] },
   { label: 'Validación', path: '/admin/validation', icon: '✅', module: 'revisiones' },
   { label: 'Alertas', path: '/admin/alerts', icon: '🚨', module: 'informes' },
 
@@ -36,6 +38,7 @@ const NAV = [
   { label: 'Liquidación', path: '/admin/payroll', icon: '💰', module: 'nomina', roles: ['ADMIN', 'SUPER_ADMIN', 'DEVELOPER', 'READ_ONLY'] },
   { label: 'Inscripciones', path: '/admin/enrollment', icon: '📋', module: 'estudiantes', roles: ['ADMIN', 'SUPER_ADMIN', 'DEVELOPER', 'READ_ONLY'] },
   { label: 'Configuración', path: '/admin/config', icon: '⚙️', module: 'configuracion' },
+  { label: 'Auditoría', path: '/admin/auditoria', icon: '🕵️', module: 'auditoria' },
 ];
 
 function isActive(itemPath, pathname) {
