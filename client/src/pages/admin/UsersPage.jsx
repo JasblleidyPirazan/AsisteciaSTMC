@@ -1,21 +1,33 @@
 import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { api } from '../../api/client';
+import { useAuth } from '../../hooks/useAuth';
 import { roleLabel } from '../../utils/roles';
 
 const EMPTY_FORM = { email: '', password: '', role: 'PHYSICAL_TRAINER' };
 
-const STAFF_ROLES = [
+// Roles creables desde esta pantalla. Los "elevados" solo los ve/crea un
+// Super Admin o Desarrollador (guardrail contra escalada de privilegios).
+const BASIC_ROLES = [
   { value: 'PHYSICAL_TRAINER', label: 'Coordinador' },
   { value: 'RECEPTION', label: 'Recepción' },
+  { value: 'READ_ONLY', label: 'Solo lectura' },
+];
+const ELEVATED_ROLES = [
+  { value: 'ADMIN', label: 'Administrador' },
+  { value: 'SUPER_ADMIN', label: 'Super Admin' },
+  { value: 'DEVELOPER', label: 'Desarrollador' },
 ];
 
 // Orden y estilo de badge por rol para la vista unificada.
-const ROLE_ORDER = ['ADMIN', 'PHYSICAL_TRAINER', 'RECEPTION', 'TEACHER', 'ASSISTANT', 'PARENT'];
+const ROLE_ORDER = ['SUPER_ADMIN', 'DEVELOPER', 'ADMIN', 'PHYSICAL_TRAINER', 'RECEPTION', 'READ_ONLY', 'TEACHER', 'ASSISTANT', 'PARENT'];
 const ROLE_BADGE = {
+  SUPER_ADMIN: 'badge-blue',
+  DEVELOPER: 'badge-blue',
   ADMIN: 'badge-blue',
   PHYSICAL_TRAINER: 'badge-green',
   RECEPTION: 'badge-green',
+  READ_ONLY: 'badge-yellow',
   TEACHER: 'badge-gray',
   ASSISTANT: 'badge-gray',
   PARENT: 'badge-gray',
@@ -30,6 +42,9 @@ const MANAGED_AT = {
 
 export default function UsersPage() {
   const navigate = useNavigate();
+  const { user } = useAuth();
+  const isSuper = ['ADMIN', 'SUPER_ADMIN', 'DEVELOPER'].includes(user?.role);
+  const creatableRoles = isSuper ? [...BASIC_ROLES, ...ELEVATED_ROLES] : BASIC_ROLES;
   const [users, setUsers] = useState([]);
   const [loading, setLoading] = useState(true);
   const [showForm, setShowForm] = useState(false);
@@ -119,9 +134,10 @@ export default function UsersPage() {
 
       <div className="page-content">
         <p className="text-sm text-gray mb-3">
-          Vista unificada de todas las cuentas ({activos} activas de {total}). Aquí se crean y gestionan las
-          cuentas de <strong>Coordinador</strong> y <strong>Recepción</strong>. Profesores, asistentes y
-          acudientes se ven aquí pero se gestionan en sus propias secciones.
+          Vista unificada de todas las cuentas ({activos} activas de {total}). Aquí se crean cuentas de
+          <strong> Coordinador</strong>, <strong>Recepción</strong> y <strong>Solo lectura</strong>
+          {isSuper ? ', y también Administrador, Super Admin y Desarrollador' : ''}.
+          Profesores, asistentes y acudientes se ven aquí pero se gestionan en sus propias secciones.
         </p>
 
         {showForm && (
@@ -133,7 +149,7 @@ export default function UsersPage() {
                 <label className="form-label">Rol *</label>
                 <select className="form-input form-select" value={form.role}
                   onChange={(e) => setForm({ ...form, role: e.target.value })}>
-                  {STAFF_ROLES.map((r) => <option key={r.value} value={r.value}>{r.label}</option>)}
+                  {creatableRoles.map((r) => <option key={r.value} value={r.value}>{r.label}</option>)}
                 </select>
               </div>
               <div className="form-group">
