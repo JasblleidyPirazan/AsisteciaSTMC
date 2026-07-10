@@ -1,6 +1,6 @@
 const express = require('express');
 const prisma = require('../lib/prisma');
-const { requireRole } = require('../middleware/auth');
+const { requireRole, requirePermission } = require('../middleware/auth');
 const { calculateCosts } = require('../services/costEngine');
 
 const router = express.Router();
@@ -38,7 +38,7 @@ function festivalInclude() {
   };
 }
 
-router.get('/', requireRole('ADMIN', 'PHYSICAL_TRAINER', 'TEACHER'), async (req, res, next) => {
+router.get('/', requirePermission('festivales', 'view'), async (req, res, next) => {
   try {
     const { date, status, from, to } = req.query;
     const where = { kind: 'FESTIVAL' };
@@ -67,7 +67,7 @@ router.get('/', requireRole('ADMIN', 'PHYSICAL_TRAINER', 'TEACHER'), async (req,
   }
 });
 
-router.get('/:id', requireRole('ADMIN', 'PHYSICAL_TRAINER', 'TEACHER'), async (req, res, next) => {
+router.get('/:id', requirePermission('festivales', 'view'), async (req, res, next) => {
   try {
     const session = await prisma.classSession.findUnique({
       where: { id: req.params.id },
@@ -83,7 +83,7 @@ router.get('/:id', requireRole('ADMIN', 'PHYSICAL_TRAINER', 'TEACHER'), async (r
 });
 
 // Create a festival — coordinator/admin builds the roster from the panel
-router.post('/', requireRole('ADMIN', 'PHYSICAL_TRAINER'), async (req, res, next) => {
+router.post('/', requirePermission('festivales', 'edit'), async (req, res, next) => {
   try {
     const { date, title, ratePerProfessor, professorIds, studentIds } = req.body;
 
@@ -130,7 +130,7 @@ router.post('/', requireRole('ADMIN', 'PHYSICAL_TRAINER'), async (req, res, next
 });
 
 // Edit festival meta / roster / professors
-router.put('/:id', requireRole('ADMIN', 'PHYSICAL_TRAINER'), async (req, res, next) => {
+router.put('/:id', requirePermission('festivales', 'edit'), async (req, res, next) => {
   try {
     const { date, title, ratePerProfessor, professorIds, studentIds } = req.body;
 
@@ -184,7 +184,7 @@ router.put('/:id', requireRole('ADMIN', 'PHYSICAL_TRAINER'), async (req, res, ne
   }
 });
 
-router.delete('/:id', requireRole('ADMIN', 'PHYSICAL_TRAINER'), async (req, res, next) => {
+router.delete('/:id', requirePermission('festivales', 'edit'), async (req, res, next) => {
   try {
     const existing = await prisma.classSession.findUnique({ where: { id: req.params.id } });
     if (!existing || existing.kind !== 'FESTIVAL') {

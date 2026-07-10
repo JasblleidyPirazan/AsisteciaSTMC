@@ -1,7 +1,7 @@
 const express = require('express');
 const bcrypt = require('bcryptjs');
 const prisma = require('../lib/prisma');
-const { requireRole } = require('../middleware/auth');
+const { requireRole, requirePermission } = require('../middleware/auth');
 
 const router = express.Router();
 
@@ -20,7 +20,7 @@ router.get('/', async (req, res, next) => {
   }
 });
 
-router.post('/', requireRole('ADMIN'), async (req, res, next) => {
+router.post('/', requirePermission('roles_accesos', 'edit'), async (req, res, next) => {
   try {
     const { name, email, password } = req.body;
     if (!name) return res.status(400).json({ success: false, error: 'Nombre requerido' });
@@ -45,7 +45,7 @@ router.post('/', requireRole('ADMIN'), async (req, res, next) => {
   }
 });
 
-router.put('/:id', requireRole('ADMIN'), async (req, res, next) => {
+router.put('/:id', requirePermission('roles_accesos', 'edit'), async (req, res, next) => {
   try {
     const { name, active } = req.body;
     const data = {};

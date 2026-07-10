@@ -1,6 +1,6 @@
 const express = require('express');
 const prisma = require('../lib/prisma');
-const { requireRole } = require('../middleware/auth');
+const { requireRole, requirePermission } = require('../middleware/auth');
 const { bogotaToday } = require('../lib/dates');
 const { notSuspended } = require('../lib/filters');
 const { importFromBuffer } = require('../services/enrollmentImport');
@@ -10,7 +10,7 @@ const router = express.Router();
 // Importar matrícula desde un Excel subido por el admin. El archivo llega en
 // base64 (JSON) para reutilizar el parser de body existente. dryRun=true solo
 // previsualiza. Solo ADMIN (procesa archivos de confianza, subidos por el admin).
-router.post('/import', requireRole('ADMIN'), async (req, res, next) => {
+router.post('/import', requirePermission('estudiantes', 'edit'), async (req, res, next) => {
   try {
     const { fileBase64, dryRun } = req.body || {};
     if (!fileBase64 || typeof fileBase64 !== 'string') {
@@ -118,7 +118,7 @@ router.get('/:id', async (req, res, next) => {
   }
 });
 
-router.post('/', requireRole('ADMIN', 'PHYSICAL_TRAINER'), async (req, res, next) => {
+router.post('/', requirePermission('estudiantes', 'edit'), async (req, res, next) => {
   try {
     const { name, email, parentUserId, primaryGroupId, secondaryGroupId, classesAcquired,
       paymentComplete, document, phone, guardianName, birthDate } = req.body;
@@ -165,7 +165,7 @@ router.post('/', requireRole('ADMIN', 'PHYSICAL_TRAINER'), async (req, res, next
   }
 });
 
-router.put('/:id', requireRole('ADMIN', 'PHYSICAL_TRAINER'), async (req, res, next) => {
+router.put('/:id', requirePermission('estudiantes', 'edit'), async (req, res, next) => {
   try {
     const { name, email, parentUserId, active, deactivationReason, classesAcquired,
       document, phone, guardianName, birthDate } = req.body;
@@ -199,7 +199,7 @@ router.put('/:id', requireRole('ADMIN', 'PHYSICAL_TRAINER'), async (req, res, ne
 
 // Payment status (Inscrito ↔ Matriculado). Separate endpoint so RECEPTION can
 // flip it without being able to edit anything else about the student.
-router.patch('/:id/payment-status', requireRole('ADMIN', 'RECEPTION'), async (req, res, next) => {
+router.patch('/:id/payment-status', requireRole('ADMIN', 'RECEPTION', 'SUPER_ADMIN', 'DEVELOPER'), async (req, res, next) => {
   try {
     const { paymentComplete } = req.body;
     if (typeof paymentComplete !== 'boolean') {
@@ -219,7 +219,7 @@ router.patch('/:id/payment-status', requireRole('ADMIN', 'RECEPTION'), async (re
 // Temporary suspension (>2 weeks, shorter than the semester). While active the
 // student disappears from group rosters and attendance lists; when the range
 // ends they reappear automatically (filtering is done per-query, no cron).
-router.post('/:id/suspend', requireRole('ADMIN', 'PHYSICAL_TRAINER'), async (req, res, next) => {
+router.post('/:id/suspend', requirePermission('estudiantes', 'edit'), async (req, res, next) => {
   try {
     const { from, until, reason } = req.body;
     if (!from || !until || !reason || !reason.trim()) {
@@ -250,7 +250,7 @@ router.post('/:id/suspend', requireRole('ADMIN', 'PHYSICAL_TRAINER'), async (req
   }
 });
 
-router.post('/:id/unsuspend', requireRole('ADMIN', 'PHYSICAL_TRAINER'), async (req, res, next) => {
+router.post('/:id/unsuspend', requirePermission('estudiantes', 'edit'), async (req, res, next) => {
   try {
     const student = await prisma.student.update({
       where: { id: req.params.id },
@@ -263,7 +263,7 @@ router.post('/:id/unsuspend', requireRole('ADMIN', 'PHYSICAL_TRAINER'), async (r
   }
 });
 
-router.delete('/:id', requireRole('ADMIN', 'PHYSICAL_TRAINER'), async (req, res, next) => {
+router.delete('/:id', requirePermission('estudiantes', 'edit'), async (req, res, next) => {
   try {
     const { reason } = req.body || {};
     if (!reason || !reason.trim()) {
@@ -285,7 +285,7 @@ router.delete('/:id', requireRole('ADMIN', 'PHYSICAL_TRAINER'), async (req, res,
 });
 
 // Transfer student from one group to another (replaces primary enrollment, records history)
-router.post('/:id/transfer', requireRole('ADMIN', 'PHYSICAL_TRAINER'), async (req, res, next) => {
+router.post('/:id/transfer', requirePermission('estudiantes', 'edit'), async (req, res, next) => {
   try {
     const { fromGroupId, toGroupId, reason } = req.body;
     if (!toGroupId) return res.status(400).json({ success: false, error: 'toGroupId requerido' });
@@ -344,7 +344,7 @@ router.post('/:id/transfer', requireRole('ADMIN', 'PHYSICAL_TRAINER'), async (re
 });
 
 // Add student to an additional group (multigrupo)
-router.post('/:id/enrollments', requireRole('ADMIN', 'PHYSICAL_TRAINER'), async (req, res, next) => {
+router.post('/:id/enrollments', requirePermission('estudiantes', 'edit'), async (req, res, next) => {
   try {
     const { groupId, enrollmentType } = req.body;
     const studentId = req.params.id;
@@ -373,7 +373,7 @@ router.post('/:id/enrollments', requireRole('ADMIN', 'PHYSICAL_TRAINER'), async 
   }
 });
 
-router.delete('/:id/enrollments/:groupId', requireRole('ADMIN', 'PHYSICAL_TRAINER'), async (req, res, next) => {
+router.delete('/:id/enrollments/:groupId', requirePermission('estudiantes', 'edit'), async (req, res, next) => {
   try {
     const { studentId: sid, groupId } = { studentId: req.params.id, groupId: req.params.groupId };
 

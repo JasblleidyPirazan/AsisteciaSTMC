@@ -1,12 +1,12 @@
 const express = require('express');
 const prisma = require('../lib/prisma');
-const { requireRole } = require('../middleware/auth');
+const { requireRole, requirePermission } = require('../middleware/auth');
 const { isSeenRecord } = require('../services/attendanceStats');
 const { computeAttendanceDeviations } = require('../services/attendanceAlerts');
 
 const router = express.Router();
 
-router.get('/children', requireRole('PARENT', 'ADMIN'), async (req, res, next) => {
+router.get('/children', requirePermission('tablero', 'view'), async (req, res, next) => {
   try {
     const parentUserId = req.user.role === 'PARENT' ? req.user.id : req.query.userId;
     const students = await prisma.student.findMany({
@@ -42,7 +42,7 @@ router.get('/children', requireRole('PARENT', 'ADMIN'), async (req, res, next) =
   }
 });
 
-router.get('/attendance/:studentId', requireRole('PARENT', 'ADMIN', 'TEACHER'), async (req, res, next) => {
+router.get('/attendance/:studentId', requirePermission('asistencia', 'view'), async (req, res, next) => {
   try {
     // Parents can only access their own children
     if (req.user.role === 'PARENT') {

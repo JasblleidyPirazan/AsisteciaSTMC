@@ -1,6 +1,6 @@
 const express = require('express');
 const prisma = require('../lib/prisma');
-const { requireRole } = require('../middleware/auth');
+const { requireRole, requirePermission } = require('../middleware/auth');
 
 const router = express.Router();
 
@@ -24,7 +24,7 @@ const DEFAULTS = {
 
 // Rates only — readable by teachers so the attendance flow can preview their pay.
 // Full config (GET/PUT below) remains admin-only.
-router.get('/rates', requireRole('ADMIN', 'TEACHER'), async (req, res, next) => {
+router.get('/rates', requirePermission('nomina', 'view'), async (req, res, next) => {
   try {
     const configs = await prisma.systemConfig.findMany({ where: { key: { in: CONFIG_KEYS } } });
     const data = Object.fromEntries(configs.map((c) => [c.key, c.value]));
@@ -37,7 +37,7 @@ router.get('/rates', requireRole('ADMIN', 'TEACHER'), async (req, res, next) => 
   }
 });
 
-router.get('/', requireRole('ADMIN'), async (req, res, next) => {
+router.get('/', requirePermission('configuracion', 'view'), async (req, res, next) => {
   try {
     const configs = await prisma.systemConfig.findMany({ where: { key: { in: CONFIG_KEYS } } });
     const data = Object.fromEntries(configs.map((c) => [c.key, c.value]));
@@ -51,7 +51,7 @@ router.get('/', requireRole('ADMIN'), async (req, res, next) => {
   }
 });
 
-router.put('/', requireRole('ADMIN'), async (req, res, next) => {
+router.put('/', requirePermission('configuracion', 'edit'), async (req, res, next) => {
   try {
     const updates = [];
     for (const key of CONFIG_KEYS) {

@@ -1,7 +1,7 @@
 const express = require('express');
 const bcrypt = require('bcryptjs');
 const prisma = require('../lib/prisma');
-const { requireRole } = require('../middleware/auth');
+const { requireRole, requirePermission } = require('../middleware/auth');
 
 const router = express.Router();
 
@@ -9,7 +9,7 @@ const router = express.Router();
 // account flows in /professors and /assistants; parents come from enrollment.
 const STAFF_ROLES = ['PHYSICAL_TRAINER', 'RECEPTION'];
 
-router.get('/', requireRole('ADMIN'), async (req, res, next) => {
+router.get('/', requirePermission('roles_accesos', 'view'), async (req, res, next) => {
   try {
     const { role, scope } = req.query;
 
@@ -58,7 +58,7 @@ router.get('/', requireRole('ADMIN'), async (req, res, next) => {
   }
 });
 
-router.post('/', requireRole('ADMIN'), async (req, res, next) => {
+router.post('/', requirePermission('roles_accesos', 'edit'), async (req, res, next) => {
   try {
     const { email, password, role } = req.body;
     if (!email || !email.trim() || !password || !role) {
@@ -84,7 +84,7 @@ router.post('/', requireRole('ADMIN'), async (req, res, next) => {
   }
 });
 
-router.put('/:id', requireRole('ADMIN'), async (req, res, next) => {
+router.put('/:id', requirePermission('roles_accesos', 'edit'), async (req, res, next) => {
   try {
     const { active, password } = req.body;
 

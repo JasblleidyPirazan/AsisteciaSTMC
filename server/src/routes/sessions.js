@@ -1,6 +1,7 @@
 const express = require('express');
 const prisma = require('../lib/prisma');
 const { calculateCosts } = require('../services/costEngine');
+const { requirePermission } = require('../middleware/auth');
 
 const router = express.Router();
 
@@ -86,7 +87,7 @@ router.get('/', async (req, res, next) => {
 });
 
 // Create a new session (marks class as started)
-router.post('/', async (req, res, next) => {
+router.post('/', requirePermission('pasar_lista', 'edit'), async (req, res, next) => {
   try {
     const { groupId, date, substituteProfessorId, assistantId } = req.body;
     if (!groupId || !date) {
@@ -129,7 +130,7 @@ router.post('/', async (req, res, next) => {
 });
 
 // Finalize session: save attendance + run cost engine
-router.post('/:id/finalize', async (req, res, next) => {
+router.post('/:id/finalize', requirePermission('pasar_lista', 'edit'), async (req, res, next) => {
   try {
     const { attendanceRecords, substituteProfessorId, assistantId, dictatedByOwner, notDictatedNote } = req.body;
 
@@ -264,7 +265,7 @@ router.post('/:id/finalize', async (req, res, next) => {
 });
 
 // Cancel a session
-router.post('/:id/cancel', async (req, res, next) => {
+router.post('/:id/cancel', requirePermission('pasar_lista', 'edit'), async (req, res, next) => {
   try {
     const { cancellationCategory, cancellationReason } = req.body;
     if (!CANCEL_CATEGORIES.includes(cancellationCategory)) {
@@ -304,7 +305,7 @@ router.post('/:id/cancel', async (req, res, next) => {
 });
 
 // Unlock the pay of a late-reported class — ONLY the admin can do this
-router.post('/:id/unlock-payment', async (req, res, next) => {
+router.post('/:id/unlock-payment', requirePermission('nomina', 'edit'), async (req, res, next) => {
   try {
     if (req.user.role !== 'ADMIN') {
       return res.status(403).json({ success: false, error: 'Solo el administrador puede desbloquear pagos' });
@@ -329,7 +330,7 @@ router.post('/:id/unlock-payment', async (req, res, next) => {
 // touch assistantId, which is what the professor reported in the class flow.
 // The assistant's pay only turns PAYABLE when both match AND the coordinator
 // validates (triple coincidence, see costEngine).
-router.post('/:id/assist', async (req, res, next) => {
+router.post('/:id/assist', requirePermission('pasar_lista', 'edit'), async (req, res, next) => {
   try {
     if (!['ADMIN', 'ASSISTANT'].includes(req.user.role)) {
       return res.status(403).json({ success: false, error: 'Solo asistentes pueden usar este endpoint' });
@@ -375,7 +376,7 @@ router.post('/:id/assist', async (req, res, next) => {
 });
 
 // Coordinator/admin validates (or un-validates) the assistant match of a session
-router.post('/:id/validate-assistant', async (req, res, next) => {
+router.post('/:id/validate-assistant', requirePermission('revisiones', 'edit'), async (req, res, next) => {
   try {
     if (!['ADMIN', 'PHYSICAL_TRAINER'].includes(req.user.role)) {
       return res.status(403).json({ success: false, error: 'Solo el coordinador o el administrador pueden validar' });

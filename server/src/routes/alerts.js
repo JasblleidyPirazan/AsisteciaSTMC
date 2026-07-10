@@ -1,6 +1,6 @@
 const express = require('express');
 const prisma = require('../lib/prisma');
-const { requireRole } = require('../middleware/auth');
+const { requireRole, requirePermission } = require('../middleware/auth');
 const { expectedDatesForGroup } = require('../services/schedule');
 const { computeAttendanceDeviations, RED_THRESHOLD, YELLOW_THRESHOLD } = require('../services/attendanceAlerts');
 const { bogotaToday, dbDateStr } = require('../lib/dates');
@@ -13,7 +13,7 @@ const router = express.Router();
  * The alert message is explicit: a class not reported the same day gets its
  * pay suspended, and only the admin can unlock it.
  */
-router.get('/pending-reports', requireRole('ADMIN', 'PHYSICAL_TRAINER', 'TEACHER'), async (req, res, next) => {
+router.get('/pending-reports', requirePermission('pasar_lista', 'view'), async (req, res, next) => {
   try {
     const semester = await prisma.semester.findFirst({
       where: { active: true },
@@ -73,7 +73,7 @@ router.get('/pending-reports', requireRole('ADMIN', 'PHYSICAL_TRAINER', 'TEACHER
 
 // Individual attendance alerts vs the ideal progress level.
 // Roja: desviación > 4 clases · Amarilla: > 2 clases.
-router.get('/attendance', requireRole('ADMIN', 'PHYSICAL_TRAINER'), async (req, res, next) => {
+router.get('/attendance', requirePermission('informes', 'view'), async (req, res, next) => {
   try {
     const rows = await computeAttendanceDeviations();
     const { onlyAlerts } = req.query;
@@ -93,7 +93,7 @@ router.get('/attendance', requireRole('ADMIN', 'PHYSICAL_TRAINER'), async (req, 
 
 // Group-level rain alert: groups whose rain-cancelled class count in the
 // active semester reaches the configurable threshold.
-router.get('/rain', requireRole('ADMIN', 'PHYSICAL_TRAINER'), async (req, res, next) => {
+router.get('/rain', requirePermission('informes', 'view'), async (req, res, next) => {
   try {
     const semester = await prisma.semester.findFirst({ where: { active: true } });
     if (!semester) return res.json({ success: true, data: { groups: [], threshold: null } });

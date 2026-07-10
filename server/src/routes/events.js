@@ -1,6 +1,6 @@
 const express = require('express');
 const prisma = require('../lib/prisma');
-const { requireRole } = require('../middleware/auth');
+const { requireRole, requirePermission } = require('../middleware/auth');
 
 const router = express.Router();
 
@@ -17,7 +17,7 @@ router.get('/', async (req, res, next) => {
   }
 });
 
-router.post('/', requireRole('ADMIN', 'PHYSICAL_TRAINER'), async (req, res, next) => {
+router.post('/', requirePermission('festivales', 'edit'), async (req, res, next) => {
   try {
     const { name, date, professorId, fixedRate, description } = req.body;
     if (!name || !date || !professorId || !fixedRate) {
@@ -33,7 +33,7 @@ router.post('/', requireRole('ADMIN', 'PHYSICAL_TRAINER'), async (req, res, next
   }
 });
 
-router.put('/:id', requireRole('ADMIN', 'PHYSICAL_TRAINER'), async (req, res, next) => {
+router.put('/:id', requirePermission('festivales', 'edit'), async (req, res, next) => {
   try {
     const { name, date, professorId, fixedRate, description, active } = req.body;
     const data = {};

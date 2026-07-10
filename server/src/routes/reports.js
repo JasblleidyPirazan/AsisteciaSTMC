@@ -1,6 +1,6 @@
 const express = require('express');
 const prisma = require('../lib/prisma');
-const { requireRole } = require('../middleware/auth');
+const { requireRole, requirePermission } = require('../middleware/auth');
 const { getCurrentPeriod } = require('../services/costEngine');
 const { isSeenRecord } = require('../services/attendanceStats');
 
@@ -309,7 +309,7 @@ router.get('/dashboard', async (req, res, next) => {
 
 // Dashboard de inicio (Home) — datos agregados para ADMIN/Coordinador.
 // Sin cifras económicas, por eso el Coordinador también puede verlo.
-router.get('/home', requireRole('ADMIN', 'PHYSICAL_TRAINER'), async (req, res, next) => {
+router.get('/home', requirePermission('tablero', 'view'), async (req, res, next) => {
   try {
     const now = new Date();
     const today = new Date(now.toDateString());

@@ -1,6 +1,6 @@
 const express = require('express');
 const prisma = require('../lib/prisma');
-const { requireRole } = require('../middleware/auth');
+const { requireRole, requirePermission } = require('../middleware/auth');
 const XLSX = require('xlsx');
 
 const router = express.Router();
@@ -67,7 +67,7 @@ router.get('/', async (req, res, next) => {
   }
 });
 
-router.get('/summary', requireRole('ADMIN'), async (req, res, next) => {
+router.get('/summary', requirePermission('nomina', 'edit'), async (req, res, next) => {
   try {
     const { period } = req.query;
     if (!period) return res.status(400).json({ success: false, error: 'period requerido' });
@@ -144,7 +144,7 @@ router.get('/summary', requireRole('ADMIN'), async (req, res, next) => {
 
 // Aprobar la liquidación de una quincena. Guarda auditoría (quién/cuándo) y una
 // foto de los totales al momento de aprobar. Idempotente por período (upsert).
-router.post('/approve', requireRole('ADMIN'), async (req, res, next) => {
+router.post('/approve', requirePermission('nomina', 'edit'), async (req, res, next) => {
   try {
     const { period, note } = req.body;
     if (!period) return res.status(400).json({ success: false, error: 'period requerido' });
@@ -199,7 +199,7 @@ router.post('/approve', requireRole('ADMIN'), async (req, res, next) => {
 });
 
 // Revertir la aprobación de una quincena (p. ej. si hubo que ajustar registros).
-router.delete('/approve', requireRole('ADMIN'), async (req, res, next) => {
+router.delete('/approve', requirePermission('nomina', 'edit'), async (req, res, next) => {
   try {
     const { period } = req.query;
     if (!period) return res.status(400).json({ success: false, error: 'period requerido' });
@@ -210,7 +210,7 @@ router.delete('/approve', requireRole('ADMIN'), async (req, res, next) => {
   }
 });
 
-router.get('/export', requireRole('ADMIN', 'TEACHER', 'ASSISTANT'), async (req, res, next) => {
+router.get('/export', requirePermission('nomina', 'view'), async (req, res, next) => {
   try {
     const { period } = req.query;
     if (!period) return res.status(400).json({ success: false, error: 'period requerido' });

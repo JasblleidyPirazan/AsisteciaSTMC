@@ -2,6 +2,7 @@ import { useState, useEffect, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { api } from '../../api/client';
 import { useAuth } from '../../hooks/useAuth';
+import { usePermissions } from '../../hooks/usePermissions';
 
 const STATUS_BADGE = {
   MATRICULADO: { cls: 'badge-green', label: 'Matriculado' },
@@ -16,6 +17,9 @@ export default function StudentsPage() {
   // Recepción only manages the payment status (Inscrito ↔ Matriculado)
   const isReception = user?.role === 'RECEPTION';
   const isAdmin = user?.role === 'ADMIN';
+  const { can } = usePermissions();
+  const canEdit = can('estudiantes', 'edit');       // crear/editar estudiantes
+  const canImport = canEdit;                          // importar Excel
 
   // Import modal (ADMIN) — subir Excel de matrícula
   const [showImport, setShowImport] = useState(false);
@@ -152,8 +156,8 @@ export default function StudentsPage() {
     setEditError('');
     try {
       let updated = editTarget;
-      // General fields — not editable by Recepción
-      if (!isReception) {
+      // General fields — solo si tiene permiso de editar estudiantes
+      if (canEdit) {
         updated = await api.put(`/students/${editTarget.id}`, {
           name: editForm.name,
           email: editForm.email || null,
@@ -284,13 +288,13 @@ export default function StudentsPage() {
         <button className="nav-back" onClick={() => navigate('/admin')}>←</button>
         <h1>Estudiantes</h1>
         <div style={{ marginLeft: 'auto', display: 'flex', gap: 8 }}>
-          {isAdmin && (
+          {canImport && (
             <button className="btn btn-outline" style={{ minHeight: 36, padding: '0 12px', fontSize: '0.875rem' }}
               onClick={openImport}>
               ⬆ Importar
             </button>
           )}
-          {!isReception && (
+          {canEdit && (
             <button className="btn btn-primary" style={{ minHeight: 36, padding: '0 12px', fontSize: '0.875rem' }}
               onClick={() => setShowForm(true)}>
               + Nuevo
@@ -429,14 +433,16 @@ export default function StudentsPage() {
                   )}
                 </div>
                 <div style={{ display: 'flex', gap: 6, flexShrink: 0, flexWrap: 'wrap', justifyContent: 'flex-end' }}>
-                  <button
-                    className="btn btn-ghost"
-                    style={{ minHeight: 32, padding: '0 8px', fontSize: '0.75rem' }}
-                    onClick={() => openEdit(s)}
-                  >
-                    Editar
-                  </button>
-                  {!isReception && (
+                  {(canEdit || isReception) && (
+                    <button
+                      className="btn btn-ghost"
+                      style={{ minHeight: 32, padding: '0 8px', fontSize: '0.75rem' }}
+                      onClick={() => openEdit(s)}
+                    >
+                      Editar
+                    </button>
+                  )}
+                  {canEdit && (
                     <>
                       <button
                         className="btn btn-ghost"
@@ -487,17 +493,17 @@ export default function StudentsPage() {
             <form onSubmit={handleEdit}>
               <div className="form-group">
                 <label className="form-label">Nombre *</label>
-                <input type="text" className="form-input" required maxLength={200} disabled={isReception}
+                <input type="text" className="form-input" required maxLength={200} disabled={!canEdit}
                   value={editForm.name} onChange={(e) => setEditForm({ ...editForm, name: e.target.value })} />
               </div>
               <div className="form-group">
                 <label className="form-label">Email</label>
-                <input type="email" className="form-input" maxLength={254} disabled={isReception}
+                <input type="email" className="form-input" maxLength={254} disabled={!canEdit}
                   value={editForm.email} onChange={(e) => setEditForm({ ...editForm, email: e.target.value })} />
               </div>
               <div className="form-group">
                 <label className="form-label">Clases adquiridas</label>
-                <input type="number" className="form-input" min={0} disabled={isReception}
+                <input type="number" className="form-input" min={0} disabled={!canEdit}
                   value={editForm.classesAcquired}
                   onChange={(e) => setEditForm({ ...editForm, classesAcquired: e.target.value })} />
                 <span className="text-xs text-gray">Total de clases que el estudiante compró para el semestre.</span>

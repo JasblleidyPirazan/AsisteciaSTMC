@@ -1,6 +1,6 @@
 const express = require('express');
 const prisma = require('../lib/prisma');
-const { requireRole } = require('../middleware/auth');
+const { requireRole, requirePermission } = require('../middleware/auth');
 const { notSuspended } = require('../lib/filters');
 const { seenAttendanceFilter } = require('../services/attendanceStats');
 
@@ -129,7 +129,7 @@ router.get('/:id/students', async (req, res, next) => {
   }
 });
 
-router.post('/', requireRole('ADMIN', 'PHYSICAL_TRAINER'), async (req, res, next) => {
+router.post('/', requirePermission('grupos', 'edit'), async (req, res, next) => {
   try {
     const { code, name, professorId, lunes, martes, miercoles, jueves, viernes, sabado, domingo,
       startTime, endTime, court, ballLevel, subLevel } = req.body;
@@ -160,7 +160,7 @@ router.post('/', requireRole('ADMIN', 'PHYSICAL_TRAINER'), async (req, res, next
   }
 });
 
-router.put('/:id', requireRole('ADMIN', 'PHYSICAL_TRAINER'), async (req, res, next) => {
+router.put('/:id', requirePermission('grupos', 'edit'), async (req, res, next) => {
   try {
     const { code, name, professorId, lunes, martes, miercoles, jueves, viernes, sabado, domingo,
       startTime, endTime, court, ballLevel, subLevel, active } = req.body;
@@ -210,7 +210,7 @@ router.put('/:id', requireRole('ADMIN', 'PHYSICAL_TRAINER'), async (req, res, ne
   }
 });
 
-router.delete('/:id', requireRole('ADMIN', 'PHYSICAL_TRAINER'), async (req, res, next) => {
+router.delete('/:id', requirePermission('grupos', 'edit'), async (req, res, next) => {
   try {
     const { reason } = req.body || {};
     if (!reason || !reason.trim()) {

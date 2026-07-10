@@ -1,6 +1,6 @@
 const express = require('express');
 const prisma = require('../lib/prisma');
-const { requireRole } = require('../middleware/auth');
+const { requireRole, requirePermission } = require('../middleware/auth');
 
 const router = express.Router();
 
@@ -30,7 +30,7 @@ router.get('/active', async (req, res, next) => {
   }
 });
 
-router.post('/', requireRole('ADMIN'), async (req, res, next) => {
+router.post('/', requirePermission('horarios', 'edit'), async (req, res, next) => {
   try {
     const { name, startDate, endDate, active } = req.body;
     if (!name || !startDate || !endDate) {
@@ -57,7 +57,7 @@ router.post('/', requireRole('ADMIN'), async (req, res, next) => {
   }
 });
 
-router.put('/:id', requireRole('ADMIN'), async (req, res, next) => {
+router.put('/:id', requirePermission('horarios', 'edit'), async (req, res, next) => {
   try {
     const { name, startDate, endDate, active } = req.body;
     const data = {};
@@ -85,7 +85,7 @@ router.put('/:id', requireRole('ADMIN'), async (req, res, next) => {
   }
 });
 
-router.delete('/:id', requireRole('ADMIN'), async (req, res, next) => {
+router.delete('/:id', requirePermission('horarios', 'edit'), async (req, res, next) => {
   try {
     await prisma.semesterExclusion.deleteMany({ where: { semesterId: req.params.id } });
     await prisma.semester.delete({ where: { id: req.params.id } });
@@ -96,7 +96,7 @@ router.delete('/:id', requireRole('ADMIN'), async (req, res, next) => {
 });
 
 // Exclusions
-router.post('/:id/exclusions', requireRole('ADMIN'), async (req, res, next) => {
+router.post('/:id/exclusions', requirePermission('horarios', 'edit'), async (req, res, next) => {
   try {
     const { date, reason } = req.body;
     if (!date) return res.status(400).json({ success: false, error: 'Fecha requerida' });
@@ -110,7 +110,7 @@ router.post('/:id/exclusions', requireRole('ADMIN'), async (req, res, next) => {
   }
 });
 
-router.delete('/:id/exclusions/:exclusionId', requireRole('ADMIN'), async (req, res, next) => {
+router.delete('/:id/exclusions/:exclusionId', requirePermission('horarios', 'edit'), async (req, res, next) => {
   try {
     await prisma.semesterExclusion.delete({ where: { id: req.params.exclusionId } });
     res.json({ success: true, data: { message: 'Fecha excluida eliminada' } });

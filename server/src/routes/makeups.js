@@ -1,6 +1,6 @@
 const express = require('express');
 const prisma = require('../lib/prisma');
-const { requireRole } = require('../middleware/auth');
+const { requireRole, requirePermission } = require('../middleware/auth');
 const { calculateCosts } = require('../services/costEngine');
 
 const router = express.Router();
@@ -34,7 +34,7 @@ function makeupInclude() {
 }
 
 // List makeup classes (optionally filter by date / status)
-router.get('/', requireRole('ADMIN', 'PHYSICAL_TRAINER', 'TEACHER'), async (req, res, next) => {
+router.get('/', requirePermission('reposiciones', 'view'), async (req, res, next) => {
   try {
     const { date, status, from, to } = req.query;
     const where = { kind: 'MAKEUP' };
@@ -66,7 +66,7 @@ router.get('/', requireRole('ADMIN', 'PHYSICAL_TRAINER', 'TEACHER'), async (req,
   }
 });
 
-router.get('/:id', requireRole('ADMIN', 'PHYSICAL_TRAINER', 'TEACHER'), async (req, res, next) => {
+router.get('/:id', requirePermission('reposiciones', 'view'), async (req, res, next) => {
   try {
     const session = await prisma.classSession.findUnique({
       where: { id: req.params.id },
@@ -82,7 +82,7 @@ router.get('/:id', requireRole('ADMIN', 'PHYSICAL_TRAINER', 'TEACHER'), async (r
 });
 
 // Create a makeup class — ADMIN / PHYSICAL_TRAINER
-router.post('/', requireRole('ADMIN', 'PHYSICAL_TRAINER'), async (req, res, next) => {
+router.post('/', requirePermission('reposiciones', 'edit'), async (req, res, next) => {
   try {
     const { date, title, professorId, assistantId, countsAsUnits, studentIds } = req.body;
 
@@ -124,7 +124,7 @@ router.post('/', requireRole('ADMIN', 'PHYSICAL_TRAINER'), async (req, res, next
 });
 
 // Edit makeup meta (only while still scheduled) — ADMIN / PHYSICAL_TRAINER
-router.put('/:id', requireRole('ADMIN', 'PHYSICAL_TRAINER'), async (req, res, next) => {
+router.put('/:id', requirePermission('reposiciones', 'edit'), async (req, res, next) => {
   try {
     const { date, title, professorId, assistantId, countsAsUnits, studentIds } = req.body;
 
@@ -174,7 +174,7 @@ router.put('/:id', requireRole('ADMIN', 'PHYSICAL_TRAINER'), async (req, res, ne
 });
 
 // Delete a makeup — ADMIN / PHYSICAL_TRAINER
-router.delete('/:id', requireRole('ADMIN', 'PHYSICAL_TRAINER'), async (req, res, next) => {
+router.delete('/:id', requirePermission('reposiciones', 'edit'), async (req, res, next) => {
   try {
     const existing = await prisma.classSession.findUnique({ where: { id: req.params.id } });
     if (!existing || existing.kind !== 'MAKEUP') {
