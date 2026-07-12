@@ -27,6 +27,7 @@ import ConflictsPage from './pages/admin/ConflictsPage';
 import FestivalsPage from './pages/admin/FestivalsPage';
 import FestivalAttendancePage from './pages/FestivalAttendancePage';
 import AlertsPage from './pages/admin/AlertsPage';
+import HorariosPage from './pages/HorariosPage';
 
 class ErrorBoundary extends Component {
   constructor(props) {
@@ -111,6 +112,13 @@ function AppRoutes() {
       <Route path="/festivals/:id/attendance" element={
         <RequireAuth roles={['ADMIN', 'PHYSICAL_TRAINER']}>
           <FestivalAttendancePage />
+        </RequireAuth>
+      } />
+
+      {/* Horarios: malla de canchas, para TODOS los roles autenticados */}
+      <Route path="/horarios" element={
+        <RequireAuth>
+          <Shell><HorariosPage /></Shell>
         </RequireAuth>
       } />
 

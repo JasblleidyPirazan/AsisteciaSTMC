@@ -763,3 +763,14 @@ input.form-input, select.form-select, textarea.form-input {
   .detail-modal { display: none !important; }
 }
 
+
+/* ===== Horarios (malla de canchas) ===== */
+.schedule-grid { width: 100%; border-collapse: separate; border-spacing: 6px; }
+.schedule-grid th { text-align: left; font-size: 0.8rem; color: var(--text-soft); font-weight: 600; padding: 4px 8px; }
+.schedule-grid td { vertical-align: top; padding: 0; }
+.sched-hour { font-weight: 700; color: var(--text-muted); font-size: 0.85rem; white-space: nowrap; padding: 10px 8px !important; }
+.sched-free { color: var(--gray-400); font-size: 0.8rem; text-align: center; padding: 14px 0 !important; background: var(--surface-2, var(--gray-50)); border-radius: 10px; }
+.sched-cell { background: var(--surface, #fff); border: 1px solid var(--border, var(--gray-200)); border-radius: 10px; padding: 8px 10px; }
+.sched-students { list-style: none; margin: 6px 0 0; padding: 6px 0 0; border-top: 1px dashed var(--gray-200); font-size: 0.72rem; color: var(--text-muted); }
+.sched-students li { padding: 1px 0; }
+@media print { .no-print { display: none !important; } .app-shell-sidebar, .app-shell-topbar { display: none !important; } }
