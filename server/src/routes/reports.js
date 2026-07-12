@@ -315,4 +315,135 @@ router.get('/dashboard', async (req, res, next) => {
   }
 });
 
+// Home overview dashboard (management): KPIs, weekly attendance, distribution,
+// today's classes, professor load and pending assistant reviews.
+router.get('/home', requireRole('ADMIN', 'SUPERADMIN', 'PHYSICAL_TRAINER'), async (req, res, next) => {
+  try {
+    const now = new Date();
+    const today = new Date(now.toDateString());
+    const day = now.getDay(); // 0=Dom
+    const monday = new Date(now.getFullYear(), now.getMonth(), now.getDate() + (day === 0 ? -6 : 1 - day));
+    const weekEnd = new Date(monday); weekEnd.setDate(monday.getDate() + 6);
+
+    const semester = await prisma.semester.findFirst({ where: { active: true } });
+
+    const [studentsActive, groupsActive, groupsInactive, professors, assistants] = await Promise.all([
+      prisma.student.count({ where: { active: true } }),
+      prisma.group.count({ where: { active: true } }),
+      prisma.group.count({ where: { active: false } }),
+      prisma.professor.count({ where: { active: true } }),
+      prisma.assistant.count({ where: { active: true } }),
+    ]);
+    const newThisSemester = semester
+      ? await prisma.student.count({ where: { active: true, createdAt: { gte: semester.startDate } } })
+      : null;
+
+    const attWhere = semester ? { session: { date: { gte: semester.startDate } } } : {};
+    const attByStatus = await prisma.attendanceRecord.groupBy({
+      by: ['status', 'attendanceType'], where: attWhere, _count: { _all: true },
+    });
+    let presente = 0, ausente = 0, justificado = 0, reposicion = 0;
+    for (const r of attByStatus) {
+      const c = r._count._all;
+      if (r.attendanceType === 'REPOSICION') reposicion += c;
+      else if (r.status === 'PRESENTE') presente += c;
+      else if (r.status === 'AUSENTE') ausente += c;
+      else if (r.status === 'JUSTIFICADA') justificado += c;
+    }
+    const totalAtt = presente + ausente + justificado + reposicion || 1;
+    const pct = (n) => Math.round((n / totalAtt) * 100);
+    const distribution = { presente: pct(presente), ausente: pct(ausente), reposicion: pct(reposicion), justificado: pct(justificado) };
+
+    const weekRecords = await prisma.attendanceRecord.findMany({
+      where: { status: 'PRESENTE', session: { date: { gte: monday, lte: weekEnd } } },
+      select: { session: { select: { date: true } } },
+    });
+    const weekly = [0, 0, 0, 0, 0, 0];
+    for (const r of weekRecords) {
+      const wd = new Date(r.session.date).getUTCDay();
+      const idx = wd === 0 ? -1 : wd - 1;
+      if (idx >= 0 && idx <= 5) weekly[idx] += 1;
+    }
+
+    const dowFields = ['domingo', 'lunes', 'martes', 'miercoles', 'jueves', 'viernes', 'sabado'];
+    const todayGroups = await prisma.group.findMany({
+      where: { active: true, [dowFields[now.getDay()]]: true },
+      select: {
+        id: true, code: true, ballLevel: true, court: true, startTime: true, endTime: true,
+        professor: { select: { name: true } }, _count: { select: { enrollments: true } },
+      },
+      orderBy: { startTime: 'asc' },
+    });
+    const todaySessions = todayGroups.length
+      ? await prisma.classSession.findMany({
+          where: { date: today, groupId: { in: todayGroups.map((g) => g.id) } },
+          select: { groupId: true, status: true, attendanceRecords: { where: { status: 'PRESENTE' }, select: { id: true } } },
+        })
+      : [];
+    const sessByGroup = Object.fromEntries(todaySessions.map((s) => [s.groupId, s]));
+    const nowHM = now.getHours() * 60 + now.getMinutes();
+    const toMin = (t) => { const [h, m] = String(t || '0:0').split(':').map(Number); return h * 60 + (m || 0); };
+    const todayClasses = todayGroups.map((g) => {
+      const s = sessByGroup[g.id];
+      let status;
+      if (s && (s.status === 'REALIZADA' || s.status === 'CANCELADA_MITAD')) status = 'Lista';
+      else if (s && s.status === 'CANCELADA') status = 'Cancelada';
+      else if (nowHM >= toMin(g.startTime) && nowHM <= toMin(g.endTime)) status = 'En curso';
+      else if (nowHM < toMin(g.startTime)) status = 'Próxima';
+      else status = 'Pendiente';
+      return {
+        groupId: g.id, code: g.code, ballLevel: g.ballLevel, court: g.court, startTime: g.startTime,
+        professor: g.professor?.name || '—', present: s ? s.attendanceRecords.length : 0,
+        total: g._count.enrollments, status,
+      };
+    });
+
+    const profLoadRaw = await prisma.group.groupBy({ by: ['professorId'], where: { active: true }, _count: { _all: true } });
+    const profList = await prisma.professor.findMany({ where: { active: true }, select: { id: true, name: true } });
+    const profName = Object.fromEntries(profList.map((p) => [p.id, p.name]));
+    const professorLoad = profLoadRaw
+      .filter((r) => profName[r.professorId])
+      .map((r) => ({ name: profName[r.professorId], groups: r._count._all }))
+      .sort((a, b) => b.groups - a.groups);
+
+    const pendingSessions = await prisma.classSession.findMany({
+      where: { status: { in: ['REALIZADA', 'CANCELADA_MITAD'] }, assistantId: { not: null }, coordinatorValidatedAt: null },
+      select: { id: true, assistantId: true, assistantConfirmedId: true, group: { select: { code: true, professor: { select: { name: true } } } } },
+      orderBy: { date: 'desc' }, take: 5,
+    });
+    const pendingReviews = pendingSessions.map((s) => ({
+      code: s.group?.code || '—',
+      professor: s.group?.professor?.name || '—',
+      note: !s.assistantConfirmedId
+        ? 'Falta confirmación del asistente'
+        : s.assistantConfirmedId === s.assistantId ? 'Plena coincidencia' : 'Revisar asistentes',
+    }));
+
+    const [weekDone, weekGroups] = await Promise.all([
+      prisma.classSession.count({ where: { status: { in: ['REALIZADA', 'CANCELADA_MITAD'] }, date: { gte: monday, lte: weekEnd } } }),
+      prisma.group.findMany({ where: { active: true }, select: { lunes: true, martes: true, miercoles: true, jueves: true, viernes: true, sabado: true, domingo: true } }),
+    ]);
+    const weekTotal = weekGroups.reduce((sum, g) =>
+      sum + ['lunes', 'martes', 'miercoles', 'jueves', 'viernes', 'sabado'].filter((dd) => g[dd]).length, 0);
+
+    res.json({
+      success: true,
+      data: {
+        students: { active: studentsActive, newThisSemester },
+        groups: { active: groupsActive, inactive: groupsInactive },
+        staff: { professors, assistants },
+        attendanceAvg: distribution.presente,
+        distribution,
+        weekly,
+        todayClasses,
+        professorLoad,
+        pendingReviews,
+        classProgress: { done: weekDone, total: weekTotal },
+      },
+    });
+  } catch (err) {
+    next(err);
+  }
+});
+
 module.exports = router;
