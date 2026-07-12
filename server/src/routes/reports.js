@@ -334,12 +334,12 @@ router.get('/home', requirePermission('tablero', 'view'), async (req, res, next)
     // Distribución de asistencia (semestre activo, o histórico)
     const attWhere = semester ? { session: { date: { gte: semester.startDate } } } : {};
     const attByStatus = await prisma.attendanceRecord.groupBy({
-      by: ['status', 'type'], where: attWhere, _count: { _all: true },
+      by: ['status', 'attendanceType'], where: attWhere, _count: { _all: true },
     });
     let presente = 0, ausente = 0, justificado = 0, reposicion = 0;
     for (const r of attByStatus) {
       const c = r._count._all;
-      if (r.type === 'REPOSICION') reposicion += c;
+      if (r.attendanceType === 'REPOSICION') reposicion += c;
       else if (r.status === 'PRESENTE') presente += c;
       else if (r.status === 'AUSENTE') ausente += c;
       else if (r.status === 'JUSTIFICADA') justificado += c;

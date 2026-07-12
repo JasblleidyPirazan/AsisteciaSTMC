@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { api } from '../api/client';
 import { useAuth } from '../hooks/useAuth';
@@ -6,6 +6,8 @@ import GroupCard from '../components/GroupCard';
 import OfflineBanner from '../components/OfflineBanner';
 import AssistantDayView from '../components/AssistantDayView';
 import { fmtDate } from '../utils/dates';
+
+const BALL_COLOR = { Roja: '#E8526A', Naranja: '#EA8A2E', Verde: '#1FA971', Amarilla: '#E8A23B' };
 
 function todayStr() {
   return new Date().toISOString().slice(0, 10);
@@ -23,8 +25,11 @@ export default function TomarListaPage() {
   const { user } = useAuth();
   const navigate = useNavigate();
   const [groups, setGroups] = useState([]);
+  const [sessionsByGroup, setSessionsByGroup] = useState({});
   const [date, setDate] = useState(todayStr());
   const [loading, setLoading] = useState(true);
+  const [profFilter, setProfFilter] = useState('');
+  const [levelFilter, setLevelFilter] = useState('');
 
   useEffect(() => {
     loadGroups();
@@ -34,15 +39,21 @@ export default function TomarListaPage() {
     setLoading(true);
     try {
       const params = date === todayStr() ? { today: 'true' } : {};
-      const data = await api.get('/groups', params);
+      const [data, sessions] = await Promise.all([
+        api.get('/groups', params),
+        api.get('/sessions', { date }).catch(() => []),
+      ]);
+      let list = data;
       if (date !== todayStr()) {
         const dow = new Date(date + 'T12:00:00').getDay();
         const dayFields = ['domingo', 'lunes', 'martes', 'miercoles', 'jueves', 'viernes', 'sabado'];
         const dayField = dayFields[dow];
-        setGroups(data.filter((g) => g[dayField]));
-      } else {
-        setGroups(data);
+        list = data.filter((g) => g[dayField]);
       }
+      setGroups(list);
+      const map = {};
+      (sessions || []).forEach((s) => { const gid = s.groupId || s.group?.id; if (gid) map[gid] = s; });
+      setSessionsByGroup(map);
     } catch {
       const cached = localStorage.getItem('stmc_groups');
       if (cached) setGroups(JSON.parse(cached));
@@ -56,6 +67,29 @@ export default function TomarListaPage() {
   }
 
   const isAssistant = user?.role === 'ASSISTANT';
+
+  const professors = useMemo(() => {
+    const m = new Map();
+    groups.forEach((g) => { if (g.professor) m.set(g.professor.id, g.professor.name); });
+    return [...m.entries()].sort((a, b) => a[1].localeCompare(b[1]));
+  }, [groups]);
+  const levels = useMemo(() => [...new Set(groups.map((g) => g.ballLevel).filter(Boolean))], [groups]);
+
+  const filteredGroups = useMemo(() => groups.filter((g) =>
+    (!profFilter || g.professor?.id === profFilter) &&
+    (!levelFilter || g.ballLevel === levelFilter)
+  ), [groups, profFilter, levelFilter]);
+
+  // Agrupar por horario (inicio–fin). Los grupos llegan ordenados por startTime.
+  const timeSlots = useMemo(() => {
+    const m = new Map();
+    for (const g of filteredGroups) {
+      const key = `${g.startTime}–${g.endTime}`;
+      if (!m.has(key)) m.set(key, []);
+      m.get(key).push(g);
+    }
+    return [...m.entries()].sort((a, b) => a[0].localeCompare(b[0]));
+  }, [filteredGroups]);
 
   return (
     <div className="page">
@@ -87,18 +121,47 @@ export default function TomarListaPage() {
             <PendingFestivals />
             <div className="flex items-center justify-between mb-3">
               <h2>Grupos del día</h2>
-              <span className="badge badge-blue">{groups.length}</span>
+              <span className="badge badge-blue">{filteredGroups.length}</span>
             </div>
+
+            {/* Filtros: profesor + nivel */}
+            {groups.length > 0 && (
+              <div className="flex items-center gap-2 mb-3" style={{ flexWrap: 'wrap' }}>
+                <select className="form-input form-select" style={{ minHeight: 36, width: 'auto', fontSize: '0.85rem' }}
+                  value={profFilter} onChange={(e) => setProfFilter(e.target.value)}>
+                  <option value="">Todos los profesores</option>
+                  {professors.map(([id, name]) => <option key={id} value={id}>{name}</option>)}
+                </select>
+                <select className="form-input form-select" style={{ minHeight: 36, width: 'auto', fontSize: '0.85rem' }}
+                  value={levelFilter} onChange={(e) => setLevelFilter(e.target.value)}>
+                  <option value="">Todos los niveles</option>
+                  {levels.map((l) => <option key={l} value={l}>{l}</option>)}
+                </select>
+                {(profFilter || levelFilter) && (
+                  <button className="btn btn-ghost" style={{ minHeight: 36, fontSize: '0.8rem' }}
+                    onClick={() => { setProfFilter(''); setLevelFilter(''); }}>✕ Limpiar</button>
+                )}
+              </div>
+            )}
+
             {loading ? (
               <div className="spinner" />
-            ) : groups.length === 0 ? (
-              <div className="alert alert-info">No hay grupos programados para este día.</div>
+            ) : filteredGroups.length === 0 ? (
+              <div className="alert alert-info">No hay grupos que coincidan para este día.</div>
             ) : (
-              <div className="card-grid">
-                {groups.map((g) => (
-                  <GroupCard key={g.id} group={g} onClick={() => handleGroupClick(g)} />
-                ))}
-              </div>
+              timeSlots.map(([slot, slotGroups]) => (
+                <div key={slot} className="mb-3">
+                  <div className="flex items-center gap-2 mb-2">
+                    <span className="font-medium text-sm">🕐 {slot}</span>
+                    <span className="text-xs text-gray">{slotGroups.length} grupo{slotGroups.length !== 1 ? 's' : ''}</span>
+                  </div>
+                  <div className="card-grid">
+                    {slotGroups.map((g) => (
+                      <GroupCard key={g.id} group={g} session={sessionsByGroup[g.id]} onClick={() => handleGroupClick(g)} />
+                    ))}
+                  </div>
+                </div>
+              ))
             )}
           </>
         )}

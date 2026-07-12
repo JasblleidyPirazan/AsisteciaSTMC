@@ -57,6 +57,11 @@ export default function GroupsPage() {
   const [saving, setSaving] = useState(false);
   const [search, setSearch] = useState('');
   const [showInactive, setShowInactive] = useState(false);
+  const [filterLevel, setFilterLevel] = useState('');
+  const [filterProfessor, setFilterProfessor] = useState('');
+  const [filterDay, setFilterDay] = useState('');
+  const [filterTime, setFilterTime] = useState('');
+  const [sort, setSort] = useState({ key: 'startTime', dir: 'asc' });
   const [exporting, setExporting] = useState(false);
 
   const [deactivateTarget, setDeactivateTarget] = useState(null);
@@ -81,14 +86,51 @@ export default function GroupsPage() {
     canchas: new Set(active.map((g) => g.court).filter((c) => c != null)).size,
   }), [active, inactive]);
 
+  const professorOptions = useMemo(
+    () => [...new Set(active.map((g) => g.professor?.name).filter(Boolean))].sort(),
+    [active]);
+  const timeOptions = useMemo(
+    () => [...new Set(active.map((g) => g.startTime).filter(Boolean))].sort(),
+    [active]);
+
+  function toggleSort(key) {
+    setSort((s) => (s.key === key ? { key, dir: s.dir === 'asc' ? 'desc' : 'asc' } : { key, dir: 'asc' }));
+  }
+  function sortArrow(key) {
+    if (sort.key !== key) return '';
+    return sort.dir === 'asc' ? ' ▲' : ' ▼';
+  }
+
   const visible = useMemo(() => {
     const base = showInactive ? inactive : active;
     const q = search.trim().toLowerCase();
-    if (!q) return base;
-    return base.filter((g) =>
-      [g.code, g.professor?.name, g.ballLevel, g.subLevel, g.court && `cancha ${g.court}`]
-        .filter(Boolean).join(' ').toLowerCase().includes(q));
-  }, [active, inactive, showInactive, search]);
+    let out = base.filter((g) => {
+      if (q && ![g.code, g.professor?.name, g.ballLevel, g.subLevel, g.court && `cancha ${g.court}`]
+        .filter(Boolean).join(' ').toLowerCase().includes(q)) return false;
+      if (!showInactive) {
+        if (filterLevel && g.ballLevel !== filterLevel) return false;
+        if (filterProfessor && g.professor?.name !== filterProfessor) return false;
+        if (filterDay && !g[filterDay]) return false;
+        if (filterTime && g.startTime !== filterTime) return false;
+      }
+      return true;
+    });
+    if (!showInactive) {
+      const { key, dir } = sort;
+      const val = (g) => {
+        if (key === 'professor') return g.professor?.name || '';
+        if (key === 'court') return g.court ?? 999;
+        if (key === 'ballLevel') return g.ballLevel || '';
+        return g[key] ?? '';
+      };
+      out = [...out].sort((a, b) => {
+        const va = val(a); const vb = val(b);
+        const cmp = typeof va === 'number' && typeof vb === 'number' ? va - vb : String(va).localeCompare(String(vb));
+        return dir === 'asc' ? cmp : -cmp;
+      });
+    }
+    return out;
+  }, [active, inactive, showInactive, search, filterLevel, filterProfessor, filterDay, filterTime, sort]);
 
   function closeForm() { setShowForm(false); setForm(EMPTY_FORM); setEditingId(null); setError(''); }
 
@@ -220,6 +262,48 @@ export default function GroupsPage() {
           <span className="text-xs text-gray">{visible.length} / {(showInactive ? inactive : active).length} filas</span>
         </div>
 
+        {!showInactive && (
+          <div className="mb-3" style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+            {/* Niveles */}
+            <div className="flex items-center gap-1" style={{ flexWrap: 'wrap' }}>
+              <button className={`chip ${!filterLevel ? 'chip-active' : ''}`} onClick={() => setFilterLevel('')}>Todos</button>
+              {Object.keys(LEVELS).map((lvl) => (
+                <button key={lvl} className={`chip ${filterLevel === lvl ? 'chip-active' : ''}`}
+                  onClick={() => setFilterLevel(filterLevel === lvl ? '' : lvl)}>
+                  <span className="legend-dot" style={{ background: BALL_COLOR[lvl] }} /> {lvl}
+                </button>
+              ))}
+            </div>
+            {/* Días */}
+            <div className="flex items-center gap-1" style={{ flexWrap: 'wrap' }}>
+              <button className={`chip ${!filterDay ? 'chip-active' : ''}`} onClick={() => setFilterDay('')}>Todos los días</button>
+              {DAY_TOGGLE.map((d) => (
+                <button key={d.key} className={`chip ${filterDay === d.key ? 'chip-active' : ''}`}
+                  onClick={() => setFilterDay(filterDay === d.key ? '' : d.key)}>{d.label}</button>
+              ))}
+            </div>
+            {/* Profesor + horario */}
+            <div className="flex items-center gap-2" style={{ flexWrap: 'wrap' }}>
+              <select className="form-input form-select" style={{ minHeight: 34, width: 'auto', fontSize: '0.85rem' }}
+                value={filterProfessor} onChange={(e) => setFilterProfessor(e.target.value)}>
+                <option value="">Todos los profesores</option>
+                {professorOptions.map((p) => <option key={p} value={p}>{p}</option>)}
+              </select>
+              <select className="form-input form-select" style={{ minHeight: 34, width: 'auto', fontSize: '0.85rem' }}
+                value={filterTime} onChange={(e) => setFilterTime(e.target.value)}>
+                <option value="">Todos los horarios</option>
+                {timeOptions.map((t) => <option key={t} value={t}>{t}</option>)}
+              </select>
+              {(filterLevel || filterProfessor || filterDay || filterTime) && (
+                <button className="btn btn-ghost" style={{ minHeight: 34, fontSize: '0.8rem' }}
+                  onClick={() => { setFilterLevel(''); setFilterProfessor(''); setFilterDay(''); setFilterTime(''); }}>
+                  ✕ Limpiar filtros
+                </button>
+              )}
+            </div>
+          </div>
+        )}
+
         {showForm && (
           <div className="card mb-4">
             <h3 className="mb-3">{editingId ? 'Editar grupo' : 'Nuevo grupo'}</h3>
@@ -276,7 +360,7 @@ export default function GroupsPage() {
                     value={form.capacity} onChange={(e) => setField('capacity', e.target.value)} />
                 </div>
               </div>
-              <div style={{ display: 'grid', gridTemplateColumns: subOptions ? '1fr 1fr' : '1fr', gap: 12 }}>
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
                 <div className="form-group">
                   <label className="form-label">Nivel</label>
                   <select className="form-input form-select" value={form.ballLevel}
@@ -285,16 +369,15 @@ export default function GroupsPage() {
                     {Object.keys(LEVELS).map((b) => <option key={b} value={b}>{b}</option>)}
                   </select>
                 </div>
-                {subOptions && (
-                  <div className="form-group">
-                    <label className="form-label">Subnivel</label>
-                    <select className="form-input form-select" value={form.subLevel}
-                      onChange={(e) => setField('subLevel', e.target.value)}>
-                      <option value="">Sin subnivel</option>
-                      {subOptions.map((s) => <option key={s} value={s}>{s}</option>)}
-                    </select>
-                  </div>
-                )}
+                <div className="form-group">
+                  <label className="form-label">Subnivel</label>
+                  <select className="form-input form-select" value={form.subLevel}
+                    disabled={!subOptions}
+                    onChange={(e) => setField('subLevel', e.target.value)}>
+                    <option value="">{subOptions ? 'Sin subnivel' : 'Elige un nivel primero'}</option>
+                    {(subOptions || []).map((s) => <option key={s} value={s}>{s}</option>)}
+                  </select>
+                </div>
               </div>
               <div className="flex gap-2 mt-2">
                 <button type="button" className="btn btn-outline" style={{ flex: 1 }} onClick={closeForm}>Cancelar</button>
@@ -346,8 +429,14 @@ export default function GroupsPage() {
             <table className="data-table">
               <thead>
                 <tr>
-                  <th>Grupo</th><th>Días</th><th>Hora</th><th>Profesor</th><th>Cancha</th>
-                  <th>Nivel</th><th>Subnivel</th><th>Ocupación</th>{canEdit && <th></th>}
+                  <th className="clickable" onClick={() => toggleSort('code')}>Grupo{sortArrow('code')}</th>
+                  <th>Días</th>
+                  <th className="clickable" onClick={() => toggleSort('startTime')}>Hora{sortArrow('startTime')}</th>
+                  <th className="clickable" onClick={() => toggleSort('professor')}>Profesor{sortArrow('professor')}</th>
+                  <th className="clickable" onClick={() => toggleSort('court')}>Cancha{sortArrow('court')}</th>
+                  <th className="clickable" onClick={() => toggleSort('ballLevel')}>Nivel{sortArrow('ballLevel')}</th>
+                  <th className="clickable" onClick={() => toggleSort('subLevel')}>Subnivel{sortArrow('subLevel')}</th>
+                  <th>Ocupación</th>{canEdit && <th></th>}
                 </tr>
               </thead>
               <tbody>

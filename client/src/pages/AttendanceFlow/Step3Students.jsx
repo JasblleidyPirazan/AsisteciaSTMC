@@ -56,7 +56,7 @@ export default function Step3Students({ groupId, records, onChange, onNext }) {
     if (!already) {
       onChange([...records, { studentId: student.id, name: student.name, status: null, attendanceType: 'REPOSICION' }]);
     }
-    setShowRepoSearch(false);
+    // Mantener el buscador abierto para agregar tantos estudiantes como se quiera.
     setSearch('');
   }
 
@@ -133,16 +133,18 @@ export default function Step3Students({ groupId, records, onChange, onNext }) {
             onChange={(e) => setSearch(e.target.value)}
             autoFocus
           />
-          {allStudents
-            .filter((s) => s.name.toLowerCase().includes(search.toLowerCase()) && !records.find((r) => r.studentId === s.id))
-            .slice(0, 8)
-            .map((s) => (
-              <button key={s.id} className="btn btn-outline btn-full mb-1" onClick={() => addReposition(s)}>
-                {s.name}
-              </button>
-            ))}
-          <button className="btn btn-ghost btn-full mt-1" onClick={() => setShowRepoSearch(false)}>
-            Cancelar
+          <div style={{ maxHeight: 260, overflowY: 'auto' }}>
+            {allStudents
+              .filter((s) => s.name.toLowerCase().includes(search.toLowerCase()) && !records.find((r) => r.studentId === s.id))
+              .slice(0, 50)
+              .map((s) => (
+                <button key={s.id} className="btn btn-outline btn-full mb-1" onClick={() => addReposition(s)}>
+                  + {s.name}
+                </button>
+              ))}
+          </div>
+          <button className="btn btn-ghost btn-full mt-1" onClick={() => { setShowRepoSearch(false); setSearch(''); }}>
+            Listo
           </button>
         </div>
       )}
