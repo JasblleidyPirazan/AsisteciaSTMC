@@ -154,7 +154,7 @@ function AppRoutes() {
         </RequireAuth>
       } />
       <Route path="/admin/groups" element={
-        <RequireAuth roles={['ADMIN', 'PHYSICAL_TRAINER']}>
+        <RequireAuth roles={['ADMIN', 'PHYSICAL_TRAINER', 'RECEPTION']}>
           <Shell><GroupsPage /></Shell>
         </RequireAuth>
       } />

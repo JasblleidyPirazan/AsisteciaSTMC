@@ -62,16 +62,30 @@ function fmtFullDate(d) {
   if (!d) return '';
   return new Date(d).toLocaleDateString('es-CO', { day: 'numeric', month: 'short', year: 'numeric', timeZone: 'UTC' });
 }
+function fmtCOP(n) {
+  return new Intl.NumberFormat('es-CO', { style: 'currency', currency: 'COP', maximumFractionDigits: 0 }).format(n || 0);
+}
+const PAYMENT_METHODS = [
+  { value: 'TRANSFERENCIA', label: 'Transferencia' },
+  { value: 'EFECTIVO', label: 'Efectivo' },
+  { value: 'WOMPI', label: 'Wompi' },
+  { value: 'BOLD', label: 'Bold' },
+];
+const PAYMENT_METHOD_LABEL = Object.fromEntries(PAYMENT_METHODS.map((m) => [m.value, m.label]));
 
 export default function StudentsPage() {
   const navigate = useNavigate();
   const { user } = useAuth();
-  // Recepción only manages the payment status (Inscrito ↔ Matriculado)
   const isReception = user?.role === 'RECEPTION';
   const isAdmin = user?.role === 'ADMIN';
-  // CRUD de estudiantes: ADMIN / SUPERADMIN / Coordinador (PHYSICAL_TRAINER)
-  const canEdit = ['ADMIN', 'SUPERADMIN', 'PHYSICAL_TRAINER'].includes(user?.role);
-  const canImport = canEdit;                          // importar Excel
+  // Gestión avanzada (suspender / desactivar / grupos): ADMIN / SUPERADMIN / Coordinador.
+  const canManage = ['ADMIN', 'SUPERADMIN', 'PHYSICAL_TRAINER'].includes(user?.role);
+  // Crear y editar datos básicos: la anterior + Recepción.
+  const canEdit = canManage || isReception;
+  const canImport = canManage;                        // importar Excel (no Recepción)
+  // Registro de pagos: solo Recepción, Admin y Superadmin.
+  const canSeePayments = ['ADMIN', 'SUPERADMIN', 'RECEPTION'].includes(user?.role);
+  const canDeletePayment = ['ADMIN', 'SUPERADMIN'].includes(user?.role);
 
   // Import modal (ADMIN) — subir Excel de matrícula
   const [showImport, setShowImport] = useState(false);
@@ -116,6 +130,13 @@ export default function StudentsPage() {
   const [detailLoading, setDetailLoading] = useState(false);
   const [prevAmount, setPrevAmount] = useState('');
   const [prevSaving, setPrevSaving] = useState(false);
+
+  // Registro de pagos (dentro de la ficha)
+  const [payments, setPayments] = useState(null);
+  const emptyPayForm = { paymentDate: new Date().toISOString().slice(0, 10), method: 'TRANSFERENCIA', amount: '', note: '' };
+  const [payForm, setPayForm] = useState(emptyPayForm);
+  const [paySaving, setPaySaving] = useState(false);
+  const [payError, setPayError] = useState('');
 
   // Deactivation modal
   const [deactivateTarget, setDeactivateTarget] = useState(null);
@@ -180,6 +201,42 @@ export default function StudentsPage() {
     setDetailTarget(s); setDetail(null); setDetailLoading(true); setPrevAmount('');
     api.get(`/students/${s.id}/report`)
       .then(setDetail).catch(() => setDetail({ error: true })).finally(() => setDetailLoading(false));
+    if (canSeePayments) {
+      setPayments(null); setPayForm(emptyPayForm); setPayError('');
+      api.get(`/students/${s.id}/payments`).then(setPayments).catch(() => setPayments({ error: true }));
+    }
+  }
+
+  async function addPayment(e) {
+    e.preventDefault();
+    setPayError('');
+    if (!payForm.amount || parseFloat(payForm.amount) <= 0) { setPayError('Ingresa un valor válido'); return; }
+    setPaySaving(true);
+    try {
+      await api.post(`/students/${detailTarget.id}/payments`, {
+        paymentDate: payForm.paymentDate,
+        method: payForm.method,
+        amount: parseFloat(payForm.amount),
+        note: payForm.note || null,
+      });
+      const data = await api.get(`/students/${detailTarget.id}/payments`);
+      setPayments(data); setPayForm(emptyPayForm);
+    } catch (err) {
+      setPayError(err.message);
+    } finally {
+      setPaySaving(false);
+    }
+  }
+
+  async function deletePayment(paymentId) {
+    if (!confirm('¿Eliminar este pago?')) return;
+    try {
+      await api.delete(`/students/${detailTarget.id}/payments/${paymentId}`);
+      const data = await api.get(`/students/${detailTarget.id}/payments`);
+      setPayments(data);
+    } catch (err) {
+      alert(err.message);
+    }
   }
 
   async function addPreviousClasses() {
@@ -487,6 +544,78 @@ export default function StudentsPage() {
           </div>
         )}
 
+        {canSeePayments && (
+          <div className="card mb-3">
+            <div className="flex items-center justify-between mb-2" style={{ flexWrap: 'wrap', gap: 6 }}>
+              <h3>Registro de pagos</h3>
+              {payments && !payments.error && (
+                <span className="badge badge-green">{fmtCOP(payments.total)} · {payments.count} pago{payments.count !== 1 ? 's' : ''}</span>
+              )}
+            </div>
+
+            {payError && <div className="alert alert-error mb-2">{payError}</div>}
+
+            {/* Nuevo pago */}
+            <form onSubmit={addPayment} className="mb-3">
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
+                <div className="form-group" style={{ marginBottom: 8 }}>
+                  <label className="form-label">Fecha de pago</label>
+                  <input type="date" className="form-input" required value={payForm.paymentDate}
+                    onChange={(e) => setPayForm({ ...payForm, paymentDate: e.target.value })} />
+                </div>
+                <div className="form-group" style={{ marginBottom: 8 }}>
+                  <label className="form-label">Medio de pago</label>
+                  <select className="form-input form-select" value={payForm.method}
+                    onChange={(e) => setPayForm({ ...payForm, method: e.target.value })}>
+                    {PAYMENT_METHODS.map((m) => <option key={m.value} value={m.value}>{m.label}</option>)}
+                  </select>
+                </div>
+              </div>
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
+                <div className="form-group" style={{ marginBottom: 8 }}>
+                  <label className="form-label">Valor</label>
+                  <input type="number" className="form-input" min={0} step={1000} required placeholder="Ej: 120000"
+                    value={payForm.amount} onChange={(e) => setPayForm({ ...payForm, amount: e.target.value })} />
+                </div>
+                <div className="form-group" style={{ marginBottom: 8 }}>
+                  <label className="form-label">Nota (opcional)</label>
+                  <input type="text" className="form-input" maxLength={200} placeholder="Ref, concepto…"
+                    value={payForm.note} onChange={(e) => setPayForm({ ...payForm, note: e.target.value })} />
+                </div>
+              </div>
+              <button type="submit" className="btn btn-primary btn-full" disabled={paySaving}>
+                {paySaving ? 'Registrando…' : '＋ Registrar pago'}
+              </button>
+            </form>
+
+            {/* Historial de pagos */}
+            {!payments ? (
+              <div className="spinner" />
+            ) : payments.error ? (
+              <div className="alert alert-error">No se pudieron cargar los pagos.</div>
+            ) : payments.payments.length === 0 ? (
+              <div className="text-sm text-gray">Sin pagos registrados.</div>
+            ) : (
+              <div style={{ maxHeight: 220, overflowY: 'auto' }}>
+                {payments.payments.map((p) => (
+                  <div key={p.id} className="home-list-row">
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <div className="text-sm font-medium">{fmtCOP(p.amount)} <span className="badge badge-gray" style={{ fontSize: '0.66rem' }}>{PAYMENT_METHOD_LABEL[p.method] || p.method}</span></div>
+                      <div className="text-xs text-gray">
+                        {fmtFullDate(p.paymentDate)}{p.receivedByName ? ` · recibió ${p.receivedByName}` : ''}{p.note ? ` · ${p.note}` : ''}
+                      </div>
+                    </div>
+                    {canDeletePayment && (
+                      <button className="btn btn-ghost" style={{ minHeight: 26, padding: '0 6px', fontSize: '0.7rem', color: 'var(--red)' }}
+                        onClick={() => deletePayment(p.id)}>Eliminar</button>
+                    )}
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
+
         <div className="flex items-center justify-between mb-2" style={{ flexWrap: 'wrap', gap: 6 }}>
           <h3>Historial de asistencia</h3>
           <div className="flex gap-2" style={{ flexWrap: 'wrap' }}>
@@ -510,11 +639,11 @@ export default function StudentsPage() {
         </div>
 
         <div className="flex gap-2 mt-3" style={{ flexWrap: 'wrap' }}>
-          {(canEdit || isReception) && <button className="btn btn-outline" style={{ flex: 1 }} onClick={() => { const s = detailTarget; openEdit(s); }}>Editar</button>}
-          {canEdit && <button className="btn btn-outline" style={{ flex: 1 }} onClick={() => { const s = detailTarget; openManageGroups(s); }}>Grupos</button>}
-          {canEdit && st.studentStatus === 'SUSPENDIDO' && <button className="btn btn-outline" style={{ flex: 1, color: 'var(--green)' }} onClick={() => handleUnsuspend(detailTarget)}>Levantar</button>}
-          {canEdit && st.studentStatus !== 'SUSPENDIDO' && st.studentStatus !== 'INACTIVO' && <button className="btn btn-outline" style={{ flex: 1, color: 'var(--yellow)' }} onClick={() => openSuspend(detailTarget)}>Suspender</button>}
-          {canEdit && st.active && <button className="btn btn-outline" style={{ flex: 1, color: 'var(--red)' }} onClick={() => openDeactivate(detailTarget)}>Desactivar</button>}
+          {canEdit && <button className="btn btn-outline" style={{ flex: 1 }} onClick={() => { const s = detailTarget; openEdit(s); }}>Editar</button>}
+          {canManage && <button className="btn btn-outline" style={{ flex: 1 }} onClick={() => { const s = detailTarget; openManageGroups(s); }}>Grupos</button>}
+          {canManage && st.studentStatus === 'SUSPENDIDO' && <button className="btn btn-outline" style={{ flex: 1, color: 'var(--green)' }} onClick={() => handleUnsuspend(detailTarget)}>Levantar</button>}
+          {canManage && st.studentStatus !== 'SUSPENDIDO' && st.studentStatus !== 'INACTIVO' && <button className="btn btn-outline" style={{ flex: 1, color: 'var(--yellow)' }} onClick={() => openSuspend(detailTarget)}>Suspender</button>}
+          {canManage && st.active && <button className="btn btn-outline" style={{ flex: 1, color: 'var(--red)' }} onClick={() => openDeactivate(detailTarget)}>Desactivar</button>}
         </div>
       </>
     );

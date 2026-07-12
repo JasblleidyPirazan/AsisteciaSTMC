@@ -24,6 +24,7 @@ model User {
   reportedAttendance AttendanceRecord[] @relation("AttendanceReporter")
   sessionEdits       SessionEditLog[]   @relation("SessionEditor")
   classReports       ClassReport[]      @relation("ClassReportReporter")
+  paymentsReceived   StudentPayment[]   @relation("PaymentReceiver")
 
   @@map("users")
 }
@@ -100,8 +101,37 @@ model Student {
   makeupEnrollments     MakeupEnrollment[]
   makeupParticipations  MakeupParticipant[]
   groupHistory          StudentGroupHistory[]
+  payments              StudentPayment[]
 
   @@map("students")
+}
+
+// Registro de pagos de un estudiante. Historial independiente del estado
+// Inscrito/Matriculado (no lo modifica). Lo gestionan Recepción, Admin y
+// Superadmin. `receivedBy*` = quién registró el pago (usuario logueado).
+model StudentPayment {
+  id             String        @id @default(cuid())
+  studentId      String        @map("student_id")
+  paymentDate    DateTime      @map("payment_date") @db.Date
+  method         PaymentMethod
+  amount         Decimal       @db.Decimal(12, 2)
+  receivedById   String?       @map("received_by_id")
+  receivedByName String?       @map("received_by_name")
+  note           String?
+  createdAt      DateTime      @default(now()) @map("created_at")
+
+  student    Student @relation(fields: [studentId], references: [id])
+  receivedBy User?   @relation("PaymentReceiver", fields: [receivedById], references: [id])
+
+  @@index([studentId])
+  @@map("student_payments")
+}
+
+enum PaymentMethod {
+  TRANSFERENCIA
+  EFECTIVO
+  WOMPI
+  BOLD
 }
 
 model Group {
