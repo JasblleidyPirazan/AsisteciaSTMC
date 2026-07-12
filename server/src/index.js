@@ -49,6 +49,7 @@ app.get('/api/health', (req, res) => {
 
 // Public enrollment routes (rate limiting applied per-route inside the router)
 app.use('/api/enrollment', require('./routes/enrollment'));
+app.use('/api/validation', require('./routes/validation'));
 
 // Auth (rate-limited on login)
 app.use('/api/auth', authLimiter, require('./routes/auth'));

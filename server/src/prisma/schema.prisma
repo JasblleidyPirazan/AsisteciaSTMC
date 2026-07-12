@@ -92,6 +92,9 @@ model Student {
   active             Boolean   @default(true)
   deactivationReason String?   @map("deactivation_reason")
   deactivatedAt      DateTime? @map("deactivated_at")
+  // Validación de datos + aceptación de políticas por el acudiente (flujo público)
+  validatedAt        DateTime? @map("validated_at")
+  policiesAcceptedAt DateTime? @map("policies_accepted_at")
   createdAt          DateTime  @default(now()) @map("created_at")
 
   parentUser           User?                 @relation("ParentUser", fields: [parentUserId], references: [id])

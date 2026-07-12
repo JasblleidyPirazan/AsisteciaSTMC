@@ -15,6 +15,7 @@ const NAV = [
 
   { section: 'Operación', roles: ['ADMIN', 'PHYSICAL_TRAINER', 'RECEPTION'] },
   { label: 'Estudiantes', path: '/admin/students', icon: '👤', roles: ['ADMIN', 'PHYSICAL_TRAINER', 'RECEPTION'] },
+  { label: 'Validación de datos', path: '/admin/enrollment', icon: '📝', roles: ['ADMIN', 'PHYSICAL_TRAINER', 'RECEPTION'] },
   { label: 'Grupos', path: '/admin/groups', icon: '🎾', roles: ['ADMIN', 'PHYSICAL_TRAINER', 'RECEPTION'] },
   { label: 'Reposiciones', path: '/admin/makeups', icon: '🔁', roles: ['ADMIN', 'PHYSICAL_TRAINER'] },
   { label: 'Festivales', path: '/admin/festivals', icon: '🎉', roles: ['ADMIN', 'PHYSICAL_TRAINER'] },
@@ -31,7 +32,6 @@ const NAV = [
   { label: 'Asistentes', path: '/admin/assistants', icon: '🤝', roles: ['ADMIN'] },
   { label: 'Usuarios y roles', path: '/admin/users', icon: '🔑', roles: ['ADMIN'] },
   { label: 'Liquidación', path: '/admin/payroll', icon: '💰', roles: ['ADMIN'] },
-  { label: 'Inscripciones', path: '/admin/enrollment', icon: '📋', roles: ['ADMIN'] },
   { label: 'Auditoría', path: '/admin/audit', icon: '🕵️', roles: ['ADMIN'] },
   { label: 'Configuración', path: '/admin/config', icon: '⚙️', roles: ['ADMIN'] },
 ];
