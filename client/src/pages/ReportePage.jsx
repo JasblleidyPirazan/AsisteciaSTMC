@@ -62,7 +62,7 @@ export default function ReportePage() {
     <div className="page page-wide">
       <div className="page-header">
         <button className="nav-back" onClick={() => navigate('/')}>←</button>
-        <h1>Reporte de clases</h1>
+        <h1>Clases dadas</h1>
       </div>
 
       <div className="page-content">

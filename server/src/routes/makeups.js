@@ -28,8 +28,14 @@ function makeupInclude() {
     makeupProfessor: { select: { id: true, name: true } },
     substituteProfessor: { select: { id: true, name: true } },
     assistant: { select: { id: true, name: true } },
-    makeupParticipants: { include: { student: { select: { id: true, name: true } } } },
-    attendanceRecords: { include: { student: { select: { id: true, name: true } } } },
+    makeupParticipants: {
+      include: { student: { select: { id: true, name: true } } },
+      orderBy: { student: { name: 'asc' } },
+    },
+    attendanceRecords: {
+      include: { student: { select: { id: true, name: true } } },
+      orderBy: { student: { name: 'asc' } },
+    },
   };
 }
 

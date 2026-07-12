@@ -22,9 +22,23 @@ export default function DashboardPage() {
   const [sessionByGroup, setSessionByGroup] = useState({});
   const [date, setDate] = useState(todayStr());
   const [loading, setLoading] = useState(true);
+  const [exclusions, setExclusions] = useState({}); // { 'YYYY-MM-DD': reason }
 
   // El reporte propio del usuario: profesor → PROFESSOR, coordinador → COORDINATOR
   const reporterType = user?.role === 'TEACHER' ? 'PROFESSOR' : 'COORDINATOR';
+
+  // Fechas excluidas del semestre (festivos/vacaciones): no hay clases regulares,
+  // pero sí se pueden crear reposiciones.
+  useEffect(() => {
+    api.get('/semesters/active').then((sem) => {
+      const map = {};
+      (sem?.exclusions || []).forEach((e) => { map[String(e.date).slice(0, 10)] = e.reason || null; });
+      setExclusions(map);
+    }).catch(() => {});
+  }, []);
+
+  const excludedReason = Object.prototype.hasOwnProperty.call(exclusions, date) ? (exclusions[date] || '') : null;
+  const isExcluded = excludedReason !== null;
 
   useEffect(() => {
     loadGroups();
@@ -98,8 +112,17 @@ export default function DashboardPage() {
           <span className="text-xs text-gray">{formatDate(date)}</span>
         </div>
 
+        {isExcluded && (
+          <div className="alert alert-info mb-3" style={{ borderLeft: '4px solid var(--yellow)' }}>
+            <div className="font-medium">📅 Día excluido del semestre{excludedReason ? ` · ${excludedReason}` : ''}</div>
+            <div className="text-sm mt-1">
+              No hay clases regulares este día. Sí puedes crear y reportar <strong>reposiciones</strong>.
+            </div>
+          </div>
+        )}
+
         {isAssistant ? (
-          <AssistantDayView groups={groups} loading={loading} date={date} />
+          isExcluded ? null : <AssistantDayView groups={groups} loading={loading} date={date} />
         ) : (
           <>
             <PendingReportsAlert />
@@ -107,6 +130,8 @@ export default function DashboardPage() {
             <PendingMakeups />
             {/* Professors don't report festivals — only coordinator/admin do. */}
             {['ADMIN', 'PHYSICAL_TRAINER', 'SUPERADMIN'].includes(user?.role) && <PendingFestivals />}
+            {!isExcluded && (
+            <>
             <div className="flex items-center justify-between mb-3">
               <h2>Grupos del día</h2>
               <span className="badge badge-blue">{groups.length}</span>
@@ -133,6 +158,8 @@ export default function DashboardPage() {
                   </div>
                 </div>
               ))
+            )}
+            </>
             )}
           </>
         )}
