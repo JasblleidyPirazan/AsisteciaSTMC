@@ -288,9 +288,79 @@ Desde la base de datos o el seed, crear un `User` con `role: 'PHYSICAL_TRAINER'`
 2. ⚠️ **PENDIENTE:** Cambiar branch en Railway de `main` a `claude/ecstatic-goldberg-UpKEn`
    - Settings → Source → Branch → `claude/ecstatic-goldberg-UpKEn`
 3. El `start.sh` ejecuta automáticamente al iniciar:
-   - `prisma db push` (crea tablas si no existen)
+   - `prisma migrate deploy` (aplica las migraciones versionadas pendientes — ver **Flujo de migraciones**)
    - `node src/scripts/seed.js` (crea admin + tarifas por defecto)
    - `node src/index.js` (inicia el servidor)
+
+---
+
+## Flujo de Migraciones (Prisma Migrate)
+
+El sistema usa **migraciones versionadas** (`prisma migrate`), no `prisma db push`.
+`db push` con `--accept-data-loss` podía **borrar columnas/tablas en producción
+sin aviso** ante un cambio incompatible de schema — inaceptable con datos reales
+de pagos. `migrate deploy` solo aplica los archivos SQL revisados que estén en
+`server/src/prisma/migrations/`, en orden, y nunca borra nada por su cuenta.
+
+- Las migraciones viven en `server/src/prisma/migrations/<nombre>/migration.sql`.
+- La baseline inicial es `0_init/` (generada del schema completo con
+  `prisma migrate diff --from-empty --to-schema-datamodel`).
+- `migration_lock.toml` fija el provider (`postgresql`).
+- `start.sh` corre `prisma migrate deploy` en cada deploy.
+
+### Baselining de producción — PASO ÚNICO (una sola vez)
+
+La BD de producción se creó originalmente con `db push`, así que ya tiene todas
+las tablas pero **no** la tabla de control `_prisma_migrations`. Si se corriera
+`migrate deploy` tal cual, intentaría aplicar `0_init` (que hace `CREATE TABLE …`)
+y fallaría porque las tablas ya existen. Antes del primer deploy con el nuevo
+`start.sh`, marcar la baseline como ya aplicada (una vez, contra la BD de prod):
+
+```bash
+cd server
+# DATABASE_URL apuntando a producción:
+npx prisma migrate resolve --applied 0_init
+```
+
+A partir de ahí, `migrate deploy` solo aplicará migraciones **nuevas**. (Una BD
+nueva/vacía no necesita este paso: `migrate deploy` aplica `0_init` normalmente.)
+
+### Cambios de schema a futuro
+
+1. Editar `src/prisma/schema.prisma`.
+2. Generar la migración (en dev, contra una BD de desarrollo):
+   `npx prisma migrate dev --name <descripcion_corta>`
+   — crea el `.sql`, lo aplica en dev y regenera el client.
+3. Revisar el SQL generado (¿hay `DROP`? ¿pérdida de datos? → ajustar a mano).
+4. Commit del nuevo folder de migración.
+5. Deploy: `start.sh` corre `migrate deploy` y aplica la nueva migración en prod.
+
+**Nunca** volver a `db push` en producción. `db push` queda solo para prototipado
+local rápido sobre una BD desechable.
+
+---
+
+## Pruebas Automatizadas (vitest)
+
+Backend probado con **vitest** (`server/`). `npm test` corre todo una vez;
+`npm run test:watch` en modo watch. **No requieren base de datos** — la lógica
+pura se prueba directo y las rutas usan un Prisma mockeado.
+
+- `tests/unit/` — lógica pura, sin I/O:
+  - `costEngine` → tramos de `getBracketRate`, quincenas de `getPeriodForDate`/`getCurrentPeriod`
+  - `dates` → conversión a America/Bogota (`bogotaDateStr`, `dbDateStr`, `bogotaToday`)
+  - `schedule` → `expectedDatesForGroup` (días de la semana, exclusiones, floor/until)
+  - `attendanceStats` → regla P/A/J (`isSeenRecord`, `seenAttendanceFilter`)
+- `tests/integration/` — rutas con **supertest**:
+  - `auth.middleware` → `authMiddleware` (401 sin/mal token, usuario inactivo) + `requireRole` (403)
+  - `sessions.guards` → guard `canReportGroup()` de `POST /sessions` por cada rol
+- `tests/helpers/mockPrisma.js` — el server es CommonJS, así que los `require('../lib/prisma')`
+  anidados van por el `require.cache` de Node, que **vitest no intercepta** con `vi.mock`. El
+  helper inyecta un mock de Prisma en `require.cache` **antes** de importar cualquier router
+  (por eso debe importarse primero en el archivo de test). Los tests configuran
+  `prismaMock.<modelo>.<método>` por caso.
+
+Si un test revela un bug real de la lógica de negocio, reportarlo antes de corregirlo.
 
 ---
 
@@ -361,13 +431,21 @@ Las siguientes páginas admin están en el menú pero aún no tienen implementac
 cd server && npm run dev       # Backend en :3000
 cd client && npm run dev       # Frontend en :5173 (con proxy a :3000)
 
-# Base de datos
-cd server && npx prisma db push --schema src/prisma/schema.prisma
+# Base de datos (dev)
+cd server && npm run db:migrate      # aplica migraciones (prisma migrate deploy)
 cd server && node src/scripts/seed.js
+
+# Tests backend (vitest — no requieren BD, usan mocks)
+cd server && npm test                # corre todo una vez
+cd server && npm run test:watch      # modo watch
 
 # Build producción
 cd client && npm run build
 ```
+
+> La ruta del schema (`src/prisma/schema.prisma`) está declarada en
+> `server/package.json` (`prisma.schema`), así que **ningún** comando de Prisma
+> necesita `--schema`.
 
 ---
 
