@@ -6,6 +6,7 @@ import GroupCard from '../components/GroupCard';
 import OfflineBanner from '../components/OfflineBanner';
 import AssistantDayView from '../components/AssistantDayView';
 import { fmtDate } from '../utils/dates';
+import { cacheGet, cacheSet, CACHE_KEYS } from '../utils/offlineCache';
 
 function todayStr() {
   return new Date().toISOString().slice(0, 10);
@@ -55,6 +56,8 @@ export default function DashboardPage() {
       const map = {};
       (sessions || []).forEach((s) => { map[s.groupId || s.group?.id] = s; });
       setSessionByGroup(map);
+      // Cache la lista completa del día para poder mostrarla sin conexión.
+      cacheSet(CACHE_KEYS.groups, data);
       // If custom date, filter by that day of week
       if (date !== todayStr()) {
         const dow = new Date(date + 'T12:00:00').getDay();
@@ -65,8 +68,8 @@ export default function DashboardPage() {
         setGroups(data);
       }
     } catch {
-      const cached = localStorage.getItem('stmc_groups');
-      if (cached) setGroups(JSON.parse(cached));
+      const cached = cacheGet(CACHE_KEYS.groups, []);
+      if (cached.length) setGroups(cached);
     } finally {
       setLoading(false);
     }
