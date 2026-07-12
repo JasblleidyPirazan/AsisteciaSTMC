@@ -199,6 +199,116 @@ router.get('/professor/:professorId', requireRole('ADMIN', 'PHYSICAL_TRAINER', '
   }
 });
 
+// Bitácora de clases reportadas (módulo Reporte del profesor): una fila por
+// clase con el conteo de estudiantes por estado (P/A/J). Ordenada por fecha
+// ascendente para poder acumular. Filtros: from/to, level, groupId, studentId.
+// TEACHER ve solo sus clases; management ve todas (o filtra por professorId).
+router.get('/class-log', requireRole('ADMIN', 'SUPERADMIN', 'PHYSICAL_TRAINER', 'TEACHER'), async (req, res, next) => {
+  try {
+    const { from, to, level, groupId, studentId } = req.query;
+
+    let professorId = req.query.professorId || null;
+    if (req.user.role === 'TEACHER') {
+      const own = await prisma.professor.findUnique({ where: { userId: req.user.id } });
+      if (!own) {
+        return res.json({ success: true, data: { rows: [], totals: {}, options: { groups: [], levels: [], students: [] } } });
+      }
+      professorId = own.id;
+    }
+
+    const where = { status: { in: ['REALIZADA', 'CANCELADA_MITAD'] } };
+    if (professorId) {
+      where.OR = [
+        { group: { professorId } },
+        { makeupProfessorId: professorId },
+        { substituteProfessorId: professorId },
+        { festivalProfessors: { some: { professorId } } },
+      ];
+    }
+    if (from || to) {
+      where.date = {};
+      if (from) where.date.gte = new Date(from);
+      if (to) where.date.lte = new Date(to);
+    }
+
+    const sessions = await prisma.classSession.findMany({
+      where,
+      include: {
+        group: { select: { id: true, code: true, name: true, ballLevel: true, professor: { select: { name: true } } } },
+        substituteProfessor: { select: { name: true } },
+        makeupProfessor: { select: { name: true } },
+        attendanceRecords: { select: { status: true, student: { select: { id: true, name: true } } } },
+      },
+      orderBy: { date: 'asc' },
+    });
+
+    // Opciones de filtro (sobre el conjunto sin filtrar por nivel/grupo/estudiante)
+    const groupOpts = new Map();
+    const levelSet = new Set();
+    const studentOpts = new Map();
+    for (const s of sessions) {
+      if (s.group) {
+        groupOpts.set(s.group.id, { id: s.group.id, code: s.group.code, name: s.group.name });
+        if (s.group.ballLevel) levelSet.add(s.group.ballLevel);
+      }
+      for (const r of s.attendanceRecords) {
+        if (r.student) studentOpts.set(r.student.id, { id: r.student.id, name: r.student.name });
+      }
+    }
+
+    const rows = sessions
+      .filter((s) => {
+        if (level && s.group?.ballLevel !== level) return false;
+        if (groupId && s.groupId !== groupId) return false;
+        if (studentId && !s.attendanceRecords.some((r) => r.student?.id === studentId)) return false;
+        return true;
+      })
+      .map((s) => {
+        const c = { PRESENTE: 0, AUSENTE: 0, JUSTIFICADA: 0 };
+        s.attendanceRecords.forEach((r) => { c[r.status] = (c[r.status] || 0) + 1; });
+        const prof = s.substituteProfessor?.name || s.group?.professor?.name || s.makeupProfessor?.name || '—';
+        const kindLabel = s.kind === 'MAKEUP' ? 'Reposición' : s.kind === 'FESTIVAL' ? 'Festival' : null;
+        return {
+          sessionId: s.id,
+          date: s.date,
+          kind: s.kind,
+          groupCode: s.group?.code || kindLabel || '—',
+          groupName: s.group?.name || s.title || null,
+          level: s.group?.ballLevel || null,
+          professor: prof,
+          present: c.PRESENTE, absent: c.AUSENTE, justified: c.JUSTIFICADA,
+          total: s.attendanceRecords.length,
+        };
+      });
+
+    const totals = rows.reduce(
+      (t, r) => ({
+        classes: t.classes + 1,
+        present: t.present + r.present,
+        absent: t.absent + r.absent,
+        justified: t.justified + r.justified,
+        total: t.total + r.total,
+      }),
+      { classes: 0, present: 0, absent: 0, justified: 0, total: 0 }
+    );
+
+    res.json({
+      success: true,
+      data: {
+        rows,
+        totals,
+        options: {
+          groups: [...groupOpts.values()].sort((a, b) => a.code.localeCompare(b.code)),
+          levels: [...levelSet],
+          students: [...studentOpts.values()].sort((a, b) => a.name.localeCompare(b.name)),
+        },
+      },
+    });
+  } catch (err) {
+    next(err);
+  }
+});
+
 router.get('/class/:sessionId', requireRole('ADMIN', 'PHYSICAL_TRAINER', 'TEACHER'), async (req, res, next) => {
   try {
     const session = await prisma.classSession.findUnique({
