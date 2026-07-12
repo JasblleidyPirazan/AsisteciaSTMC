@@ -23,6 +23,7 @@ import EnrollmentRequestsPage from './pages/admin/EnrollmentRequestsPage';
 import MakeupsPage from './pages/admin/MakeupsPage';
 import UsersPage from './pages/admin/UsersPage';
 import ValidationPage from './pages/admin/ValidationPage';
+import ConflictsPage from './pages/admin/ConflictsPage';
 import FestivalsPage from './pages/admin/FestivalsPage';
 import FestivalAttendancePage from './pages/FestivalAttendancePage';
 import AlertsPage from './pages/admin/AlertsPage';
@@ -86,12 +87,15 @@ function AppRoutes() {
         <RequireAuth>
           {user?.role === 'PARENT' ? <Navigate to="/parent" />
             : user?.role === 'RECEPTION' ? <Navigate to="/admin/students" />
+            : user?.role === 'ADMIN' ? <Navigate to="/admin" />
             : <Shell><DashboardPage /></Shell>}
         </RequireAuth>
       } />
 
+      {/* Reporte de asistencia (doble reporte): profesor y coordinador. ADMIN es
+          solo-lectura; SUPERADMIN entra por superset. */}
       <Route path="/attendance/:groupId" element={
-        <RequireAuth roles={['ADMIN', 'TEACHER', 'PARENT', 'PHYSICAL_TRAINER']}>
+        <RequireAuth roles={['TEACHER', 'PHYSICAL_TRAINER']}>
           <AttendanceFlow />
         </RequireAuth>
       } />
@@ -155,6 +159,11 @@ function AppRoutes() {
       <Route path="/admin/validation" element={
         <RequireAuth roles={['ADMIN', 'PHYSICAL_TRAINER']}>
           <Shell><ValidationPage /></Shell>
+        </RequireAuth>
+      } />
+      <Route path="/admin/conflicts" element={
+        <RequireAuth roles={['ADMIN', 'PHYSICAL_TRAINER', 'TEACHER']}>
+          <Shell><ConflictsPage /></Shell>
         </RequireAuth>
       } />
       <Route path="/admin/festivals" element={

@@ -23,6 +23,7 @@ model User {
   reportedSessions   ClassSession[]     @relation("SessionReporter")
   reportedAttendance AttendanceRecord[] @relation("AttendanceReporter")
   sessionEdits       SessionEditLog[]   @relation("SessionEditor")
+  classReports       ClassReport[]      @relation("ClassReportReporter")
 
   @@map("users")
 }
@@ -88,11 +89,12 @@ model Student {
   createdAt          DateTime  @default(now()) @map("created_at")
 
   parentUser           User?                 @relation("ParentUser", fields: [parentUserId], references: [id])
-  enrollments          StudentEnrollment[]
-  attendanceRecords    AttendanceRecord[]
-  makeupEnrollments    MakeupEnrollment[]
-  makeupParticipations MakeupParticipant[]
-  groupHistory         StudentGroupHistory[]
+  enrollments           StudentEnrollment[]
+  attendanceRecords     AttendanceRecord[]
+  classReportAttendance ClassReportAttendance[]
+  makeupEnrollments     MakeupEnrollment[]
+  makeupParticipations  MakeupParticipant[]
+  groupHistory          StudentGroupHistory[]
 
   @@map("students")
 }
@@ -176,6 +178,11 @@ model ClassSession {
   coordinatorValidatedAt   DateTime?             @map("coordinator_validated_at")
   // Festivales: pago fijo igualitario por profesor participante
   festivalRate             Decimal?              @map("festival_rate") @db.Decimal(12, 2)
+  // Doble reporte (Fase 2): estado de consolidación profesor vs coordinador.
+  // PENDING = falta uno; MATCHED = coinciden y se consolidó; MISMATCH = conflicto.
+  consolidationStatus      ConsolidationStatus   @default(PENDING) @map("consolidation_status")
+  consolidationDiff        Json?                 @map("consolidation_diff")
+  consolidatedAt           DateTime?             @map("consolidated_at")
   createdAt                DateTime              @default(now()) @map("created_at")
 
   group               Group?              @relation(fields: [groupId], references: [id])
@@ -185,6 +192,7 @@ model ClassSession {
   assistantConfirmed  Assistant?          @relation("AssistantConfirmations", fields: [assistantConfirmedId], references: [id])
   reportedBy          User?               @relation("SessionReporter", fields: [reportedById], references: [id])
   attendanceRecords   AttendanceRecord[]
+  reports             ClassReport[]
   makeupParticipants  MakeupParticipant[]
   festivalProfessors  FestivalProfessor[]
   costRecords         CostRecord[]
@@ -192,6 +200,63 @@ model ClassSession {
 
   @@unique([groupId, date])
   @@map("class_sessions")
+}
+
+// --- Doble reporte (Liquidación v2, Fase 2) ---
+// Cada clase regular puede tener DOS reportes independientes en staging: el del
+// profesor y el del coordinador. Si coinciden (mismo P/A/J por estudiante +
+// mismo quién-dictó + mismo asistente), se consolidan al AttendanceRecord final
+// (la fuente de verdad de costos y reportes) y se habilita el pago. Si no
+// coinciden, se marca MISMATCH y se alerta a ambos para que ajusten.
+enum ClassReporterType {
+  PROFESSOR
+  COORDINATOR
+}
+
+enum ConsolidationStatus {
+  PENDING
+  MATCHED
+  MISMATCH
+}
+
+model ClassReport {
+  id                   String            @id @default(cuid())
+  sessionId            String            @map("session_id")
+  reporterType         ClassReporterType @map("reporter_type")
+  reportedById         String?           @map("reported_by_id")
+  // "Quién dictó": el titular (dictatedByOwner=true) o un sustituto. Se guardan
+  // los ids sueltos (sin FK) porque el motor solo compara identidades y esta
+  // tabla es de staging (se vacía en cada arranque de semestre).
+  dictatedByOwner      Boolean           @default(true) @map("dictated_by_owner")
+  dictatingProfessorId String?           @map("dictating_professor_id")
+  notDictatedNote      String?           @map("not_dictated_note")
+  assistantId          String?           @map("assistant_id")
+  submittedAt          DateTime          @default(now()) @map("submitted_at")
+  updatedAt            DateTime          @updatedAt @map("updated_at")
+
+  session    ClassSession            @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  reportedBy User?                   @relation("ClassReportReporter", fields: [reportedById], references: [id])
+  attendance ClassReportAttendance[]
+
+  @@unique([sessionId, reporterType])
+  @@map("class_reports")
+}
+
+model ClassReportAttendance {
+  id             String           @id @default(cuid())
+  classReportId  String           @map("class_report_id")
+  studentId      String           @map("student_id")
+  status         AttendanceStatus
+  attendanceType AttendanceType   @default(REGULAR) @map("attendance_type")
+  // La justificación NO entra en la comparación (regla del cliente); se conserva
+  // solo para pasarla al AttendanceRecord consolidado y mostrarla en reportes.
+  justification  String?
+
+  report  ClassReport @relation(fields: [classReportId], references: [id], onDelete: Cascade)
+  student Student     @relation(fields: [studentId], references: [id])
+
+  @@unique([classReportId, studentId])
+  @@map("class_report_attendance")
 }
 
 // Profesores participantes de un festival (pago igualitario a cada uno)

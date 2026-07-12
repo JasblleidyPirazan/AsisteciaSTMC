@@ -28,33 +28,44 @@ export default function AttendanceFlow() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [done, setDone] = useState(false);
-  const [costs, setCosts] = useState(null);
+  const [consolidation, setConsolidation] = useState(null);
   const [editing, setEditing] = useState(false);
   const [checking, setChecking] = useState(true);
 
-  // If a finalized report already exists for this group+date, switch to edit
-  // mode: prefill the previous report and jump straight to the student list.
+  // Which of the two staging reports this user writes. TEACHER → the professor
+  // report; coordinator/superadmin → the coordinator report.
+  const reporterType = user?.role === 'TEACHER' ? 'PROFESSOR' : 'COORDINATOR';
+
+  // If a session already exists for this group+date, skip "class held?". If THIS
+  // user's own report already exists, switch to edit mode: prefill it and jump
+  // to the student list.
   useEffect(() => {
     if (!group) return;
     api.get('/sessions/check', { groupId, date })
       .then(({ exists, session: existing }) => {
-        if (exists && ['REALIZADA', 'CANCELADA_MITAD'].includes(existing.status)) {
+        if (!exists || existing.status === 'CANCELADA') return;
+        setSession(existing);
+        setSubstitute(existing.substituteProfessor || null);
+        setAssistant(existing.assistant || null);
+        const mine = (existing.reports || []).find((r) => r.reporterType === reporterType);
+        if (mine) {
           setEditing(true);
-          setSession(existing);
-          setSubstitute(existing.substituteProfessor || null);
-          setAssistant(existing.assistant || null);
-          setDictatedByOwner(existing.dictatedByOwner !== false);
-          setNotDictatedNote(existing.notDictatedNote || '');
+          setDictatedByOwner(mine.dictatedByOwner !== false);
+          setNotDictatedNote(mine.notDictatedNote || '');
           setAttendanceRecords(
-            (existing.attendanceRecords || []).map((r) => ({
-              studentId: r.studentId,
-              name: r.student?.name,
-              status: r.status,
-              attendanceType: r.attendanceType,
-              justification: r.justification,
+            (mine.attendance || []).map((a) => ({
+              studentId: a.studentId,
+              name: a.student?.name,
+              status: a.status,
+              attendanceType: a.attendanceType,
+              justification: a.justification,
             }))
           );
           setStep(3);
+        } else {
+          // The class was already started/reported by the other role; I still
+          // need to submit my own report — skip step 1.
+          setStep(2);
         }
       })
       .catch(() => {})
@@ -110,6 +121,7 @@ export default function AttendanceFlow() {
         assistantId: assistant?.id || null,
         dictatedByOwner,
         notDictatedNote: dictatedByOwner ? null : notDictatedNote.trim(),
+        reporterType,
       };
       let result;
       if (!navigator.onLine) {
@@ -118,7 +130,7 @@ export default function AttendanceFlow() {
         return;
       }
       result = await api.post(`/sessions/${session.id}/finalize`, payload);
-      setCosts(result.costs);
+      setConsolidation(result.consolidation || null);
       setDone(true);
     } catch (err) {
       setError(err.message);
@@ -128,16 +140,20 @@ export default function AttendanceFlow() {
   }
 
   if (done) {
+    const status = consolidation?.status;
+    const otherRole = reporterType === 'PROFESSOR' ? 'coordinador' : 'profesor';
+    const outcome = {
+      MATCHED: { icon: '✅', title: 'Reportes coinciden', msg: 'El reporte del profesor y del coordinador coinciden: la clase quedó consolidada y el pago habilitado.' },
+      PENDING: { icon: '🕓', title: 'Reporte enviado', msg: `Falta el reporte del ${otherRole}. Cuando ambos coincidan se consolidará la clase y se habilitará el pago.` },
+      MISMATCH: { icon: '⚠️', title: 'Los reportes no coinciden', msg: `Tu reporte no coincide con el del ${otherRole}. Revisa el conflicto: ambos deben ajustar hasta que coincidan.` },
+    }[status] || { icon: '✅', title: editing ? 'Reporte actualizado' : 'Reporte enviado', msg: 'La asistencia quedó registrada.' };
+
     return (
       <div className="page">
         <div className="page-content" style={{ textAlign: 'center', paddingTop: 60 }}>
-          <div style={{ fontSize: '4rem' }}>✅</div>
-          <h2 className="mt-4">{editing ? 'Reporte actualizado' : 'Reporte enviado'}</h2>
-          <p className="text-gray mt-2">
-            {editing
-              ? 'Los cambios quedaron guardados y se registró la edición.'
-              : 'La asistencia quedó registrada correctamente.'}
-          </p>
+          <div style={{ fontSize: '4rem' }}>{outcome.icon}</div>
+          <h2 className="mt-4">{outcome.title}</h2>
+          <p className="text-gray mt-2">{outcome.msg}</p>
           <button className="btn btn-primary btn-full mt-4" onClick={() => navigate('/')}>
             Volver al inicio
           </button>
@@ -163,12 +179,11 @@ export default function AttendanceFlow() {
         </div>
       </div>
 
-      {editing && (
-        <div className="alert alert-info" style={{ margin: '0 20px 12px' }}>
-          ✏️ Esta clase ya fue reportada. Estás editando el reporte — se guardará un
-          registro de la edición y la liquidación se recalculará.
-        </div>
-      )}
+      <div className="alert alert-info" style={{ margin: '0 20px 12px' }}>
+        {reporterType === 'PROFESSOR' ? '👤 Reporte del profesor' : '🧭 Reporte del coordinador'}
+        {editing ? ' · editando tu reporte' : ''}. Se compara con el reporte del{' '}
+        {reporterType === 'PROFESSOR' ? 'coordinador' : 'profesor'} y, si coincide, se habilita el pago.
+      </div>
 
       {error && <div className="alert alert-error" style={{ margin: '0 20px' }}>{error}</div>}
 
