@@ -13,21 +13,14 @@ const CANCEL_AUTO_TEXT = {
 };
 
 /**
- * Who may report a festival:
- * - ADMIN / PHYSICAL_TRAINER (coordinador): any festival
- * - TEACHER: only festivals where they participate
+ * Who may report a festival: SUPERADMIN / ADMIN / PHYSICAL_TRAINER (coordinador).
+ * Professors do NOT report festivals — the coordinator does. A professor who
+ * participates in a festival still gets paid via its CostRecord (payroll), which
+ * is independent of who reports the attendance.
  */
+// eslint-disable-next-line no-unused-vars
 async function canReportFestival(user, session) {
-  if (['ADMIN', 'PHYSICAL_TRAINER'].includes(user.role)) return true;
-  if (user.role === 'TEACHER') {
-    const professor = await prisma.professor.findUnique({ where: { userId: user.id } });
-    if (!professor) return false;
-    const participant = await prisma.festivalProfessor.findUnique({
-      where: { sessionId_professorId: { sessionId: session.id, professorId: professor.id } },
-    });
-    return !!participant;
-  }
-  return false;
+  return ['SUPERADMIN', 'ADMIN', 'PHYSICAL_TRAINER'].includes(user.role);
 }
 
 function festivalInclude() {
@@ -38,7 +31,7 @@ function festivalInclude() {
   };
 }
 
-router.get('/', requireRole('ADMIN', 'PHYSICAL_TRAINER', 'TEACHER'), async (req, res, next) => {
+router.get('/', requireRole('ADMIN', 'PHYSICAL_TRAINER'), async (req, res, next) => {
   try {
     const { date, status, from, to } = req.query;
     const where = { kind: 'FESTIVAL' };
@@ -48,12 +41,6 @@ router.get('/', requireRole('ADMIN', 'PHYSICAL_TRAINER', 'TEACHER'), async (req,
       where.date = {};
       if (from) where.date.gte = new Date(from);
       if (to) where.date.lte = new Date(to);
-    }
-
-    // Teachers only see festivals they participate in
-    if (req.user.role === 'TEACHER') {
-      const professor = await prisma.professor.findUnique({ where: { userId: req.user.id } });
-      where.festivalProfessors = { some: { professorId: professor?.id || '__none__' } };
     }
 
     const sessions = await prisma.classSession.findMany({
@@ -67,7 +54,7 @@ router.get('/', requireRole('ADMIN', 'PHYSICAL_TRAINER', 'TEACHER'), async (req,
   }
 });
 
-router.get('/:id', requireRole('ADMIN', 'PHYSICAL_TRAINER', 'TEACHER'), async (req, res, next) => {
+router.get('/:id', requireRole('ADMIN', 'PHYSICAL_TRAINER'), async (req, res, next) => {
   try {
     const session = await prisma.classSession.findUnique({
       where: { id: req.params.id },

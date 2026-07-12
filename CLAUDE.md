@@ -117,7 +117,7 @@ CORS_ORIGIN        # URL del dominio en Railway (ej: https://asisteciastmc.up.ra
 
 | Modelo | Descripción |
 |---|---|
-| `User` | Cuentas de acceso. Roles: ADMIN, TEACHER, ASSISTANT, PARENT, PHYSICAL_TRAINER (mostrado como **"Coordinador"** en la UI), RECEPTION. `policiesAcceptedAt` = aceptación de políticas |
+| `User` | Cuentas de acceso. Roles: **SUPERADMIN**, ADMIN, TEACHER, ASSISTANT, PARENT, PHYSICAL_TRAINER (mostrado como **"Coordinador"** en la UI), RECEPTION. `policiesAcceptedAt` = aceptación de políticas |
 | `Professor` | Profesores (puede tener User vinculado) |
 | `Assistant` | Asistentes (puede tener User vinculado) |
 | `Student` | Estudiantes, vinculados a un padre (parentUserId). `classesAcquired` = clases compradas. `paymentComplete` → estado derivado `studentStatus`: MATRICULADO/INSCRITO/SUSPENDIDO/INACTIVO. Suspensión temporal con `suspendedFrom/Until/Reason` (excluido de rosters por query, sin cron) |
@@ -508,3 +508,7 @@ cd client && npm run build
 27. **Políticas:** texto único en `client/src/utils/policies.js`. Primer ingreso del PARENT al portal → `PoliciesModal` bloqueante (checkbox + aceptar) → `POST /auth/accept-policies` fija `User.policiesAcceptedAt`. `/auth/login` y `/me` exponen el campo.
 
 28. **Cancelación estructurada:** `/cancel` de sesiones/reposiciones/festivales exige `cancellationCategory` (LLUVIA/SIN_ESTUDIANTES/OTRA; texto libre solo OTRA). "No dicté la clase yo" (toggle en Step2): exige quién dictó + observación obligatoria (`dictatedByOwner/notDictatedNote`), visible en Reportes → Clase y en la cola de validación.
+
+29. **Rol SUPERADMIN (Liquidación v2, Fase 1):** rol nuevo, **superset de ADMIN**. En el backend, `requireRole()` (`middleware/auth.js`) lo deja pasar por cualquier gate automáticamente; en el frontend, `RequireAuth` (App.jsx) y la nav de `AppShell` lo tratan igual. Solo un SUPERADMIN puede crear/gestionar cuentas ADMIN/SUPERADMIN en `/admin/users` (`manageableRoles()` en `routes/users.js` — un ADMIN no puede escalar). El **seed** asegura que exista: crea la cuenta raíz (`ADMIN_EMAIL`) como SUPERADMIN, y si ya existía como ADMIN la asciende. La separación "ADMIN solo-lectura de reportes / SUPERADMIN edita" se completa en la Fase 2 (junto con las vistas de solo-lectura); en la Fase 1 SUPERADMIN ya puede editar todo lo que editaba ADMIN.
+
+30. **Profesor sin festivales (Liquidación v2, Fase 1):** el profesor **no reporta festivales** (ni ve la tarjeta "Festivales pendientes" ni la ruta `/festivals/:id/attendance` ni `GET /festivals`). El coordinador/admin los reporta. El profesor que **participa** en un festival igual cobra: su `CostRecord` sale en la quincena, independiente de quién reportó. El profesor **conserva** el reporte de **reposiciones asignadas** a él.

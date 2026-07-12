@@ -24,15 +24,16 @@ const ALL_SECTIONS = [
   { label: 'Configuración', path: '/admin/config', icon: '⚙️', roles: ['ADMIN'] },
 ];
 
-const TITLES = { ADMIN: 'Administración', PHYSICAL_TRAINER: 'Coordinación', RECEPTION: 'Recepción' };
+const TITLES = { SUPERADMIN: 'Administración', ADMIN: 'Administración', PHYSICAL_TRAINER: 'Coordinación', RECEPTION: 'Recepción' };
 
 export default function AdminDashboard() {
   const navigate = useNavigate();
   const { user } = useAuth();
   const [stats, setStats] = useState(null);
-  const isAdmin = user?.role === 'ADMIN';
+  // SUPERADMIN is the superset of ADMIN.
+  const isAdmin = ['ADMIN', 'SUPERADMIN'].includes(user?.role);
 
-  const sections = ALL_SECTIONS.filter((s) => s.roles.includes(user?.role));
+  const sections = ALL_SECTIONS.filter((s) => isAdmin || s.roles.includes(user?.role));
 
   useEffect(() => {
     api.get('/reports/dashboard').then(setStats).catch(() => {});

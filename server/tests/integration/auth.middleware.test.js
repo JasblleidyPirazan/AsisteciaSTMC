@@ -113,4 +113,18 @@ describe('requireRole', () => {
       .set('Authorization', `Bearer ${tokenFor({ id: 'a1', role: 'ADMIN' })}`);
     expect(res.status).toBe(200);
   });
+
+  it('SUPERADMIN pasa cualquier gate de rol como superset (200)', async () => {
+    // admin-only route, pero SUPERADMIN entra por ser superset de ADMIN
+    prismaMock.user.findUnique.mockResolvedValue({
+      id: 's1',
+      email: 'super@stmc.co',
+      role: 'SUPERADMIN',
+      active: true,
+    });
+    const res = await request(app)
+      .get('/api/admin-only')
+      .set('Authorization', `Bearer ${tokenFor({ id: 's1', role: 'SUPERADMIN' })}`);
+    expect(res.status).toBe(200);
+  });
 });

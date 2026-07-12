@@ -82,7 +82,8 @@ export default function DashboardPage() {
           <>
             <PendingReportsAlert />
             <PendingMakeups />
-            <PendingFestivals />
+            {/* Professors don't report festivals — only coordinator/admin do. */}
+            {['ADMIN', 'PHYSICAL_TRAINER', 'SUPERADMIN'].includes(user?.role) && <PendingFestivals />}
             <div className="flex items-center justify-between mb-3">
               <h2>Grupos del día</h2>
               <span className="badge badge-blue">{groups.length}</span>
@@ -110,7 +111,7 @@ function PendingReportsAlert() {
   const [data, setData] = useState(null);
 
   useEffect(() => {
-    if (!['TEACHER', 'ADMIN', 'PHYSICAL_TRAINER'].includes(user?.role)) return;
+    if (!['TEACHER', 'ADMIN', 'PHYSICAL_TRAINER', 'SUPERADMIN'].includes(user?.role)) return;
     api.get('/alerts/pending-reports').then(setData).catch(() => {});
   }, [user?.role]);
 

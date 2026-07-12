@@ -69,6 +69,12 @@ describe('POST /api/sessions — guard canReportGroup', () => {
     expect(res.status).toBe(201);
   });
 
+  it('SUPERADMIN puede reportar cualquier grupo → 201', async () => {
+    const res = await createSession(authAs('SUPERADMIN'));
+    expect(res.status).toBe(201);
+    expect(prismaMock.classSession.upsert).toHaveBeenCalled();
+  });
+
   it('TEACHER titular del grupo → 201', async () => {
     const token = authAs('TEACHER');
     prismaMock.professor.findUnique.mockResolvedValue({ id: 'p1', userId: 'u1' });

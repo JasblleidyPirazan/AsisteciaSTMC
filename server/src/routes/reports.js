@@ -223,8 +223,8 @@ router.get('/class/:sessionId', requireRole('ADMIN', 'PHYSICAL_TRAINER', 'TEACHE
     const counts = { PRESENTE: 0, AUSENTE: 0, JUSTIFICADA: 0 };
     session.attendanceRecords.forEach((r) => counts[r.status]++);
 
-    // Cost visible only to ADMIN and to the teacher who dictated the class
-    let showCost = req.user.role === 'ADMIN';
+    // Cost visible only to ADMIN/SUPERADMIN and to the teacher who dictated the class
+    let showCost = ['ADMIN', 'SUPERADMIN'].includes(req.user.role);
     if (!showCost && req.user.role === 'TEACHER') {
       const own = await prisma.professor.findUnique({ where: { userId: req.user.id } });
       showCost = !!own && (
@@ -256,7 +256,7 @@ router.get('/dashboard', async (req, res, next) => {
   try {
     const now = new Date();
     const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1);
-    const isAdmin = req.user.role === 'ADMIN';
+    const isAdmin = ['ADMIN', 'SUPERADMIN'].includes(req.user.role);
     const currentPeriod = getCurrentPeriod();
 
     const [totalStudents, totalGroups, sessionsThisMonth, cancelledThisMonth, costThisPeriod] =

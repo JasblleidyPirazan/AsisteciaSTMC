@@ -24,7 +24,7 @@ export default function FestivalAttendancePage() {
   const [done, setDone] = useState(false);
 
   const editing = festival && festival.status === 'REALIZADA';
-  const showPay = user?.role === 'ADMIN';
+  const showPay = ['ADMIN', 'SUPERADMIN'].includes(user?.role);
 
   useEffect(() => {
     api.get(`/festivals/${id}`)
