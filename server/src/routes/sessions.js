@@ -85,6 +85,8 @@ router.get('/', async (req, res, next) => {
         substituteProfessor: { select: { id: true, name: true } },
         assistant: { select: { id: true, name: true } },
         attendanceRecords: { include: { student: { select: { id: true, name: true } } } },
+        // Reportes de staging (para marcar "ya reporté" por rol) + consolidación
+        reports: { select: { reporterType: true } },
       },
       orderBy: { date: 'desc' },
     });

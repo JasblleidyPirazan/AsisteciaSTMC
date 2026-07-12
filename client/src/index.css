@@ -774,3 +774,18 @@ input.form-input, select.form-select, textarea.form-input {
 .sched-students { list-style: none; margin: 6px 0 0; padding: 6px 0 0; border-top: 1px dashed var(--gray-200); font-size: 0.72rem; color: var(--text-muted); }
 .sched-students li { padding: 1px 0; }
 @media print { .no-print { display: none !important; } .app-shell-sidebar, .app-shell-topbar { display: none !important; } }
+
+/* ===== Separador por horario (grupos del día) ===== */
+.time-slot-header {
+  font-weight: 700; font-size: 0.8rem; color: var(--text-soft);
+  text-transform: uppercase; letter-spacing: 0.04em;
+  padding: 4px 2px 8px; margin-top: 4px;
+  border-bottom: 1px solid var(--gray-200); margin-bottom: 10px;
+}
+/* Confirmación de guardado (asistente) */
+.save-flash {
+  position: sticky; top: 8px; z-index: 20;
+  background: var(--green, #1FA971); color: #fff;
+  padding: 10px 14px; border-radius: 10px; font-weight: 600; font-size: 0.85rem;
+  margin-bottom: 12px; box-shadow: 0 4px 14px rgba(0,0,0,0.15);
+}
