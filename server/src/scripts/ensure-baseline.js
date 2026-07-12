@@ -5,15 +5,35 @@
 // Running `migrate deploy` as-is would try to apply the initial migration
 // (0_init: CREATE TABLE ...) and fail because the tables already exist.
 //
-// This script marks 0_init as already-applied ONLY when the app schema exists
-// but the history table doesn't — so `migrate deploy` then runs just the NEW
-// migrations. It is safe and idempotent:
-//   - fresh/empty DB      → does nothing (migrate deploy creates everything)
+// When the app schema exists but the history table doesn't, this script
+// reconciles the legacy DB and baselines it. It is safe and idempotent:
+//   - fresh/empty DB       → does nothing (migrate deploy creates everything)
 //   - already baselined DB → does nothing (history table present)
+//   - legacy `db push` DB  → converge + baseline (see below)
 //
-// Requires DATABASE_URL and the migrations dir (both present on deploy).
+// IMPORTANT — legacy convergence:
+// The production DB was shaped by `db push` from an OLD branch, so its schema
+// can be BEHIND the `0_init` baseline (missing tables/columns/enum values that
+// later code expects). Simply marking 0_init as applied would leave those gaps
+// unfilled (0_init is recorded, never run), and the app would crash. So for a
+// legacy DB we first run ONE `db push` to force the schema to match the current
+// `schema.prisma`, then mark EVERY migration as applied. This runs only while
+// `_prisma_migrations` is absent, so it happens exactly once; afterwards normal
+// `migrate deploy` takes over. `--accept-data-loss` only drops columns/tables
+// already removed from the current schema by design — back up before deploying.
 const { PrismaClient } = require('@prisma/client');
 const { execSync } = require('node:child_process');
+const fs = require('node:fs');
+const path = require('node:path');
+
+function migrationNames() {
+  const dir = path.join(__dirname, '..', 'prisma', 'migrations');
+  return fs
+    .readdirSync(dir, { withFileTypes: true })
+    .filter((e) => e.isDirectory())
+    .map((e) => e.name)
+    .sort();
+}
 
 async function main() {
   const prisma = new PrismaClient();
@@ -24,8 +44,15 @@ async function main() {
     );
     const { has_schema, has_history } = rows[0];
     if (has_schema && !has_history) {
-      console.log('🔖 BD existente sin historial de migraciones → marcando 0_init como aplicada');
-      execSync('npx prisma migrate resolve --applied 0_init', { stdio: 'inherit' });
+      // Converger cualquier esquema heredado (posiblemente ANTERIOR a 0_init) al
+      // schema.prisma actual, y luego marcar TODO el historial como aplicado.
+      console.log('🔖 BD heredada (db push) sin historial → reconciliando esquema y baselineando');
+      console.log('   1/2 · db push (converger esquema al schema.prisma actual)');
+      execSync('npx prisma db push --accept-data-loss --skip-generate', { stdio: 'inherit' });
+      console.log('   2/2 · marcando todas las migraciones como aplicadas');
+      for (const name of migrationNames()) {
+        execSync(`npx prisma migrate resolve --applied ${name}`, { stdio: 'inherit' });
+      }
     } else {
       console.log(`Baseline no requerido (schema=${has_schema}, historial=${has_history}).`);
     }
