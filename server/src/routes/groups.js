@@ -103,6 +103,63 @@ router.get('/export', requireRole('ADMIN', 'SUPERADMIN', 'PHYSICAL_TRAINER'), as
   }
 });
 
+// Malla de horarios (canchas × horas). Accesible a CUALQUIER rol autenticado.
+// Devuelve los grupos activos con cancha/horario/días/nivel/profesor y su conteo
+// de estudiantes. La lista de estudiantes se incluye solo para el personal; un
+// acudiente (PARENT) solo ve a sus propios hijos.
+router.get('/schedule', async (req, res, next) => {
+  try {
+    const role = req.user.role;
+    const isStaff = ['ADMIN', 'SUPERADMIN', 'PHYSICAL_TRAINER', 'TEACHER', 'ASSISTANT', 'RECEPTION'].includes(role);
+
+    let parentIds = null;
+    if (role === 'PARENT') {
+      const kids = await prisma.student.findMany({
+        where: { parentUserId: req.user.id, active: true },
+        select: { id: true },
+      });
+      parentIds = new Set(kids.map((k) => k.id));
+    }
+
+    const groups = await prisma.group.findMany({
+      where: { active: true },
+      include: {
+        professor: { select: { id: true, name: true } },
+        enrollments: { include: { student: { select: { id: true, name: true, active: true } } } },
+      },
+      orderBy: [{ startTime: 'asc' }, { court: 'asc' }],
+    });
+
+    const data = groups.map((g) => {
+      const activeEnr = g.enrollments.filter((e) => e.student?.active);
+      let students = [];
+      if (isStaff) {
+        students = activeEnr.map((e) => ({ id: e.student.id, name: e.student.name }));
+      } else if (parentIds) {
+        students = activeEnr
+          .filter((e) => parentIds.has(e.student.id))
+          .map((e) => ({ id: e.student.id, name: e.student.name }));
+      }
+      return {
+        id: g.id, code: g.code, name: g.name, court: g.court,
+        startTime: g.startTime, endTime: g.endTime,
+        ballLevel: g.ballLevel, subLevel: g.subLevel, capacity: g.capacity,
+        days: {
+          lunes: g.lunes, martes: g.martes, miercoles: g.miercoles, jueves: g.jueves,
+          viernes: g.viernes, sabado: g.sabado, domingo: g.domingo,
+        },
+        professor: g.professor,
+        studentCount: activeEnr.length,
+        students,
+      };
+    });
+
+    res.json({ success: true, data });
+  } catch (err) {
+    next(err);
+  }
+});
+
 router.get('/:id', async (req, res, next) => {
   try {
     const group = await prisma.group.findUnique({
