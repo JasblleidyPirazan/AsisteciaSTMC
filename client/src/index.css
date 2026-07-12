@@ -717,10 +717,13 @@ input.form-input, select.form-select, textarea.form-input {
 .app-shell-content .page-header {
   position: static;
   background: transparent;
-  border-bottom: 1px solid var(--border);
-  padding: 4px 4px 14px;
-  margin-bottom: 16px;
+  border-bottom: none;
+  padding: 4px 4px 10px;
+  margin-bottom: 12px;
 }
+/* Título consistente en todas las páginas del shell (las nuevas usan ~1.9rem;
+   alineamos las heredadas para que no parezcan otra plataforma). */
+.app-shell-content .page-header h1 { font-size: 1.7rem; line-height: 1.15; }
 .app-shell-content .page-content { padding: 0 4px; }
 /* La flecha "atrás" es redundante dentro del shell (el sidebar navega) */
 .app-shell-content .nav-back { display: none; }

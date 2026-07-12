@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react';
 import { api } from '../../api/client';
+import { cacheGet, cacheSet, CACHE_KEYS } from '../../utils/offlineCache';
 
 const STATUS_LABELS = { PRESENTE: 'P', AUSENTE: 'A', JUSTIFICADA: 'J' };
 const STATUS_CLASS = { PRESENTE: 'present', AUSENTE: 'absent', JUSTIFICADA: 'justified' };
@@ -16,10 +17,8 @@ export default function Step3Students({ groupId, records, onChange, onNext }) {
   const [justifText, setJustifText] = useState('');
 
   useEffect(() => {
-    Promise.all([
-      api.get(`/groups/${groupId}/students`),
-      api.get('/students', { active: 'true', excludeSuspended: 'true' }),
-    ]).then(([group, all]) => {
+    // Aplica el roster (de red o de caché) al estado de la pantalla.
+    function apply(group, all) {
       setStudents(group);
       setAllStudents(all);
       setMeta(Object.fromEntries(
@@ -29,7 +28,22 @@ export default function Step3Students({ groupId, records, onChange, onNext }) {
       if (records.length === 0) {
         onChange(group.map((s) => ({ studentId: s.id, name: s.name, status: null, attendanceType: 'REGULAR' })));
       }
-    }).catch(() => {}).finally(() => setLoading(false));
+    }
+
+    Promise.all([
+      api.get(`/groups/${groupId}/students`),
+      api.get('/students', { active: 'true', excludeSuspended: 'true' }),
+    ]).then(([group, all]) => {
+      // Guarda el roster para poder tomar asistencia sin conexión.
+      cacheSet(CACHE_KEYS.roster(groupId), group);
+      cacheSet(CACHE_KEYS.allStudents, all);
+      apply(group, all);
+    }).catch(() => {
+      // Sin conexión: usar el último roster guardado de este grupo.
+      const group = cacheGet(CACHE_KEYS.roster(groupId), []);
+      const all = cacheGet(CACHE_KEYS.allStudents, []);
+      if (group.length) apply(group, all);
+    }).finally(() => setLoading(false));
   }, [groupId]);
 
   function setStatus(studentId, status) {
