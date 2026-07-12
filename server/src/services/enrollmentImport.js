@@ -83,7 +83,7 @@ function parseRecords(wb) {
   const header = rows[hIdx];
   const col = (name) => header.indexOf(name);
   const idx = {
-    name: col('NOMBRE COMPLETO'), code: col('CÓDIGO GRUPO'), level: col('NIVEL'),
+    extId: col('ID'), name: col('NOMBRE COMPLETO'), code: col('CÓDIGO GRUPO'), level: col('NIVEL'),
     prof: col('PROFESOR'), horario: col('HORARIO'), dias: col('DÍAS'),
     doc: col('Documento'), birth: col('Fecha de nacimiento'), wa: col('Número de WA'),
     guardian: col('Acudiente'), email: col('Correo electrónico'), start: col('Fecha de inicio'),
@@ -92,6 +92,8 @@ function parseRecords(wb) {
   return rows.slice(hIdx + 1)
     .filter((r) => clean(r[idx.name]))
     .map((r) => ({
+      // "ID" del consolidado: la hoja "Pagos" referencia a los estudiantes por este código.
+      extId: idx.extId >= 0 ? clean(r[idx.extId]) : null,
       name: clean(r[idx.name]),
       code: clean(r[idx.code]),
       level: clean(r[idx.level]),
@@ -110,6 +112,52 @@ function parseRecords(wb) {
     }));
 }
 
+// ---------- parseo de pagos (hoja "Pagos") ----------
+
+// Mapea el "Medio Pago" del Excel al enum PaymentMethod. Devuelve [método, etiqueta]
+// donde `etiqueta` es el texto original a conservar en la nota cuando no calza 1:1.
+function mapMethod(raw) {
+  const t = String(raw || '').trim().toLowerCase();
+  if (t.includes('transfer')) return ['TRANSFERENCIA', null];
+  if (t.includes('efectivo') || t.includes('efvo')) return ['EFECTIVO', null];
+  if (t.includes('wompi')) return ['WOMPI', null];
+  if (t.includes('bold')) return ['BOLD', null];
+  // "Datáfono"/tarjeta → BOLD (el datáfono de la academia), preservando el original.
+  if (t.includes('datafono') || t.includes('datáfono') || t.includes('tarjeta')) return ['BOLD', 'Datáfono'];
+  // Desconocido: por defecto Transferencia, dejando el original en la nota.
+  return ['TRANSFERENCIA', raw ? String(raw).trim() : null];
+}
+
+// Lee la hoja "Pagos". Cada fila = un pago recibido. Devuelve [] si no existe.
+function parsePayments(wb) {
+  const sheetName = wb.SheetNames.find((n) => /pagos/i.test(n));
+  if (!sheetName) return [];
+  const rows = XLSX.utils.sheet_to_json(wb.Sheets[sheetName], { header: 1, defval: '' });
+  const hIdx = rows.findIndex((r) => r.some((c) => /valor\s*pago/i.test(String(c))) && r.some((c) => /estudiante/i.test(String(c))));
+  if (hIdx < 0) return [];
+  const header = rows[hIdx].map((h) => String(h).trim());
+  const find = (re) => header.findIndex((h) => re.test(h));
+  const p = {
+    name: find(/^estudiante$/i), code: find(/cod.*estudiante/i), date: find(/^fecha$/i),
+    amount: find(/valor\s*pago/i), method: find(/medio\s*pago/i), note: find(/observaci/i),
+  };
+  return rows.slice(hIdx + 1)
+    .filter((r) => clean(r[p.name]) && Number(r[p.amount]) > 0)
+    .map((r) => {
+      const [method, label] = mapMethod(r[p.method]);
+      const obs = p.note >= 0 ? clean(r[p.note]) : null;
+      const note = [obs, label ? `Medio: ${label}` : null].filter(Boolean).join(' · ') || null;
+      return {
+        name: clean(r[p.name]),
+        code: p.code >= 0 ? clean(r[p.code]) : null,
+        paymentDate: excelDate(r[p.date]),
+        amount: Math.round(Number(r[p.amount])),
+        method, note,
+      };
+    })
+    .filter((x) => x.paymentDate && x.amount > 0);
+}
+
 // ---------- importación ----------
 
 /**
@@ -117,9 +165,18 @@ function parseRecords(wb) {
  * @param {Buffer} buffer
  * @param {{dryRun?: boolean}} opts
  */
-async function importFromBuffer(buffer, { dryRun = false } = {}) {
+async function importFromBuffer(buffer, { dryRun = false, user = null } = {}) {
   const wb = XLSX.read(buffer, { type: 'buffer' });
   const records = parseRecords(wb);
+  const payments = parsePayments(wb);
+
+  // Mapa "código del consolidado (ID)" → documento/nombre, para enlazar los
+  // pagos (que referencian al estudiante por ese código) con el estudiante.
+  const codeToDoc = {};
+  const codeToName = {};
+  for (const r of records) {
+    if (r.extId) { codeToDoc[r.extId] = r.document; codeToName[r.extId] = r.name; }
+  }
 
   // Agrupar por estudiante (documento, o nombre si no hay documento)
   const byStudent = new Map();
@@ -138,6 +195,7 @@ async function importFromBuffer(buffer, { dryRun = false } = {}) {
     groups: groupCodes.length,
     professors: profNames.length,
     multiGroup,
+    payments: payments.length,
   };
 
   if (dryRun) {
@@ -152,7 +210,12 @@ async function importFromBuffer(buffer, { dryRun = false } = {}) {
       const r = recs[0];
       return { name: r.name, document: r.document, email: r.email, classesAcquired: r.classesAcquired, paymentComplete: r.paymentComplete, groups: recs.map((x) => x.code) };
     });
-    return { dryRun: true, counts, professors: profNames, samples: { groups: groupSamples, students: studentSamples } };
+    const paymentSamples = payments.slice(0, 5).map((p) => ({
+      student: codeToName[p.code] || p.name, amount: p.amount, method: p.method,
+      date: p.paymentDate ? p.paymentDate.toISOString().slice(0, 10) : null,
+    }));
+    const paymentsTotal = payments.reduce((s, p) => s + p.amount, 0);
+    return { dryRun: true, counts, professors: profNames, samples: { groups: groupSamples, students: studentSamples, payments: paymentSamples }, paymentsTotal };
   }
 
   // 1) Profesores (upsert por nombre)
@@ -184,6 +247,8 @@ async function importFromBuffer(buffer, { dryRun = false } = {}) {
 
   // 3) Estudiantes + matrículas
   let created = 0, updated = 0, moved = 0;
+  const idByDoc = {};
+  const idByName = {};
   for (const recs of byStudent.values()) {
     const r0 = recs[0];
     let student = r0.document
@@ -208,6 +273,8 @@ async function importFromBuffer(buffer, { dryRun = false } = {}) {
       student = await prisma.student.create({ data: base });
       created++;
     }
+    if (r0.document) idByDoc[r0.document] = student.id;
+    idByName[r0.name.toLowerCase()] = student.id;
 
     const existing = await prisma.studentEnrollment.findMany({ where: { studentId: student.id } });
     for (let i = 0; i < recs.length; i++) {
@@ -232,7 +299,43 @@ async function importFromBuffer(buffer, { dryRun = false } = {}) {
     }
   }
 
-  return { dryRun: false, counts, professors: profNames, result: { created, updated, moved }, warnings };
+  // 4) Pagos recibidos (hoja "Pagos"). Enlaza por código→documento→estudiante
+  // (o por nombre si no hay documento). Idempotente: no duplica un pago con el
+  // mismo estudiante+fecha+valor+medio (la hoja no trae un ID de pago estable).
+  let payCreated = 0, paySkipped = 0, payUnmatched = 0;
+  for (const p of payments) {
+    const doc = p.code ? codeToDoc[p.code] : null;
+    const nameKey = (codeToName[p.code] || p.name || '').toLowerCase();
+    const studentId = (doc && idByDoc[doc]) || idByName[nameKey] || idByName[(p.name || '').toLowerCase()] || null;
+    if (!studentId) { payUnmatched++; continue; }
+
+    const dup = await prisma.studentPayment.findFirst({
+      where: { studentId, paymentDate: p.paymentDate, amount: p.amount, method: p.method },
+    });
+    if (dup) { paySkipped++; continue; }
+
+    await prisma.studentPayment.create({
+      data: {
+        studentId,
+        paymentDate: p.paymentDate,
+        method: p.method,
+        amount: p.amount,
+        note: p.note,
+        receivedById: user?.id || null,
+        receivedByName: user?.email || 'Importación',
+      },
+    });
+    payCreated++;
+  }
+  if (payUnmatched > 0) warnings.push(`${payUnmatched} pago(s) sin estudiante coincidente; se omitieron`);
+
+  return {
+    dryRun: false,
+    counts,
+    professors: profNames,
+    result: { created, updated, moved, paymentsCreated: payCreated, paymentsSkipped: paySkipped },
+    warnings,
+  };
 }
 
-module.exports = { importFromBuffer, parseRecords };
+module.exports = { importFromBuffer, parseRecords, parsePayments };

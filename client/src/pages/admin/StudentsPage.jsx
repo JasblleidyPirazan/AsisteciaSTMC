@@ -934,6 +934,11 @@ export default function StudentsPage() {
                 <div className="text-xs text-gray mt-1">
                   {importPreview.counts.multiGroup} con más de un grupo · Profesores: {importPreview.professors.join(', ')}
                 </div>
+                {importPreview.counts.payments > 0 && (
+                  <div className="text-sm mt-2" style={{ color: 'var(--green)' }}>
+                    💵 {importPreview.counts.payments} pagos recibidos{importPreview.paymentsTotal ? ` · ${fmtCOP(importPreview.paymentsTotal)}` : ''}
+                  </div>
+                )}
                 <div className="text-xs text-gray mt-2">
                   Revisa que los números cuadren y luego presiona <strong>Importar</strong>.
                 </div>
@@ -944,6 +949,12 @@ export default function StudentsPage() {
               <div className="alert alert-success">
                 ✅ Importación completa: {importResult.result.created} creados,{' '}
                 {importResult.result.updated} actualizados, {importResult.result.moved} cambios de grupo.
+                {importResult.result.paymentsCreated != null && (
+                  <div className="text-sm mt-1">
+                    💵 {importResult.result.paymentsCreated} pagos registrados
+                    {importResult.result.paymentsSkipped > 0 ? ` · ${importResult.result.paymentsSkipped} ya existían` : ''}
+                  </div>
+                )}
                 {importResult.warnings?.length > 0 && (
                   <div className="text-xs mt-1">Avisos: {importResult.warnings.join('; ')}</div>
                 )}
