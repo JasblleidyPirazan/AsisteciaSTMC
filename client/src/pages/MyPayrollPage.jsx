@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { api } from '../api/client';
 import { useAuth } from '../hooks/useAuth';
 import { fmtDate } from '../utils/dates';
+import { buildPeriodOptions, getCurrentPeriod, periodLabel } from '../utils/periods';
 
 function fmt(n) {
   return new Intl.NumberFormat('es-CO', { style: 'currency', currency: 'COP', maximumFractionDigits: 0 }).format(n || 0);
@@ -12,27 +13,6 @@ const PAY_STATUS_BADGE = {
   SUSPENDED_LATE: { cls: 'badge-red', label: 'Suspendido — reporte tardío' },
   PENDING_MATCH: { cls: 'badge-yellow', label: 'Pendiente de validación' },
 };
-
-function buildPeriodOptions() {
-  const options = [];
-  const now = new Date();
-  for (let i = 0; i <= 6; i++) {
-    const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
-    const y = d.getFullYear();
-    const m = String(d.getMonth() + 1).padStart(2, '0');
-    options.push({ value: `${y}-${m}-1`, label: `${y}-${m} (1ª quincena)` });
-    options.push({ value: `${y}-${m}-2`, label: `${y}-${m} (2ª quincena)` });
-  }
-  return options;
-}
-
-function getCurrentPeriod() {
-  const now = new Date();
-  const y = now.getFullYear();
-  const m = String(now.getMonth() + 1).padStart(2, '0');
-  const half = now.getDate() <= 15 ? '1' : '2';
-  return `${y}-${m}-${half}`;
-}
 
 // Tarjeta KPI (mismo lenguaje visual que el panel y Liquidación).
 function StatCard({ icon, tint, label, value, sub, subColor }) {
@@ -142,8 +122,8 @@ export default function MyPayrollPage() {
           <div className="flex items-center gap-2" style={{ flexWrap: 'wrap' }}>
             <select className="form-input form-select" style={{ minHeight: 40, width: 'auto', fontSize: '0.85rem' }}
               value={period} onChange={(e) => setPeriod(e.target.value)}>
-              {buildPeriodOptions().map((o) => (
-                <option key={o.value} value={o.value}>{o.label}</option>
+              {buildPeriodOptions().map((p) => (
+                <option key={p} value={p}>{periodLabel(p, semester)}</option>
               ))}
             </select>
             <button className="btn btn-outline" style={{ minHeight: 40 }}
@@ -179,7 +159,7 @@ export default function MyPayrollPage() {
             {/* Resumen de la quincena seleccionada */}
             <div className="card mb-3">
               <div className="text-xs text-gray mb-2" style={{ textTransform: 'uppercase', letterSpacing: '0.04em' }}>
-                Esta quincena
+                {periodLabel(period, semester)}
               </div>
               <div className="cost-row">
                 <span className="text-sm" style={{ color: 'var(--green)' }}>✓ Pagado</span>

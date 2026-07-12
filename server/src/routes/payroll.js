@@ -111,7 +111,7 @@ router.get('/my-semester', async (req, res, next) => {
 
     res.json({
       success: true,
-      data: { ...acc, semesterName: semester?.name || null },
+      data: { ...acc, semesterName: semester?.name || null, startDate: semester?.startDate || null },
     });
   } catch (err) {
     next(err);
