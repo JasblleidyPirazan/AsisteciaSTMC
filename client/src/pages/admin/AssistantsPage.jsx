@@ -13,6 +13,12 @@ export default function AssistantsPage() {
   const [error, setError] = useState('');
   const [saving, setSaving] = useState(false);
 
+  // Edit modal
+  const [editTarget, setEditTarget] = useState(null);
+  const [editForm, setEditForm] = useState({ name: '', email: '', password: '' });
+  const [editError, setEditError] = useState('');
+  const [editSaving, setEditSaving] = useState(false);
+
   useEffect(() => {
     api.get('/assistants', { active: 'true' })
       .then(setAssistants)
@@ -48,6 +54,30 @@ export default function AssistantsPage() {
     if (!confirm('¿Desactivar asistente?')) return;
     await api.put(`/assistants/${id}`, { active: false });
     setAssistants(assistants.filter((a) => a.id !== id));
+  }
+
+  function openEdit(a) {
+    setEditTarget(a);
+    setEditForm({ name: a.name, email: a.user?.email || '', password: '' });
+    setEditError('');
+  }
+
+  async function handleEdit(e) {
+    e.preventDefault();
+    setEditSaving(true);
+    setEditError('');
+    try {
+      const payload = { name: editForm.name };
+      if (editForm.email.trim()) payload.email = editForm.email.trim();
+      if (editForm.password) payload.password = editForm.password;
+      const updated = await api.put(`/assistants/${editTarget.id}`, payload);
+      setAssistants(assistants.map((a) => (a.id === editTarget.id ? { ...a, ...updated } : a)));
+      setEditTarget(null);
+    } catch (err) {
+      setEditError(err.message);
+    } finally {
+      setEditSaving(false);
+    }
   }
 
   if (loading) return <div className="page"><div className="spinner" /></div>;
@@ -128,13 +158,12 @@ export default function AssistantsPage() {
                       <td className="font-medium">{a.name}</td>
                       <td className="text-gray">{a.user?.email || '— sin cuenta'}</td>
                       <td className="num">
-                        <button
-                          className="btn btn-ghost"
-                          style={{ minHeight: 30, padding: '0 8px', fontSize: '0.78rem', color: 'var(--red)' }}
-                          onClick={() => handleDeactivate(a.id)}
-                        >
-                          Desactivar
-                        </button>
+                        <div className="flex gap-1" style={{ justifyContent: 'flex-end' }}>
+                          <button className="btn btn-ghost" style={{ minHeight: 30, padding: '0 8px', fontSize: '0.78rem' }}
+                            onClick={() => openEdit(a)}>Editar</button>
+                          <button className="btn btn-ghost" style={{ minHeight: 30, padding: '0 8px', fontSize: '0.78rem', color: 'var(--red)' }}
+                            onClick={() => handleDeactivate(a.id)}>Desactivar</button>
+                        </div>
                       </td>
                     </tr>
                   ))}
@@ -153,13 +182,12 @@ export default function AssistantsPage() {
                         <div className="text-xs text-gray">{a.user.email}</div>
                       )}
                     </div>
-                    <button
-                      className="btn btn-ghost"
-                      style={{ minHeight: 32, padding: '0 8px', fontSize: '0.8rem', color: 'var(--red)' }}
-                      onClick={() => handleDeactivate(a.id)}
-                    >
-                      Desactivar
-                    </button>
+                    <div className="flex gap-1">
+                      <button className="btn btn-ghost" style={{ minHeight: 32, padding: '0 8px', fontSize: '0.8rem' }}
+                        onClick={() => openEdit(a)}>Editar</button>
+                      <button className="btn btn-ghost" style={{ minHeight: 32, padding: '0 8px', fontSize: '0.8rem', color: 'var(--red)' }}
+                        onClick={() => handleDeactivate(a.id)}>Desactivar</button>
+                    </div>
                   </div>
                 </div>
               ))}
@@ -167,6 +195,43 @@ export default function AssistantsPage() {
           </>
         )}
       </div>
+
+      {/* Edit modal */}
+      {editTarget && (
+        <div className="modal-overlay" onClick={() => setEditTarget(null)}>
+          <div className="modal-content" onClick={(e) => e.stopPropagation()}>
+            <h3 className="mb-3">Editar asistente</h3>
+            {editError && <div className="alert alert-error">{editError}</div>}
+            <form onSubmit={handleEdit}>
+              <div className="form-group">
+                <label className="form-label">Nombre *</label>
+                <input type="text" className="form-input" required maxLength={200}
+                  value={editForm.name} onChange={(e) => setEditForm({ ...editForm, name: e.target.value })} />
+              </div>
+              <div className="form-group">
+                <label className="form-label">Correo de acceso</label>
+                <input type="email" className="form-input" maxLength={254}
+                  value={editForm.email} onChange={(e) => setEditForm({ ...editForm, email: e.target.value })} />
+                <span className="text-xs text-gray">
+                  {editTarget.user?.email ? 'Cuenta existente. Cambia el correo si hace falta.' : 'Escribe un correo y contraseña para crearle cuenta de acceso.'}
+                </span>
+              </div>
+              <div className="form-group">
+                <label className="form-label">{editTarget.user?.email ? 'Nueva contraseña (opcional)' : 'Contraseña inicial'}</label>
+                <input type="password" className="form-input" minLength={8} maxLength={128}
+                  placeholder="Mín. 8 caracteres" value={editForm.password}
+                  onChange={(e) => setEditForm({ ...editForm, password: e.target.value })} />
+              </div>
+              <div className="flex gap-2 mt-2">
+                <button type="button" className="btn btn-outline" style={{ flex: 1 }} onClick={() => setEditTarget(null)}>Cancelar</button>
+                <button type="submit" className="btn btn-primary" style={{ flex: 2 }} disabled={editSaving}>
+                  {editSaving ? 'Guardando...' : 'Guardar cambios'}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
