@@ -3,17 +3,17 @@ set -e
 
 echo "🎾 Iniciando Sistema de Asistencia STMC..."
 
-# Apply versioned migrations (Prisma Migrate). A diferencia de `prisma db push`,
-# `migrate deploy` NUNCA borra columnas/tablas sin una migración explícita: solo
-# aplica las migraciones pendientes en src/prisma/migrations/ en orden.
-#
-# IMPORTANTE (una sola vez): la base de datos de producción fue creada
-# originalmente con `db push`, así que ya tiene todas las tablas pero no la
-# tabla de control `_prisma_migrations`. Antes del PRIMER deploy con este
-# script hay que marcar la baseline como ya aplicada:
-#     npx prisma migrate resolve --applied 0_init
-# (ver "Flujo de migraciones" en CLAUDE.md). Ese paso es idempotente de facto:
-# se corre una única vez contra la BD existente y nunca más.
+# Auto-baseline (transición de `db push` → Prisma Migrate). La BD de producción
+# fue creada con `db push`, así que tiene las tablas pero no el historial de
+# migraciones. Este paso marca 0_init como aplicada SOLO si el esquema ya existe
+# sin historial; en BD nueva o ya baselineada no hace nada. Ver "Flujo de
+# migraciones" en CLAUDE.md.
+echo "🔖 Verificando baseline de migraciones..."
+node src/scripts/ensure-baseline.js
+
+# Apply versioned migrations. A diferencia de `prisma db push`, `migrate deploy`
+# NUNCA borra columnas/tablas sin una migración explícita: solo aplica las
+# migraciones pendientes en src/prisma/migrations/ en orden.
 echo "📦 Aplicando migraciones de base de datos..."
 npx prisma migrate deploy
 

@@ -306,24 +306,26 @@ de pagos. `migrate deploy` solo aplica los archivos SQL revisados que estén en
 - La baseline inicial es `0_init/` (generada del schema completo con
   `prisma migrate diff --from-empty --to-schema-datamodel`).
 - `migration_lock.toml` fija el provider (`postgresql`).
-- `start.sh` corre `prisma migrate deploy` en cada deploy.
+- `start.sh` corre `node src/scripts/ensure-baseline.js` y luego `prisma migrate deploy` en cada deploy.
 
-### Baselining de producción — PASO ÚNICO (una sola vez)
+### Baselining de producción — AUTOMÁTICO
 
 La BD de producción se creó originalmente con `db push`, así que ya tiene todas
 las tablas pero **no** la tabla de control `_prisma_migrations`. Si se corriera
 `migrate deploy` tal cual, intentaría aplicar `0_init` (que hace `CREATE TABLE …`)
-y fallaría porque las tablas ya existen. Antes del primer deploy con el nuevo
-`start.sh`, marcar la baseline como ya aplicada (una vez, contra la BD de prod):
+y fallaría porque las tablas ya existen.
 
-```bash
-cd server
-# DATABASE_URL apuntando a producción:
-npx prisma migrate resolve --applied 0_init
-```
+`start.sh` resuelve esto solo con `src/scripts/ensure-baseline.js`: si detecta que
+el esquema ya existe (tabla `users`) pero **no** hay historial (`_prisma_migrations`),
+marca `0_init` como aplicada (`migrate resolve --applied 0_init`) y luego
+`migrate deploy` aplica solo las migraciones **nuevas**. Es idempotente:
 
-A partir de ahí, `migrate deploy` solo aplicará migraciones **nuevas**. (Una BD
-nueva/vacía no necesita este paso: `migrate deploy` aplica `0_init` normalmente.)
+- **BD de prod existente** (esquema sin historial) → baseline `0_init`, luego aplica las nuevas.
+- **BD nueva/vacía** → no baselinea; `migrate deploy` crea todo desde `0_init`.
+- **BD ya baselineada** → no hace nada; aplica solo lo pendiente.
+
+No hay que correr nada a mano (útil cuando la BD de Railway es solo red interna
+y no se puede conectar desde fuera).
 
 ### Cambios de schema a futuro
 
