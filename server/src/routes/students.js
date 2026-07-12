@@ -21,7 +21,7 @@ router.post('/import', requireRole('ADMIN', 'SUPERADMIN', 'PHYSICAL_TRAINER'), a
     if (buffer.length === 0) {
       return res.status(400).json({ success: false, error: 'El archivo está vacío o no es válido' });
     }
-    const summary = await importFromBuffer(buffer, { dryRun: !!dryRun });
+    const summary = await importFromBuffer(buffer, { dryRun: !!dryRun, user: req.user });
     res.json({ success: true, data: summary });
   } catch (err) {
     // Errores de formato del Excel se devuelven como 400 legible
