@@ -346,6 +346,90 @@ router.post('/:id/unlock-payment', async (req, res, next) => {
 });
 
 // Assistant confirms a class they accompanied.
+// Assistant reports (or corrects) their accompaniment by GROUP + DATE, WITHOUT
+// needing the class to have been reported first by the professor/coordinator.
+// If no session exists yet, it is created as PROGRAMADA carrying only the
+// assistant's confirmation; the professor/coordinator reports later reuse it
+// (upsert by groupId_date). `remove: true` corrects a mistake (un-confirms), and
+// cleans up the auto-created empty session if nothing else was attached.
+router.post('/assist', async (req, res, next) => {
+  try {
+    if (!['ADMIN', 'SUPERADMIN', 'ASSISTANT'].includes(req.user.role)) {
+      return res.status(403).json({ success: false, error: 'Solo asistentes pueden usar este endpoint' });
+    }
+    const { groupId, date, remove } = req.body;
+    if (!groupId || !date) {
+      return res.status(400).json({ success: false, error: 'groupId y date requeridos' });
+    }
+
+    const assistant = req.user.role === 'ASSISTANT'
+      ? await prisma.assistant.findUnique({ where: { userId: req.user.id } })
+      : await prisma.assistant.findUnique({ where: { id: req.body.assistantId } });
+    if (!assistant) return res.status(404).json({ success: false, error: 'Asistente no encontrado' });
+
+    let session = await prisma.classSession.findUnique({
+      where: { groupId_date: { groupId, date: new Date(date) } },
+    });
+
+    if (remove) {
+      if (!session || session.assistantConfirmedId !== assistant.id) {
+        return res.status(200).json({ success: true, data: session || null });
+      }
+      // La quincena cerrada no se edita.
+      if (await isSessionPeriodLocked(session.date)) {
+        return res.status(409).json({ success: false, error: LOCKED_MSG });
+      }
+      session = await prisma.classSession.update({
+        where: { id: session.id },
+        data: { assistantConfirmedId: null, assistantConfirmedAt: null },
+      });
+      // Limpieza: si la sesión fue auto-creada por el asistente (PROGRAMADA, sin
+      // reporte de profesor ni reportes de staging) y ya no la confirma nadie,
+      // se elimina para no dejar sesiones huérfanas.
+      if (session.status === 'PROGRAMADA' && !session.reportedById) {
+        const reports = await prisma.classReport.count({ where: { sessionId: session.id } });
+        if (reports === 0) {
+          await prisma.classSession.delete({ where: { id: session.id } });
+          return res.json({ success: true, data: null });
+        }
+      } else if (['REALIZADA', 'CANCELADA_MITAD'].includes(session.status)) {
+        await calculateCosts(session.id);
+      }
+      return res.json({ success: true, data: session });
+    }
+
+    if (session && session.assistantConfirmedId && session.assistantConfirmedId !== assistant.id) {
+      return res.status(409).json({ success: false, error: 'Otra persona ya está registrada como asistente de esta clase' });
+    }
+    if (session && (await isSessionPeriodLocked(session.date))) {
+      return res.status(409).json({ success: false, error: LOCKED_MSG });
+    }
+
+    session = await prisma.classSession.upsert({
+      where: { groupId_date: { groupId, date: new Date(date) } },
+      create: {
+        groupId,
+        date: new Date(date),
+        status: 'PROGRAMADA',
+        effectiveUnits: 1.0,
+        assistantConfirmedId: assistant.id,
+        assistantConfirmedAt: new Date(),
+      },
+      update: {
+        assistantConfirmedId: assistant.id,
+        assistantConfirmedAt: new Date(),
+      },
+    });
+
+    if (['REALIZADA', 'CANCELADA_MITAD'].includes(session.status)) {
+      await calculateCosts(session.id);
+    }
+    res.json({ success: true, data: session });
+  } catch (err) {
+    next(err);
+  }
+});
+
 // This writes assistantConfirmedId (the assistant's own report) — it does NOT
 // touch assistantId, which is what the professor reported in the class flow.
 // The assistant's pay only turns PAYABLE when both match AND the coordinator
