@@ -123,6 +123,7 @@ model Group {
   court              Int?
   ballLevel          String?   @map("ball_level")
   subLevel           String?   @map("sub_level") // 'A' | 'B' | 'C' — informativo
+  capacity           Int       @default(8) @map("capacity") // cupo máximo (ocupación)
   active             Boolean   @default(true)
   deactivationReason String?   @map("deactivation_reason")
   deactivatedAt      DateTime? @map("deactivated_at")
