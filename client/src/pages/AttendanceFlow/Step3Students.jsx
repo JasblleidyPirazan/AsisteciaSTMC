@@ -12,24 +12,34 @@ export default function Step3Students({ groupId, records, onChange, onNext }) {
   const [showRepoSearch, setShowRepoSearch] = useState(false);
   const [search, setSearch] = useState('');
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState('');
   const [justifStudent, setJustifStudent] = useState(null);
   const [justifText, setJustifText] = useState('');
 
+  function loadRoster() {
+    setLoading(true);
+    setError('');
+    // El roster del grupo y el listado global se cargan por separado, así una
+    // falla en uno no deja la lista en blanco sin explicación.
+    api.get(`/groups/${groupId}/students`)
+      .then((roster) => {
+        setStudents(roster);
+        setMeta(Object.fromEntries(
+          roster.map((s) => [s.id, { seen: s.classesSeen ?? 0, acquired: s.classesAcquired ?? 0 }])
+        ));
+        // Pre-cargar los estudiantes del grupo (principal o secundario)
+        if (records.length === 0) {
+          onChange(roster.map((s) => ({ studentId: s.id, name: s.name, status: null, attendanceType: 'REGULAR' })));
+        }
+      })
+      .catch((err) => setError(err.message || 'No se pudo cargar la lista del grupo'))
+      .finally(() => setLoading(false));
+  }
+
   useEffect(() => {
-    Promise.all([
-      api.get(`/groups/${groupId}/students`),
-      api.get('/students', { active: 'true', excludeSuspended: 'true' }),
-    ]).then(([group, all]) => {
-      setStudents(group);
-      setAllStudents(all);
-      setMeta(Object.fromEntries(
-        group.map((s) => [s.id, { seen: s.classesSeen ?? 0, acquired: s.classesAcquired ?? 0 }])
-      ));
-      // Pre-populate records for group students
-      if (records.length === 0) {
-        onChange(group.map((s) => ({ studentId: s.id, name: s.name, status: null, attendanceType: 'REGULAR' })));
-      }
-    }).catch(() => {}).finally(() => setLoading(false));
+    loadRoster();
+    api.get('/students', { active: 'true', excludeSuspended: 'true' })
+      .then(setAllStudents).catch(() => {});
   }, [groupId]);
 
   function setStatus(studentId, status) {
@@ -77,17 +87,29 @@ export default function Step3Students({ groupId, records, onChange, onNext }) {
         <div className="stat-box stat-justified"><div className="num">{justified}</div><div className="lbl">Justificadas</div></div>
       </div>
 
-      {/* Quick actions */}
-      <div className="flex gap-2 mb-3">
-        <button className="btn btn-outline" style={{ flex: 1, minHeight: 40, fontSize: '0.875rem' }}
-          onClick={() => onChange(records.map((r) => ({ ...r, status: 'PRESENTE' })))}>
-          Todos P
-        </button>
-        <button className="btn btn-outline" style={{ flex: 1, minHeight: 40, fontSize: '0.875rem' }}
-          onClick={() => onChange(records.map((r) => ({ ...r, status: 'AUSENTE' })))}>
-          Todos A
-        </button>
-      </div>
+      {/* Quick actions: solo "Todos Presentes". Marcar todos ausentes no aplica
+          — eso sería una clase no dictada (se maneja en "¿Se realizó?"). */}
+      {records.length > 0 && (
+        <div className="flex gap-2 mb-3">
+          <button className="btn btn-outline" style={{ flex: 1, minHeight: 40, fontSize: '0.875rem' }}
+            onClick={() => onChange(records.map((r) => ({ ...r, status: 'PRESENTE' })))}>
+            Todos Presentes
+          </button>
+        </div>
+      )}
+
+      {error && (
+        <div className="alert alert-error mb-3">
+          {error}
+          <button className="btn btn-ghost btn-full mt-2" onClick={loadRoster}>Reintentar</button>
+        </div>
+      )}
+      {!error && !loading && records.length === 0 && (
+        <div className="alert alert-info mb-3">
+          Este grupo no tiene estudiantes vinculados. Agrega estudiantes al grupo en
+          la sección Estudiantes, o usa "Agregar estudiante de reposición".
+        </div>
+      )}
 
       {records.map((r) => (
         <div key={r.studentId} className="student-row">
