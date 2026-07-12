@@ -28,6 +28,8 @@ beforeEach(() => {
   resetPrisma();
   prismaMock.user = { findUnique: vi.fn() };
   prismaMock.classSession = { findUnique: vi.fn().mockResolvedValue(SESSION) };
+  // Lock check (isSessionPeriodLocked) → not locked
+  prismaMock.payrollClosure = { findUnique: vi.fn().mockResolvedValue(null) };
 });
 
 function finalize(token, body = {}) {

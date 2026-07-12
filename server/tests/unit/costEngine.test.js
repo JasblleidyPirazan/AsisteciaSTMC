@@ -3,6 +3,7 @@ import {
   getBracketRate,
   getPeriodForDate,
   getCurrentPeriod,
+  getNextPeriod,
 } from '../../src/services/costEngine.js';
 
 // Realistic tariff config (values arrive from SystemConfig as strings)
@@ -68,6 +69,25 @@ describe('getPeriodForDate — quincenas', () => {
   it('el mes va con dos dígitos', () => {
     expect(getPeriodForDate(new Date(2025, 0, 5))).toBe('2025-01-1');
     expect(getPeriodForDate(new Date(2025, 11, 20))).toBe('2025-12-2');
+  });
+});
+
+describe('getNextPeriod — siguiente quincena (arrastre de suspendidos)', () => {
+  it('primera → segunda quincena del mismo mes', () => {
+    expect(getNextPeriod('2025-06-1')).toBe('2025-06-2');
+  });
+
+  it('segunda quincena → primera del mes siguiente', () => {
+    expect(getNextPeriod('2025-06-2')).toBe('2025-07-1');
+  });
+
+  it('segunda de diciembre → primera de enero del año siguiente', () => {
+    expect(getNextPeriod('2025-12-2')).toBe('2026-01-1');
+  });
+
+  it('mantiene el mes con dos dígitos al pasar de quincena', () => {
+    expect(getNextPeriod('2025-01-2')).toBe('2025-02-1');
+    expect(getNextPeriod('2025-09-1')).toBe('2025-09-2');
   });
 });
 

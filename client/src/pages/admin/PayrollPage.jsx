@@ -51,12 +51,19 @@ export default function PayrollPage() {
   const [detailMap, setDetailMap] = useState({});
   const [exporting, setExporting] = useState(false);
   const [approving, setApproving] = useState(false);
+  const [closure, setClosure] = useState(null);
+
+  const locked = !!closure?.locked;
 
   async function load() {
     setLoading(true);
     try {
-      const data = await api.get('/payroll/summary', { period });
+      const [data, closureData] = await Promise.all([
+        api.get('/payroll/summary', { period }),
+        api.get('/payroll/closure', { period }).catch(() => null),
+      ]);
       setSummaryData(data);
+      setClosure(closureData);
     } catch (err) {
       console.error(err);
     } finally {
@@ -97,12 +104,28 @@ export default function PayrollPage() {
     }
   }
 
-  async function handleApprove() {
-    if (!confirm(`¿Aprobar la liquidación del período ${period}? Quedará registrado con tu cuenta y la fecha actual.`)) return;
+  async function refreshDetail(payeeId) {
+    const data = await api.get('/payroll', { period, payeeId });
+    const entry = Array.isArray(data) ? data.find((d) => d.payeeId === payeeId) : null;
+    setDetailMap((prev) => ({ ...prev, [payeeId]: entry }));
+  }
+
+  async function handleMarkPaid(record, payeeId) {
+    try {
+      await api.patch(`/payroll/records/${record.id}/paid`, { paid: !record.paidAt });
+      await refreshDetail(payeeId);
+    } catch (err) {
+      alert(err.message);
+    }
+  }
+
+  async function handleClose() {
+    if (!confirm(`¿Cerrar la quincena ${period}?\n\nSe congela la liquidación: no se podrán editar reportes ni pagos, los pagos suspendidos pasan a la siguiente quincena, y queda registrado. Podrás reabrirla si hace falta.`)) return;
     setApproving(true);
     try {
-      await api.post('/payroll/approve', { period });
+      const r = await api.post('/payroll/close', { period });
       await load();
+      if (r?.carried > 0) alert(`Quincena cerrada. ${r.carried} clase(s) suspendida(s) se arrastraron a ${r.nextPeriod}.`);
     } catch (err) {
       alert(err.message);
     } finally {
@@ -110,11 +133,11 @@ export default function PayrollPage() {
     }
   }
 
-  async function handleRevert() {
-    if (!confirm('¿Revertir la aprobación de esta quincena?')) return;
+  async function handleReopen() {
+    if (!confirm('¿Reabrir esta quincena? Podrás volver a editar reportes y pagos.')) return;
     setApproving(true);
     try {
-      await api.delete(`/payroll/approve?period=${encodeURIComponent(period)}`);
+      await api.post('/payroll/reopen', { period });
       await load();
     } catch (err) {
       alert(err.message);
@@ -131,7 +154,6 @@ export default function PayrollPage() {
 
   const professors = summaryData?.items?.filter((s) => s.payeeType === 'PROFESSOR') || [];
   const assistants = summaryData?.items?.filter((s) => s.payeeType === 'ASSISTANT') || [];
-  const approval = summaryData?.approval || null;
 
   async function handleUnlock(sessionId, payeeId) {
     if (!confirm('¿Desbloquear el pago de esta clase reportada tarde?')) return;
@@ -152,6 +174,7 @@ export default function PayrollPage() {
       <>
         {detail.records?.map((r) => {
           const badge = PAY_STATUS_BADGE[r.payStatus];
+          const payable = !badge; // PAYABLE = sin badge de retención
           return (
             <div key={r.id} style={{ padding: '4px 0' }}>
               <div className="cost-row text-sm">
@@ -160,10 +183,19 @@ export default function PayrollPage() {
                   {' · '}{r.session.group?.code || r.session.title}
                   {r.presentCount > 0 && <span className="text-gray"> · {r.presentCount} est.</span>}
                   {badge && <span className={`badge ${badge.cls}`} style={{ marginLeft: 6 }}>{badge.label}</span>}
+                  {r.carriedFromPeriod && <span className="badge badge-gray" style={{ marginLeft: 6 }}>arrastrada de {r.carriedFromPeriod}</span>}
+                  {payable && r.paidAt && <span className="badge badge-green" style={{ marginLeft: 6 }}>✓ Pagado</span>}
                 </span>
                 <span>{fmt(r.total)}</span>
               </div>
-              {r.payStatus === 'SUSPENDED_LATE' && (
+              {/* Pago realizado (solo habilitados) */}
+              {payable && !locked && (
+                <button className="btn btn-ghost" style={{ minHeight: 26, padding: '0 8px', fontSize: '0.72rem', color: r.paidAt ? 'var(--red)' : 'var(--green)' }}
+                  onClick={() => handleMarkPaid(r, payeeId)}>
+                  {r.paidAt ? 'Deshacer pago' : '💵 Marcar pago realizado'}
+                </button>
+              )}
+              {r.payStatus === 'SUSPENDED_LATE' && !locked && (
                 <button className="btn btn-ghost" style={{ minHeight: 26, padding: '0 8px', fontSize: '0.72rem' }}
                   onClick={() => handleUnlock(r.sessionId, payeeId)}>
                   🔓 Desbloquear pago
@@ -315,34 +347,33 @@ export default function PayrollPage() {
               </div>
             )}
 
-            {/* Aprobación de la quincena */}
+            {/* Cierre de quincena */}
             {hasItems && (
-              approval ? (
-                <div className="card mb-3" style={{ borderColor: 'var(--green)', background: 'var(--green-light)' }}>
+              locked ? (
+                <div className="card mb-3" style={{ borderColor: 'var(--gray-400)', background: 'var(--gray-50)' }}>
                   <div className="flex items-center justify-between" style={{ gap: 8, flexWrap: 'wrap' }}>
                     <div>
-                      <div className="font-medium" style={{ color: 'var(--green)' }}>✅ Liquidación aprobada</div>
+                      <div className="font-medium">🔒 Quincena cerrada</div>
                       <div className="text-xs text-gray mt-1">
-                        Por {approval.approvedByName || '—'} · {fmtDateTime(approval.approvedAt)}
+                        Por {closure.closedByName || '—'} · {fmtDateTime(closure.closedAt)}
                       </div>
                       <div className="text-xs text-gray">
-                        Total aprobado: {fmt(approval.totalPayable)}
-                        {approval.totalRetained > 0 && ` · Retenido: ${fmt(approval.totalRetained)}`}
+                        Edición de reportes y pagos bloqueada para este período.
                       </div>
                     </div>
                     <button className="btn btn-ghost" style={{ minHeight: 34, fontSize: '0.8rem', color: 'var(--red)' }}
-                      onClick={handleRevert} disabled={approving}>
-                      Revertir
+                      onClick={handleReopen} disabled={approving}>
+                      Reabrir
                     </button>
                   </div>
                 </div>
               ) : (
                 <button
                   className="btn btn-success btn-full mb-3"
-                  onClick={handleApprove}
+                  onClick={handleClose}
                   disabled={approving}
                 >
-                  {approving ? 'Aprobando...' : '✅ Aprobar liquidación'}
+                  {approving ? 'Cerrando...' : '🔒 Cerrar quincena'}
                 </button>
               )
             )}
