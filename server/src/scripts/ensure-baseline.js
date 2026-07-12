@@ -29,6 +29,22 @@ async function main() {
     } else {
       console.log(`Baseline no requerido (schema=${has_schema}, historial=${has_history}).`);
     }
+
+    // Auto-recuperación de migraciones fallidas. La BD de producción arrastra un
+    // esquema creado con `db push` (rama de diseño) que ya tenía algunas columnas,
+    // por lo que una migración pudo quedar registrada como fallida y bloquear el
+    // resto (P3009). La marcamos como revertida para que `migrate deploy` la
+    // reintente; nuestras migraciones de columnas son idempotentes
+    // (ADD COLUMN IF NOT EXISTS), así que el reintento es seguro.
+    if (has_history) {
+      const failed = await prisma.$queryRawUnsafe(
+        'SELECT migration_name FROM "_prisma_migrations" WHERE finished_at IS NULL AND rolled_back_at IS NULL'
+      );
+      for (const row of failed) {
+        console.log(`♻️  Migración fallida detectada → revertir para reintentar: ${row.migration_name}`);
+        execSync(`npx prisma migrate resolve --rolled-back ${row.migration_name}`, { stdio: 'inherit' });
+      }
+    }
   } finally {
     await prisma.$disconnect();
   }
