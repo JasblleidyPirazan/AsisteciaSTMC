@@ -10,6 +10,7 @@
 //
 // Take a backup first (see "Backups de BD" in CLAUDE.md).
 const { PrismaClient } = require('@prisma/client');
+const { wipeClassData } = require('../services/wipeClassData');
 
 const prisma = new PrismaClient();
 
@@ -23,22 +24,8 @@ async function main() {
     process.exit(1);
   }
 
-  // Child → parent order so foreign keys never block a delete (independent of
-  // whether the relation cascades).
-  const steps = [
-    ['Asistencia de reportes (staging)', () => prisma.classReportAttendance.deleteMany()],
-    ['Reportes de clase (staging)', () => prisma.classReport.deleteMany()],
-    ['Registros de asistencia consolidados', () => prisma.attendanceRecord.deleteMany()],
-    ['Registros de costo', () => prisma.costRecord.deleteMany()],
-    ['Logs de edición de sesión', () => prisma.sessionEditLog.deleteMany()],
-    ['Profesores de festival', () => prisma.festivalProfessor.deleteMany()],
-    ['Participantes de reposición/festival', () => prisma.makeupParticipant.deleteMany()],
-    ['Aprobaciones de liquidación', () => prisma.payrollApproval.deleteMany()],
-    ['Sesiones de clase', () => prisma.classSession.deleteMany()],
-  ];
-
-  for (const [label, run] of steps) {
-    const { count } = await run();
+  const results = await wipeClassData(prisma);
+  for (const { label, count } of results) {
     console.log(`  ✓ ${label}: ${count} borrados`);
   }
   console.log('Limpieza de datos de clases completada. Catálogo (usuarios, estudiantes, grupos, semestres, config) intacto.');

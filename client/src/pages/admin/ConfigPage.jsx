@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { api } from '../../api/client';
 import { fmtDate } from '../../utils/dates';
+import { useAuth } from '../../hooks/useAuth';
 
 const EMPTY_CONFIG = {
   rate_2_students: '',
@@ -20,10 +21,31 @@ function fmt(n) {
 
 export default function ConfigPage() {
   const navigate = useNavigate();
+  const { user } = useAuth();
+  const isSuperadmin = user?.role === 'SUPERADMIN';
   const [config, setConfig] = useState(EMPTY_CONFIG);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
+
+  // Zona de peligro: reinicio de datos de clases (solo Superadmin)
+  const [wipeText, setWipeText] = useState('');
+  const [wiping, setWiping] = useState(false);
+
+  async function handleWipeClasses() {
+    if (wipeText !== 'BORRAR CLASES') return;
+    if (!confirm('¿Seguro? Se borrarán TODAS las sesiones, asistencia, reposiciones, festivales y costos. Esto NO se puede deshacer.')) return;
+    setWiping(true);
+    try {
+      const r = await api.post('/system/wipe-classes', { confirm: 'BORRAR CLASES' });
+      alert(`Listo. Se borraron ${r.total} registros de clases. Estudiantes, grupos y config quedaron intactos.`);
+      setWipeText('');
+    } catch (err) {
+      alert(err.message);
+    } finally {
+      setWiping(false);
+    }
+  }
 
   // Semesters
   const [semesters, setSemesters] = useState([]);
@@ -323,6 +345,28 @@ export default function ConfigPage() {
             )}
           </div>
         ))}
+
+        {/* Zona de peligro — reinicio de datos de clases (solo Superadmin) */}
+        {isSuperadmin && (
+          <div className="card mt-4" style={{ borderLeft: '4px solid var(--red)' }}>
+            <h3 style={{ color: 'var(--red)' }}>⚠️ Zona de peligro</h3>
+            <div className="text-sm font-medium mt-2">Reiniciar datos de clases</div>
+            <div className="text-xs text-gray mb-2">
+              Borra <strong>todas</strong> las sesiones, asistencia, reposiciones, festivales y costos, para
+              el arranque limpio de semestre. <strong>Conserva</strong> estudiantes, grupos, usuarios y config.
+              Es irreversible — haz backup antes.
+            </div>
+            <div className="flex gap-2" style={{ flexWrap: 'wrap' }}>
+              <input className="form-input" style={{ flex: 1, minWidth: 180 }}
+                placeholder='Escribe "BORRAR CLASES"' value={wipeText}
+                onChange={(e) => setWipeText(e.target.value)} />
+              <button className="btn" style={{ background: 'var(--red)', color: '#fff' }}
+                disabled={wiping || wipeText !== 'BORRAR CLASES'} onClick={handleWipeClasses}>
+                {wiping ? 'Borrando…' : 'Reiniciar datos de clases'}
+              </button>
+            </div>
+          </div>
+        )}
       </div>
     </div>
   );

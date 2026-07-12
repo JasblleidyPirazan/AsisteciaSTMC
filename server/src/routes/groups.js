@@ -334,4 +334,43 @@ router.delete('/:id', requireRole('ADMIN', 'SUPERADMIN', 'PHYSICAL_TRAINER'), as
   }
 });
 
+// Borrado PERMANENTE (irreversible) — solo ADMIN/SUPERADMIN. Elimina el grupo,
+// sus matrículas y TODAS sus sesiones con la actividad de clase asociada
+// (asistencia, reportes, costos, logs). Para limpiar datos de prueba.
+router.delete('/:id/permanent', requireRole('ADMIN', 'SUPERADMIN'), async (req, res, next) => {
+  try {
+    if (req.body?.confirm !== true) {
+      return res.status(400).json({ success: false, error: 'Confirmación requerida para el borrado permanente' });
+    }
+    const id = req.params.id;
+    const group = await prisma.group.findUnique({ where: { id }, select: { id: true, code: true } });
+    if (!group) return res.status(404).json({ success: false, error: 'Grupo no encontrado' });
+
+    const sessions = await prisma.classSession.findMany({ where: { groupId: id }, select: { id: true } });
+    const sessionIds = sessions.map((s) => s.id);
+    const reports = sessionIds.length
+      ? await prisma.classReport.findMany({ where: { sessionId: { in: sessionIds } }, select: { id: true } })
+      : [];
+    const reportIds = reports.map((r) => r.id);
+
+    await prisma.$transaction([
+      prisma.classReportAttendance.deleteMany({ where: { classReportId: { in: reportIds } } }),
+      prisma.classReport.deleteMany({ where: { sessionId: { in: sessionIds } } }),
+      prisma.attendanceRecord.deleteMany({ where: { sessionId: { in: sessionIds } } }),
+      prisma.costRecord.deleteMany({ where: { sessionId: { in: sessionIds } } }),
+      prisma.sessionEditLog.deleteMany({ where: { sessionId: { in: sessionIds } } }),
+      prisma.makeupParticipant.deleteMany({ where: { sessionId: { in: sessionIds } } }),
+      prisma.classSession.deleteMany({ where: { groupId: id } }),
+      prisma.studentEnrollment.deleteMany({ where: { groupId: id } }),
+      // El historial de cambios de grupo se conserva, pero se desvincula del grupo borrado.
+      prisma.studentGroupHistory.updateMany({ where: { fromGroupId: id }, data: { fromGroupId: null } }),
+      prisma.studentGroupHistory.updateMany({ where: { toGroupId: id }, data: { toGroupId: null } }),
+      prisma.group.delete({ where: { id } }),
+    ]);
+    res.json({ success: true, data: { message: `Grupo ${group.code} eliminado permanentemente` } });
+  } catch (err) {
+    next(err);
+  }
+});
+
 module.exports = router;
