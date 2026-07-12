@@ -68,6 +68,56 @@ router.get('/', async (req, res, next) => {
   }
 });
 
+// Acumulado del semestre para el propio profesor/asistente. Suma sus CostRecords
+// cuya sesión cae dentro del semestre activo (por fecha de clase, no por período,
+// para que un arrastre no descuadre la atribución), separando pagado / pendiente
+// habilitado / retenido. Solo el interesado ve sus cifras.
+router.get('/my-semester', async (req, res, next) => {
+  try {
+    if (!['TEACHER', 'ASSISTANT'].includes(req.user.role)) {
+      return res.status(403).json({ success: false, error: 'Acceso no autorizado' });
+    }
+
+    const where = {};
+    if (req.user.role === 'TEACHER') {
+      const professor = await prisma.professor.findUnique({ where: { userId: req.user.id } });
+      if (!professor) return res.json({ success: true, data: null });
+      where.professorId = professor.id;
+      where.payeeType = 'PROFESSOR';
+    } else {
+      const assistant = await prisma.assistant.findUnique({ where: { userId: req.user.id } });
+      if (!assistant) return res.json({ success: true, data: null });
+      where.assistantId = assistant.id;
+      where.payeeType = 'ASSISTANT';
+    }
+
+    const semester = await prisma.semester.findFirst({ where: { active: true } });
+    if (semester) {
+      where.session = { date: { gte: semester.startDate, lte: semester.endDate } };
+    }
+
+    const records = await prisma.costRecord.findMany({
+      where,
+      select: { total: true, payStatus: true, paidAt: true },
+    });
+
+    const acc = { paidTotal: 0, pendingPayableTotal: 0, retainedTotal: 0, classCount: records.length };
+    for (const r of records) {
+      const amount = parseFloat(r.total);
+      if (r.payStatus === 'SUSPENDED_LATE' || r.payStatus === 'PENDING_MATCH') acc.retainedTotal += amount;
+      else if (r.paidAt) acc.paidTotal += amount;
+      else acc.pendingPayableTotal += amount;
+    }
+
+    res.json({
+      success: true,
+      data: { ...acc, semesterName: semester?.name || null },
+    });
+  } catch (err) {
+    next(err);
+  }
+});
+
 router.get('/summary', requireRole('ADMIN'), async (req, res, next) => {
   try {
     const { period } = req.query;
