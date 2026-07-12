@@ -19,6 +19,17 @@ const PAY_STATUS_BADGE = {
   PENDING_MATCH: { cls: 'badge-yellow', label: 'Pendiente' },
 };
 
+const AVATAR_COLORS = ['#3F52A8', '#4F9FB2', '#7A5AF8', '#E8A23B', '#1FA971', '#E8526A', '#6F7BA6'];
+function initials(name) {
+  const p = String(name || '').trim().split(/\s+/);
+  return ((p[0]?.[0] || '') + (p[1]?.[0] || '')).toUpperCase() || '·';
+}
+function colorFor(str) {
+  let h = 0;
+  for (const c of String(str || '')) h = (h + c.charCodeAt(0)) % AVATAR_COLORS.length;
+  return AVATAR_COLORS[h];
+}
+
 function buildPeriodOptions() {
   const options = [];
   const now = new Date();
@@ -40,6 +51,18 @@ function getCurrentPeriod() {
   const m = String(now.getMonth() + 1).padStart(2, '0');
   const half = now.getDate() <= 15 ? '1' : '2';
   return `${y}-${m}-${half}`;
+}
+
+// Tarjeta KPI (mismo lenguaje visual que el panel de Bienvenida).
+function StatCard({ icon, tint, label, value, sub, subColor }) {
+  return (
+    <div className="card">
+      <div className="kpi-ico" style={{ background: tint.bg, color: tint.fg }}>{icon}</div>
+      <div className="kpi-lbl">{label}</div>
+      <div className="kpi-num" style={{ fontSize: '1.5rem' }}>{value}</div>
+      {sub && <div className="kpi-sub" style={{ color: subColor || 'var(--text-soft)' }}>{sub}</div>}
+    </div>
+  );
 }
 
 export default function PayrollPage() {
@@ -208,27 +231,29 @@ export default function PayrollPage() {
     );
   }
 
-  // Card (móvil / columna angosta)
+  // Card (móvil / columna angosta) — con avatar del beneficiario.
   function PayeeCard({ s }) {
     const detail = detailMap[s.payeeId];
     const retained = (s.suspendedTotal || 0) + (s.pendingTotal || 0);
+    const isOpen = expanded === s.payeeId;
     return (
       <div className="card mb-2">
-        <div className="flex items-center justify-between" onClick={() => loadDetail(s.payeeId)}
+        <div className="flex items-center gap-3" onClick={() => loadDetail(s.payeeId)}
           style={{ cursor: 'pointer' }}>
-          <div>
+          <span className="avatar" style={{ background: colorFor(s.name) }}>{initials(s.name)}</span>
+          <div style={{ flex: 1, minWidth: 0 }}>
             <div className="font-medium">{s.name}</div>
             <div className="text-xs text-gray">{s.classCount} clases</div>
             {retained > 0 && (
               <div className="text-xs" style={{ color: 'var(--red)' }}>Retenido: {fmt(retained)}</div>
             )}
           </div>
-          <div style={{ textAlign: 'right' }}>
+          <div style={{ textAlign: 'right', flexShrink: 0 }}>
             <div className="cost-total">{fmt(s.payableTotal ?? s.total)}</div>
-            <div className="text-xs text-gray">{expanded === s.payeeId ? '▲' : '▼'}</div>
+            <div className="text-xs text-gray">{isOpen ? '▲ ocultar' : '▼ detalle'}</div>
           </div>
         </div>
-        {expanded === s.payeeId && detail && (
+        {isOpen && detail && (
           <div style={{ marginTop: 12, borderTop: '1px solid var(--gray-200)', paddingTop: 12 }}>
             <DetailRows detail={detail} payeeId={s.payeeId} />
           </div>
@@ -237,7 +262,7 @@ export default function PayrollPage() {
     );
   }
 
-  // Tabla (escritorio / pantalla ancha)
+  // Tabla (escritorio / pantalla ancha) — con avatar en la columna de nombre.
   function PayeeTable({ items, label }) {
     if (items.length === 0) return null;
     const totalPayable = items.reduce((sum, s) => sum + (s.payableTotal ?? s.total), 0);
@@ -263,9 +288,14 @@ export default function PayrollPage() {
                 <Fragment key={s.payeeId}>
                   <tr className="clickable" onClick={() => loadDetail(s.payeeId)}>
                     <td>{isOpen ? '▲' : '▼'}</td>
-                    <td className="font-medium">{s.name}</td>
+                    <td>
+                      <div className="flex items-center gap-2">
+                        <span className="avatar" style={{ width: 30, height: 30, fontSize: '0.7rem', background: colorFor(s.name) }}>{initials(s.name)}</span>
+                        <span className="font-medium">{s.name}</span>
+                      </div>
+                    </td>
                     <td className="num">{s.classCount}</td>
-                    <td className="num font-medium" style={{ color: 'var(--blue)' }}>{fmt(s.payableTotal ?? s.total)}</td>
+                    <td className="num font-medium" style={{ color: 'var(--brand-indigo, var(--blue))' }}>{fmt(s.payableTotal ?? s.total)}</td>
                     <td className="num" style={{ color: retained > 0 ? 'var(--red)' : 'var(--gray-400)' }}>
                       {retained > 0 ? fmt(retained) : '—'}
                     </td>
@@ -287,7 +317,7 @@ export default function PayrollPage() {
               <td></td>
               <td>Total {label.toLowerCase()}</td>
               <td></td>
-              <td className="num" style={{ color: 'var(--blue)' }}>{fmt(totalPayable)}</td>
+              <td className="num" style={{ color: 'var(--brand-indigo, var(--blue))' }}>{fmt(totalPayable)}</td>
               <td className="num" style={{ color: totalRetained > 0 ? 'var(--red)' : 'inherit' }}>
                 {totalRetained > 0 ? fmt(totalRetained) : '—'}
               </td>
@@ -299,66 +329,72 @@ export default function PayrollPage() {
   }
 
   const hasItems = summaryData && summaryData.items?.length > 0;
+  const retainedTotal = summaryData
+    ? (summaryData.suspendedGrandTotal || 0) + (summaryData.pendingGrandTotal || 0) : 0;
+  const periodLabel = buildPeriodOptions().find((o) => o.value === period)?.label || period;
 
   return (
     <div className="page page-wide">
-      <div className="page-header">
-        <button className="nav-back" onClick={() => navigate('/admin')}>←</button>
-        <h1>Liquidación</h1>
-      </div>
-
-      <div className="page-content">
-        <div className="form-group mb-3">
-          <label className="form-label">Período (quincena)</label>
-          <select className="form-input form-select" value={period}
-            onChange={(e) => setPeriod(e.target.value)}>
-            {buildPeriodOptions().map((o) => (
-              <option key={o.value} value={o.value}>{o.label}</option>
-            ))}
-          </select>
+      <div className="page-content" style={{ paddingTop: 8 }}>
+        {/* Encabezado */}
+        <div className="flex items-center justify-between mb-4" style={{ gap: 12, flexWrap: 'wrap' }}>
+          <div className="flex items-center gap-2" style={{ minWidth: 0 }}>
+            <button className="nav-back" onClick={() => navigate('/admin')}>←</button>
+            <div>
+              <h1 style={{ fontSize: '1.9rem' }}>Liquidación</h1>
+              <p className="text-gray text-sm">Pago quincenal a profesores y asistentes · {periodLabel}</p>
+            </div>
+          </div>
+          <div className="flex items-center gap-2" style={{ flexWrap: 'wrap' }}>
+            <select className="form-input form-select" style={{ minHeight: 40, width: 'auto', fontSize: '0.85rem' }}
+              value={period} onChange={(e) => setPeriod(e.target.value)}>
+              {buildPeriodOptions().map((o) => (
+                <option key={o.value} value={o.value}>{o.label}</option>
+              ))}
+            </select>
+            <button className="btn btn-outline" style={{ minHeight: 40 }}
+              onClick={handleExport} disabled={exporting}>
+              {exporting ? 'Exportando…' : '⬇ Excel'}
+            </button>
+          </div>
         </div>
 
         {loading ? <div className="spinner" /> : (
           <>
+            {/* KPIs */}
             {summaryData && (
-              <div className="card mb-3">
-                <div className="cost-row mb-1">
-                  <span className="text-sm text-gray">Profesores</span>
-                  <span className="font-medium">{fmt(summaryData.totalProfessors)}</span>
-                </div>
-                <div className="cost-row mb-2">
-                  <span className="text-sm text-gray">Asistentes</span>
-                  <span className="font-medium">{fmt(summaryData.totalAssistants)}</span>
-                </div>
-                <div className="cost-row" style={{ borderTop: '1px solid var(--gray-200)', paddingTop: 8 }}>
-                  <span className="font-medium">Gran total (habilitado)</span>
-                  <span className="cost-total">{fmt(summaryData.grandTotal)}</span>
-                </div>
-                {(summaryData.suspendedGrandTotal > 0 || summaryData.pendingGrandTotal > 0) && (
-                  <div className="cost-row mt-1">
-                    <span className="text-sm" style={{ color: 'var(--red)' }}>
-                      Retenido (suspendido/pendiente)
-                    </span>
-                    <span className="text-sm font-medium" style={{ color: 'var(--red)' }}>
-                      {fmt((summaryData.suspendedGrandTotal || 0) + (summaryData.pendingGrandTotal || 0))}
-                    </span>
-                  </div>
-                )}
+              <div className="home-kpis">
+                <StatCard icon="✓" tint={{ bg: 'rgba(31,169,113,0.14)', fg: '#1FA971' }}
+                  label="Gran total habilitado" value={fmt(summaryData.grandTotal)}
+                  sub="listo para pagar" subColor="var(--success)" />
+                <StatCard icon="🎓" tint={{ bg: 'rgba(63,82,168,0.12)', fg: '#3F52A8' }}
+                  label="Profesores" value={fmt(summaryData.totalProfessors)}
+                  sub={`${professors.length} beneficiario${professors.length !== 1 ? 's' : ''}`} />
+                <StatCard icon="🤝" tint={{ bg: 'rgba(79,159,178,0.14)', fg: '#4F9FB2' }}
+                  label="Asistentes" value={fmt(summaryData.totalAssistants)}
+                  sub={`${assistants.length} beneficiario${assistants.length !== 1 ? 's' : ''}`} />
+                <StatCard icon="⏸" tint={{ bg: 'rgba(232,82,106,0.12)', fg: '#E8526A' }}
+                  label="Retenido" value={fmt(retainedTotal)}
+                  sub={retainedTotal > 0 ? 'suspendido / pendiente' : 'sin retenciones'}
+                  subColor={retainedTotal > 0 ? 'var(--red)' : 'var(--text-soft)'} />
               </div>
             )}
 
             {/* Cierre de quincena */}
             {hasItems && (
               locked ? (
-                <div className="card mb-3" style={{ borderColor: 'var(--gray-400)', background: 'var(--gray-50)' }}>
+                <div className="card mb-4" style={{ borderLeft: '4px solid var(--gray-400)', background: 'var(--gray-50)' }}>
                   <div className="flex items-center justify-between" style={{ gap: 8, flexWrap: 'wrap' }}>
-                    <div>
-                      <div className="font-medium">🔒 Quincena cerrada</div>
-                      <div className="text-xs text-gray mt-1">
-                        Por {closure.closedByName || '—'} · {fmtDateTime(closure.closedAt)}
-                      </div>
-                      <div className="text-xs text-gray">
-                        Edición de reportes y pagos bloqueada para este período.
+                    <div className="flex items-center gap-3">
+                      <span className="kpi-ico" style={{ background: 'rgba(120,120,120,0.14)', color: '#666', marginBottom: 0 }}>🔒</span>
+                      <div>
+                        <div className="font-medium">Quincena cerrada</div>
+                        <div className="text-xs text-gray mt-1">
+                          Por {closure.closedByName || '—'} · {fmtDateTime(closure.closedAt)}
+                        </div>
+                        <div className="text-xs text-gray">
+                          Edición de reportes y pagos bloqueada para este período.
+                        </div>
                       </div>
                     </div>
                     <button className="btn btn-ghost" style={{ minHeight: 34, fontSize: '0.8rem', color: 'var(--red)' }}
@@ -368,24 +404,23 @@ export default function PayrollPage() {
                   </div>
                 </div>
               ) : (
-                <button
-                  className="btn btn-success btn-full mb-3"
-                  onClick={handleClose}
-                  disabled={approving}
-                >
-                  {approving ? 'Cerrando...' : '🔒 Cerrar quincena'}
-                </button>
+                <div className="card mb-4" style={{ borderLeft: '4px solid var(--green)' }}>
+                  <div className="flex items-center justify-between" style={{ gap: 12, flexWrap: 'wrap' }}>
+                    <div style={{ flex: 1, minWidth: 180 }}>
+                      <div className="font-medium">Cerrar quincena</div>
+                      <div className="text-xs text-gray mt-1">
+                        Congela la liquidación, arrastra los pagos suspendidos a la siguiente quincena
+                        y bloquea la edición. Reversible.
+                      </div>
+                    </div>
+                    <button className="btn btn-success" style={{ minHeight: 40 }}
+                      onClick={handleClose} disabled={approving}>
+                      {approving ? 'Cerrando…' : '🔒 Cerrar quincena'}
+                    </button>
+                  </div>
+                </div>
               )
             )}
-
-            <button
-              className="btn btn-outline btn-full mb-4"
-              style={{ fontSize: '0.875rem' }}
-              onClick={handleExport}
-              disabled={exporting}
-            >
-              {exporting ? 'Exportando...' : '⬇ Exportar Excel'}
-            </button>
 
             {!hasItems ? (
               <div className="alert alert-info">No hay registros de pago para este período.</div>
