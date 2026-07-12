@@ -1,4 +1,5 @@
 const express = require('express');
+const XLSX = require('xlsx');
 const prisma = require('../lib/prisma');
 const { requireRole } = require('../middleware/auth');
 const { bogotaToday } = require('../lib/dates');
@@ -28,6 +29,55 @@ router.post('/import', requireRole('ADMIN', 'SUPERADMIN', 'PHYSICAL_TRAINER'), a
     if (/hoja|encabezados|Consolidado/i.test(err.message)) {
       return res.status(400).json({ success: false, error: err.message });
     }
+    next(err);
+  }
+});
+
+// Exportar TODOS los estudiantes del sistema a Excel (para comparar contra la
+// matrícula/importación y ubicar diferencias). Incluye activos e inactivos.
+router.get('/export', requireRole('ADMIN', 'SUPERADMIN', 'PHYSICAL_TRAINER', 'RECEPTION'), async (req, res, next) => {
+  try {
+    const students = await prisma.student.findMany({
+      include: {
+        enrollments: {
+          include: { group: { select: { code: true } } },
+          orderBy: { enrollmentType: 'asc' },
+        },
+        payments: { select: { amount: true } },
+      },
+      orderBy: { name: 'asc' },
+    });
+
+    const rows = students.map((s) => {
+      const primary = s.enrollments.find((e) => e.enrollmentType === 'PRIMARY') || s.enrollments[0];
+      const others = s.enrollments.filter((e) => e !== primary).map((e) => e.group?.code).filter(Boolean);
+      const paid = s.payments.reduce((sum, p) => sum + parseFloat(p.amount), 0);
+      return {
+        Nombre: s.name,
+        Documento: s.document || '',
+        Estado: studentStatus(s),
+        Activo: s.active ? 'Sí' : 'No',
+        'Grupo principal': primary?.group?.code || '',
+        'Otros grupos': others.join(', '),
+        Email: s.email || '',
+        WhatsApp: s.phone || '',
+        Acudiente: s.guardianName || '',
+        'Fecha nacimiento': s.birthDate ? new Date(s.birthDate).toISOString().slice(0, 10) : '',
+        'Clases adquiridas': s.classesAcquired || 0,
+        'Pago completo': s.paymentComplete ? 'Sí' : 'No',
+        'Pagos registrados': s.payments.length,
+        'Total pagado': paid,
+      };
+    });
+
+    const ws = XLSX.utils.json_to_sheet(rows.length ? rows : [{ Nombre: 'Sin estudiantes' }]);
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, 'Estudiantes');
+    const buffer = XLSX.write(wb, { type: 'buffer', bookType: 'xlsx' });
+    res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+    res.setHeader('Content-Disposition', 'attachment; filename="estudiantes.xlsx"');
+    res.send(buffer);
+  } catch (err) {
     next(err);
   }
 });

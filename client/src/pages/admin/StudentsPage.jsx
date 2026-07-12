@@ -95,6 +95,7 @@ export default function StudentsPage() {
   const [importResult, setImportResult] = useState(null);
   const [importError, setImportError] = useState('');
   const [importBusy, setImportBusy] = useState(false);
+  const [exporting, setExporting] = useState(false);
   const [students, setStudents] = useState([]);
   const [groups, setGroups] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -280,6 +281,27 @@ export default function StudentsPage() {
         </div>
       </div>
     );
+  }
+
+  async function exportStudents() {
+    setExporting(true);
+    try {
+      const token = localStorage.getItem('stmc_token');
+      const base = import.meta.env.VITE_API_URL || '/api';
+      const res = await fetch(`${base}/students/export`, { headers: { Authorization: `Bearer ${token}` } });
+      if (!res.ok) throw new Error('Error al exportar');
+      const blob = await res.blob();
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = 'estudiantes.xlsx';
+      a.click();
+      URL.revokeObjectURL(url);
+    } catch (err) {
+      alert(err.message);
+    } finally {
+      setExporting(false);
+    }
   }
 
   function openImport() {
@@ -660,6 +682,10 @@ export default function StudentsPage() {
           <p className="text-xs text-gray">{summary.activos} estudiantes{semester ? ` · ${semester.name}` : ''}</p>
         </div>
         <div style={{ display: 'flex', gap: 8 }}>
+          <button className="btn btn-outline" style={{ minHeight: 36, padding: '0 12px', fontSize: '0.875rem' }}
+            onClick={exportStudents} disabled={exporting}>
+            {exporting ? '...' : '⬇ Exportar'}
+          </button>
           {canImport && (
             <button className="btn btn-outline" style={{ minHeight: 36, padding: '0 12px', fontSize: '0.875rem' }}
               onClick={openImport}>
