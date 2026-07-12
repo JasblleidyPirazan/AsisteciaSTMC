@@ -19,7 +19,6 @@ import EventsPage from './pages/admin/EventsPage';
 import ReportsPage from './pages/admin/ReportsPage';
 import PayrollPage from './pages/admin/PayrollPage';
 import ConfigPage from './pages/admin/ConfigPage';
-import EnrollmentRequestsPage from './pages/admin/EnrollmentRequestsPage';
 import MakeupsPage from './pages/admin/MakeupsPage';
 import UsersPage from './pages/admin/UsersPage';
 import ValidationPage from './pages/admin/ValidationPage';
@@ -30,6 +29,8 @@ import AlertsPage from './pages/admin/AlertsPage';
 import HorariosPage from './pages/HorariosPage';
 import ReportePage from './pages/ReportePage';
 import AuditPage from './pages/admin/AuditPage';
+import PublicValidationPage from './pages/ValidationPage';
+import ValidationAdminPage from './pages/admin/ValidationAdminPage';
 
 class ErrorBoundary extends Component {
   constructor(props) {
@@ -85,6 +86,7 @@ function AppRoutes() {
     <Routes>
       <Route path="/login" element={user ? <Navigate to="/" /> : <LoginPage />} />
       <Route path="/enrollment" element={<EnrollmentPage />} />
+      <Route path="/validar" element={<PublicValidationPage />} />
 
       <Route path="/" element={
         <RequireAuth>
@@ -210,8 +212,8 @@ function AppRoutes() {
         </RequireAuth>
       } />
       <Route path="/admin/enrollment" element={
-        <RequireAuth roles={['ADMIN']}>
-          <Shell><EnrollmentRequestsPage /></Shell>
+        <RequireAuth roles={['ADMIN', 'PHYSICAL_TRAINER', 'RECEPTION']}>
+          <Shell><ValidationAdminPage /></Shell>
         </RequireAuth>
       } />
       <Route path="/admin/professors" element={
