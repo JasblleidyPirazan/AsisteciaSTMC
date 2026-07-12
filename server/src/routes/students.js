@@ -153,7 +153,7 @@ router.get('/:id', async (req, res, next) => {
   }
 });
 
-router.post('/', requireRole('ADMIN', 'SUPERADMIN', 'PHYSICAL_TRAINER'), async (req, res, next) => {
+router.post('/', requireRole('ADMIN', 'SUPERADMIN', 'PHYSICAL_TRAINER', 'RECEPTION'), async (req, res, next) => {
   try {
     const { name, email, parentUserId, primaryGroupId, secondaryGroupId, classesAcquired,
       paymentComplete, document, phone, guardianName, birthDate } = req.body;
@@ -200,10 +200,12 @@ router.post('/', requireRole('ADMIN', 'SUPERADMIN', 'PHYSICAL_TRAINER'), async (
   }
 });
 
-router.put('/:id', requireRole('ADMIN', 'SUPERADMIN', 'PHYSICAL_TRAINER'), async (req, res, next) => {
+router.put('/:id', requireRole('ADMIN', 'SUPERADMIN', 'PHYSICAL_TRAINER', 'RECEPTION'), async (req, res, next) => {
   try {
     const { name, email, parentUserId, active, deactivationReason, classesAcquired,
       document, phone, guardianName, birthDate } = req.body;
+    // Recepción solo crea/edita datos: nunca activa/desactiva.
+    const canDeactivate = req.user.role !== 'RECEPTION';
     const data = {};
     if (name !== undefined) data.name = name;
     if (email !== undefined) data.email = email;
@@ -213,7 +215,7 @@ router.put('/:id', requireRole('ADMIN', 'SUPERADMIN', 'PHYSICAL_TRAINER'), async
     if (birthDate !== undefined) data.birthDate = birthDate ? new Date(birthDate) : null;
     if (parentUserId !== undefined) data.parentUserId = parentUserId;
     if (classesAcquired !== undefined) data.classesAcquired = Math.max(0, parseInt(classesAcquired) || 0);
-    if (active !== undefined) {
+    if (active !== undefined && canDeactivate) {
       data.active = active;
       if (!active) {
         data.deactivatedAt = new Date();
@@ -246,6 +248,69 @@ router.patch('/:id/payment-status', requireRole('ADMIN', 'SUPERADMIN', 'RECEPTIO
       include: { enrollments: { include: { group: { select: { id: true, code: true, name: true } } } } },
     });
     res.json({ success: true, data: withStatus(student) });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// ---------- Registro de pagos del estudiante ----------
+// Historial de pagos, independiente del estado Inscrito/Matriculado (no lo
+// toca). Visible y editable solo para Recepción, Admin y Superadmin.
+const PAYMENT_METHODS = ['TRANSFERENCIA', 'EFECTIVO', 'WOMPI', 'BOLD'];
+
+router.get('/:id/payments', requireRole('ADMIN', 'SUPERADMIN', 'RECEPTION'), async (req, res, next) => {
+  try {
+    const payments = await prisma.studentPayment.findMany({
+      where: { studentId: req.params.id },
+      orderBy: [{ paymentDate: 'desc' }, { createdAt: 'desc' }],
+    });
+    const total = payments.reduce((s, p) => s + parseFloat(p.amount), 0);
+    res.json({ success: true, data: { payments, total, count: payments.length } });
+  } catch (err) {
+    next(err);
+  }
+});
+
+router.post('/:id/payments', requireRole('ADMIN', 'SUPERADMIN', 'RECEPTION'), async (req, res, next) => {
+  try {
+    const { paymentDate, method, amount, note } = req.body;
+    if (!paymentDate) return res.status(400).json({ success: false, error: 'Fecha de pago requerida' });
+    if (!PAYMENT_METHODS.includes(method)) {
+      return res.status(400).json({ success: false, error: 'Medio de pago inválido' });
+    }
+    const value = parseFloat(amount);
+    if (!Number.isFinite(value) || value <= 0) {
+      return res.status(400).json({ success: false, error: 'Valor de pago inválido' });
+    }
+    const student = await prisma.student.findUnique({ where: { id: req.params.id }, select: { id: true } });
+    if (!student) return res.status(404).json({ success: false, error: 'Estudiante no encontrado' });
+
+    // "Persona que recibió el pago" = usuario logueado que lo registra.
+    const payment = await prisma.studentPayment.create({
+      data: {
+        studentId: req.params.id,
+        paymentDate: new Date(paymentDate),
+        method,
+        amount: value,
+        note: note?.trim() || null,
+        receivedById: req.user.id,
+        receivedByName: req.user.email,
+      },
+    });
+    res.status(201).json({ success: true, data: payment });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// Eliminar un pago (corrección de errores). Solo Admin/Superadmin: es un
+// registro económico, Recepción crea y consulta pero no borra.
+router.delete('/:id/payments/:paymentId', requireRole('ADMIN', 'SUPERADMIN'), async (req, res, next) => {
+  try {
+    await prisma.studentPayment.deleteMany({
+      where: { id: req.params.paymentId, studentId: req.params.id },
+    });
+    res.json({ success: true, data: null });
   } catch (err) {
     next(err);
   }
