@@ -8,11 +8,32 @@ const LEVEL_COLOR = {
   Intermedio: '#7A5AF8', Avanzado: '#3F52A8',
 };
 
+const STATUS_BADGE = {
+  PRESENTE: ['badge-green', 'Presente'],
+  AUSENTE: ['badge-red', 'Ausente'],
+  JUSTIFICADA: ['badge-yellow', 'Justificada'],
+};
+
 export default function ReportePage() {
   const navigate = useNavigate();
   const [data, setData] = useState({ rows: [], totals: {}, options: { groups: [], levels: [], students: [] } });
   const [loading, setLoading] = useState(true);
   const [filters, setFilters] = useState({ from: '', to: '', level: '', groupId: '', studentId: '' });
+
+  // Detalle de una sesión (modal): asistencia P/A/J por estudiante.
+  const [detailRow, setDetailRow] = useState(null);
+  const [detail, setDetail] = useState(null);
+  const [detailLoading, setDetailLoading] = useState(false);
+
+  function openDetail(row) {
+    setDetailRow(row);
+    setDetail(null);
+    setDetailLoading(true);
+    api.get(`/reports/class/${row.sessionId}`)
+      .then(setDetail)
+      .catch(() => setDetail({ error: true }))
+      .finally(() => setDetailLoading(false));
+  }
 
   useEffect(() => {
     setLoading(true);
@@ -118,7 +139,7 @@ export default function ReportePage() {
               </thead>
               <tbody>
                 {withAcc.map((r) => (
-                  <tr key={r.sessionId} className="clickable" onClick={() => navigate(`/admin/reports`)}>
+                  <tr key={r.sessionId} className="clickable" onClick={() => openDetail(r)}>
                     <td>{fmtDate(r.date, { day: '2-digit', month: 'short' })}</td>
                     <td className="font-medium">{r.groupCode}</td>
                     <td>
@@ -153,6 +174,51 @@ export default function ReportePage() {
           </div>
         )}
       </div>
+
+      {/* Detalle de la sesión: asistencia por estudiante */}
+      {detailRow && (
+        <div className="modal-overlay" onClick={() => setDetailRow(null)}>
+          <div className="modal-content" onClick={(e) => e.stopPropagation()} style={{ maxWidth: 560 }}>
+            <div className="flex items-center justify-between mb-1">
+              <h3>{detailRow.groupCode}</h3>
+              <button className="btn btn-ghost" style={{ minHeight: 30 }} onClick={() => setDetailRow(null)}>✕</button>
+            </div>
+            <div className="text-sm text-gray mb-3">
+              {fmtDate(detailRow.date, { weekday: 'long', day: 'numeric', month: 'long' })}
+              {detailRow.professor ? ` · ${detailRow.professor}` : ''}
+            </div>
+
+            <div className="flex items-center gap-2 mb-3" style={{ flexWrap: 'wrap' }}>
+              <span className="badge badge-green">{detailRow.present} Presentes</span>
+              <span className="badge badge-red">{detailRow.absent} Ausentes</span>
+              <span className="badge badge-yellow">{detailRow.justified} Justificadas</span>
+            </div>
+
+            {detailLoading || !detail ? (
+              <div className="spinner" />
+            ) : detail.error ? (
+              <div className="alert alert-error">No se pudo cargar el detalle.</div>
+            ) : (
+              <div className="card" style={{ maxHeight: 360, overflowY: 'auto', padding: 0 }}>
+                {(detail.attendanceRecords || []).length === 0 ? (
+                  <div className="text-sm text-gray" style={{ padding: 12 }}>Sin registros de asistencia.</div>
+                ) : (
+                  detail.attendanceRecords.map((r) => {
+                    const b = STATUS_BADGE[r.status] || ['badge-gray', r.status];
+                    return (
+                      <div key={r.id} className="home-list-row" style={{ padding: '10px 12px' }}>
+                        <span className="text-sm font-medium" style={{ flex: 1, minWidth: 0 }}>{r.student?.name || '—'}</span>
+                        {r.attendanceType === 'REPOSICION' && <span className="badge badge-blue">Reposición</span>}
+                        <span className={`badge ${b[0]}`}>{b[1]}</span>
+                      </div>
+                    );
+                  })
+                )}
+              </div>
+            )}
+          </div>
+        </div>
+      )}
     </div>
   );
 }
