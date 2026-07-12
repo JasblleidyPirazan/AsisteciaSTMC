@@ -17,6 +17,18 @@ function getPeriodForDate(date) {
   return `${year}-${month}-${half}`;
 }
 
+// Siguiente quincena: "2025-06-1" → "2025-06-2" → "2025-07-1" → ... → "2025-12-2" → "2026-01-1"
+function getNextPeriod(period) {
+  const [yearStr, monthStr, halfStr] = String(period).split('-');
+  let year = parseInt(yearStr, 10);
+  let month = parseInt(monthStr, 10);
+  const half = parseInt(halfStr, 10);
+  if (half === 1) return `${year}-${monthStr}-2`;
+  month += 1;
+  if (month > 12) { month = 1; year += 1; }
+  return `${year}-${String(month).padStart(2, '0')}-1`;
+}
+
 // Returns the flat bracket rate for the given number of students present.
 // The rate is a fixed amount per session (not per student).
 function getBracketRate(presentCount, cfg) {
@@ -183,4 +195,4 @@ async function calculateCosts(sessionId) {
   };
 }
 
-module.exports = { calculateCosts, getCurrentPeriod, getPeriodForDate, getBracketRate };
+module.exports = { calculateCosts, getCurrentPeriod, getPeriodForDate, getNextPeriod, getBracketRate };

@@ -1,6 +1,7 @@
 const express = require('express');
 const prisma = require('../lib/prisma');
 const { requireRole } = require('../middleware/auth');
+const { getNextPeriod } = require('../services/costEngine');
 const XLSX = require('xlsx');
 
 const router = express.Router();
@@ -354,6 +355,180 @@ router.get('/export', requireRole('ADMIN', 'TEACHER', 'ASSISTANT'), async (req, 
     res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
     res.setHeader('Content-Disposition', `attachment; filename="liquidacion-${period}.xlsx"`);
     res.send(buffer);
+  } catch (err) {
+    next(err);
+  }
+});
+
+// ===== Fase 3: pago realizado, cierre de quincena y arrastre =====
+
+// Estado de cierre de una quincena (para la UI).
+router.get('/closure', requireRole('ADMIN'), async (req, res, next) => {
+  try {
+    const { period } = req.query;
+    if (!period) return res.status(400).json({ success: false, error: 'period requerido' });
+    const closure = await prisma.payrollClosure.findUnique({
+      where: { period },
+      include: { lines: true },
+    });
+    res.json({ success: true, data: closure });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// "Pago realizado": el ADMIN marca (o desmarca) que un costo se pagó. Solo sobre
+// registros PAYABLE y en quincenas no cerradas.
+router.patch('/records/:id/paid', requireRole('ADMIN'), async (req, res, next) => {
+  try {
+    const paid = req.body.paid !== false;
+    const record = await prisma.costRecord.findUnique({ where: { id: req.params.id } });
+    if (!record) return res.status(404).json({ success: false, error: 'Registro no encontrado' });
+
+    const closure = await prisma.payrollClosure.findUnique({ where: { period: record.period } });
+    if (closure?.locked) {
+      return res.status(409).json({ success: false, error: 'La quincena está cerrada. Reábrela para editar pagos.' });
+    }
+    if (paid && record.payStatus !== 'PAYABLE') {
+      return res.status(400).json({ success: false, error: 'Solo se puede marcar pagado un registro habilitado (PAYABLE)' });
+    }
+
+    const updated = await prisma.costRecord.update({
+      where: { id: req.params.id },
+      data: paid
+        ? { paidAt: new Date(), paidById: req.user.id }
+        : { paidAt: null, paidById: null },
+    });
+    await prisma.payrollLog.create({
+      data: {
+        period: record.period,
+        action: paid ? 'MARK_PAID' : 'UNMARK_PAID',
+        actorId: req.user.id,
+        actorName: req.user.email,
+        detail: { costRecordId: record.id, total: parseFloat(record.total), payeeType: record.payeeType },
+      },
+    });
+    res.json({ success: true, data: { id: updated.id, paidAt: updated.paidAt } });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// Cerrar la quincena: congela la liquidación. Requiere que no queden pagos
+// PENDING_MATCH (sin validar). Los suspendidos por reporte tardío (SUSPENDED_LATE)
+// se ARRASTRAN a la siguiente quincena (cambian su period). Guarda un snapshot
+// por profe/asistente y bloquea la edición de reportes/costos del período.
+router.post('/close', requireRole('ADMIN'), async (req, res, next) => {
+  try {
+    const { period, note } = req.body;
+    if (!period) return res.status(400).json({ success: false, error: 'period requerido' });
+
+    const existing = await prisma.payrollClosure.findUnique({ where: { period } });
+    if (existing?.locked) {
+      return res.status(409).json({ success: false, error: 'Esta quincena ya está cerrada' });
+    }
+
+    const records = await prisma.costRecord.findMany({
+      where: { period },
+      include: { professor: { select: { name: true } }, assistant: { select: { name: true } } },
+    });
+    if (records.length === 0) {
+      return res.status(400).json({ success: false, error: 'No hay registros de pago en este período' });
+    }
+    const pending = records.filter((r) => r.payStatus === 'PENDING_MATCH');
+    if (pending.length > 0) {
+      return res.status(400).json({
+        success: false,
+        error: `No se puede cerrar: ${pending.length} pago(s) pendiente(s) de validación. Valídalos o resuélvelos primero.`,
+      });
+    }
+
+    // Foto por payee: pagado (PAYABLE) vs arrastrado (SUSPENDED_LATE).
+    const byPayee = {};
+    for (const r of records) {
+      const payeeId = r.professorId || r.assistantId;
+      const key = `${r.payeeType}-${payeeId}`;
+      if (!byPayee[key]) {
+        byPayee[key] = {
+          payeeType: r.payeeType, payeeId,
+          payeeName: r.professor?.name || r.assistant?.name || null,
+          classCount: 0, totalPaid: 0, totalCarried: 0,
+        };
+      }
+      const amount = parseFloat(r.total);
+      byPayee[key].classCount += 1;
+      if (r.payStatus === 'SUSPENDED_LATE') byPayee[key].totalCarried += amount;
+      else byPayee[key].totalPaid += amount;
+    }
+
+    const nextPeriod = getNextPeriod(period);
+    const suspended = records.filter((r) => r.payStatus === 'SUSPENDED_LATE');
+
+    const closure = await prisma.$transaction(async (tx) => {
+      const c = await tx.payrollClosure.upsert({
+        where: { period },
+        create: { period, closedById: req.user.id, closedByName: req.user.email, locked: true },
+        update: { closedById: req.user.id, closedByName: req.user.email, closedAt: new Date(), reopenedAt: null, reopenedById: null, locked: true },
+      });
+      await tx.payrollClosureLine.deleteMany({ where: { closureId: c.id } });
+      await tx.payrollClosureLine.createMany({
+        data: Object.values(byPayee).map((p) => ({
+          closureId: c.id,
+          payeeType: p.payeeType,
+          payeeId: p.payeeId,
+          payeeName: p.payeeName,
+          classCount: p.classCount,
+          totalPaid: p.totalPaid,
+          totalCarried: p.totalCarried,
+          snapshot: p,
+        })),
+      });
+      // Arrastrar suspendidos a la siguiente quincena.
+      if (suspended.length > 0) {
+        await tx.costRecord.updateMany({
+          where: { id: { in: suspended.map((r) => r.id) } },
+          data: { period: nextPeriod, carriedFromPeriod: period },
+        });
+      }
+      await tx.payrollLog.create({
+        data: {
+          period, action: 'CLOSE', actorId: req.user.id, actorName: req.user.email,
+          detail: { note: note?.trim() || null, carried: suspended.length, nextPeriod, payees: Object.keys(byPayee).length },
+        },
+      });
+      if (suspended.length > 0) {
+        await tx.payrollLog.create({
+          data: { period, action: 'CARRY_OVER', actorId: req.user.id, actorName: req.user.email,
+            detail: { count: suspended.length, toPeriod: nextPeriod } },
+        });
+      }
+      return c;
+    });
+
+    res.json({ success: true, data: { period, locked: true, carried: suspended.length, nextPeriod, closedAt: closure.closedAt } });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// Reabrir una quincena cerrada (solo ADMIN). Desbloquea la edición; no revierte
+// los arrastres ya hechos (quedan registrados en el log).
+router.post('/reopen', requireRole('ADMIN'), async (req, res, next) => {
+  try {
+    const { period } = req.body;
+    if (!period) return res.status(400).json({ success: false, error: 'period requerido' });
+    const closure = await prisma.payrollClosure.findUnique({ where: { period } });
+    if (!closure || !closure.locked) {
+      return res.status(400).json({ success: false, error: 'La quincena no está cerrada' });
+    }
+    await prisma.payrollClosure.update({
+      where: { period },
+      data: { locked: false, reopenedById: req.user.id, reopenedAt: new Date() },
+    });
+    await prisma.payrollLog.create({
+      data: { period, action: 'REOPEN', actorId: req.user.id, actorName: req.user.email },
+    });
+    res.json({ success: true, data: { period, locked: false } });
   } catch (err) {
     next(err);
   }

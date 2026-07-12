@@ -2,8 +2,11 @@ const express = require('express');
 const prisma = require('../lib/prisma');
 const { calculateCosts } = require('../services/costEngine');
 const { consolidateSession } = require('../services/consolidation');
+const { isSessionPeriodLocked } = require('../lib/payrollLock');
 
 const router = express.Router();
+
+const LOCKED_MSG = 'La quincena de esta clase está cerrada. Reábrela en Liquidación para poder editar.';
 
 const VALID_STATUSES = ['PRESENTE', 'AUSENTE', 'JUSTIFICADA'];
 const VALID_TYPES = ['REGULAR', 'REPOSICION'];
@@ -172,6 +175,10 @@ router.post('/:id/finalize', async (req, res, next) => {
       return res.status(403).json({ success: false, error: 'No tienes permiso para reportar este grupo' });
     }
 
+    if (await isSessionPeriodLocked(session.date)) {
+      return res.status(409).json({ success: false, error: LOCKED_MSG });
+    }
+
     const reporterType = resolveReporterType(req.user.role, req.body.reporterType);
     if (!reporterType) {
       return res.status(400).json({ success: false, error: 'Indica el tipo de reporte (profesor o coordinador)' });
@@ -288,6 +295,10 @@ router.post('/:id/cancel', async (req, res, next) => {
       return res.status(403).json({ success: false, error: 'No tienes permiso para reportar este grupo' });
     }
 
+    if (await isSessionPeriodLocked(existing.date)) {
+      return res.status(409).json({ success: false, error: LOCKED_MSG });
+    }
+
     const reasonText = (cancellationReason && cancellationReason.trim())
       ? cancellationReason.trim().slice(0, 500)
       : CANCEL_AUTO_TEXT[cancellationCategory];
@@ -318,6 +329,9 @@ router.post('/:id/unlock-payment', async (req, res, next) => {
     }
     const session = await prisma.classSession.findUnique({ where: { id: req.params.id } });
     if (!session) return res.status(404).json({ success: false, error: 'Sesión no encontrada' });
+    if (await isSessionPeriodLocked(session.date)) {
+      return res.status(409).json({ success: false, error: LOCKED_MSG });
+    }
 
     await prisma.classSession.update({
       where: { id: req.params.id },
