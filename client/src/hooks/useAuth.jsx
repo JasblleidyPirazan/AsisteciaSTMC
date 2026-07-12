@@ -7,6 +7,13 @@ export function AuthProvider({ children }) {
   const [user, setUser] = useState(getUser);
   const [loading, setLoading] = useState(false);
 
+  // El token solo trae {id, role}. Hidratamos con /me para conocer los enlaces
+  // profesor/asistente (rol dual) y que sobrevivan a un refresco de página.
+  useEffect(() => {
+    if (!getUser()) return;
+    api.get('/auth/me').then((me) => setUser((u) => ({ ...u, ...me }))).catch(() => {});
+  }, []);
+
   async function login(email, password) {
     setLoading(true);
     try {

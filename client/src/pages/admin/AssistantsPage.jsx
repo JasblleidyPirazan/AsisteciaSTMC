@@ -214,6 +214,7 @@ export default function AssistantsPage() {
                   value={editForm.email} onChange={(e) => setEditForm({ ...editForm, email: e.target.value })} />
                 <span className="text-xs text-gray">
                   {editTarget.user?.email ? 'Cuenta existente. Cambia el correo si hace falta.' : 'Escribe un correo y contraseña para crearle cuenta de acceso.'}
+                  {' '}Rol dual: si ya tiene cuenta como profesor, escribe ese <strong>mismo correo</strong> y deja la contraseña vacía para vincularlo.
                 </span>
               </div>
               <div className="form-group">

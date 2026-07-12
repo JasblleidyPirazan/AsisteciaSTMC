@@ -65,7 +65,20 @@ export default function MyPayrollPage() {
   useEffect(() => {
     setLoading(true);
     api.get('/payroll', { period })
-      .then((items) => setData(items?.[0] || null))
+      .then((items) => {
+        if (!items || items.length === 0) { setData(null); return; }
+        // Un usuario puede ser profesor Y asistente: fusionamos ambos "payees".
+        const sum = (k) => items.reduce((s, i) => s + (i[k] || 0), 0);
+        setData({
+          name: [...new Set(items.map((i) => i.name).filter(Boolean))].join(' · '),
+          payeeTypes: [...new Set(items.map((i) => i.payeeType))],
+          payableTotal: sum('payableTotal'),
+          total: sum('total'),
+          suspendedTotal: sum('suspendedTotal'),
+          pendingTotal: sum('pendingTotal'),
+          records: items.flatMap((i) => i.records || []),
+        });
+      })
       .catch(() => setData(null))
       .finally(() => setLoading(false));
   }, [period]);
@@ -97,7 +110,10 @@ export default function MyPayrollPage() {
     }
   }
 
-  const roleLabel = user?.role === 'TEACHER' ? 'Profesor' : 'Asistente';
+  const PAYEE_LABEL = { PROFESSOR: 'Profesor', ASSISTANT: 'Asistente' };
+  const roleLabel = data?.payeeTypes?.length
+    ? data.payeeTypes.map((t) => PAYEE_LABEL[t] || t).join(' + ')
+    : (user?.role === 'TEACHER' ? 'Profesor' : 'Asistente');
 
   // Reparte las clases de la quincena en pendientes por pago vs. ya pagadas.
   const records = data?.records || [];

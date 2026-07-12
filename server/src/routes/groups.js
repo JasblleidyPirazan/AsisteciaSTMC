@@ -41,7 +41,7 @@ const DAY_MAP = {
 
 router.get('/', async (req, res, next) => {
   try {
-    const { today, active } = req.query;
+    const { today, active, all } = req.query;
     // active='all' → activos e inactivos (para el resumen de la página de grupos)
     const where = active === 'all' ? {} : { active: active !== 'false' };
 
@@ -50,8 +50,10 @@ router.get('/', async (req, res, next) => {
       where[dayField] = true;
     }
 
-    // Teachers only see their own groups
-    if (req.user.role === 'TEACHER') {
+    // Teachers only see their own groups, EXCEPTO cuando piden all=true (p. ej.
+    // un profesor que también es asistente y necesita ver todos los grupos del
+    // día para marcar a cuáles acompañó).
+    if (req.user.role === 'TEACHER' && all !== 'true') {
       const professor = await prisma.professor.findUnique({ where: { userId: req.user.id } });
       if (professor) where.professorId = professor.id;
     }

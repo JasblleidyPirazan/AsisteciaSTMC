@@ -46,6 +46,19 @@ function resolveReporterType(role, requested) {
   return null;
 }
 
+// Resuelve el asistente que actúa. ADMIN/SUPERADMIN actúan a nombre de otro
+// (por `assistantId` del body); cualquier otro usuario se resuelve por su enlace
+// a un Assistant — así un profesor que TAMBIÉN es asistente (rol dual) puede
+// marcar acompañamiento. Devuelve null si no hay asistente habilitado.
+async function resolveActingAssistant(req) {
+  if (['ADMIN', 'SUPERADMIN'].includes(req.user.role)) {
+    return req.body.assistantId
+      ? prisma.assistant.findUnique({ where: { id: req.body.assistantId } })
+      : null;
+  }
+  return prisma.assistant.findUnique({ where: { userId: req.user.id } });
+}
+
 // Check if session exists for a group on a date
 router.get('/check', async (req, res, next) => {
   try {
@@ -358,18 +371,13 @@ router.post('/:id/unlock-payment', async (req, res, next) => {
 // cleans up the auto-created empty session if nothing else was attached.
 router.post('/assist', async (req, res, next) => {
   try {
-    if (!['ADMIN', 'SUPERADMIN', 'ASSISTANT'].includes(req.user.role)) {
-      return res.status(403).json({ success: false, error: 'Solo asistentes pueden usar este endpoint' });
-    }
     const { groupId, date, remove } = req.body;
     if (!groupId || !date) {
       return res.status(400).json({ success: false, error: 'groupId y date requeridos' });
     }
 
-    const assistant = req.user.role === 'ASSISTANT'
-      ? await prisma.assistant.findUnique({ where: { userId: req.user.id } })
-      : await prisma.assistant.findUnique({ where: { id: req.body.assistantId } });
-    if (!assistant) return res.status(404).json({ success: false, error: 'Asistente no encontrado' });
+    const assistant = await resolveActingAssistant(req);
+    if (!assistant) return res.status(403).json({ success: false, error: 'No estás habilitado como asistente' });
 
     let session = await prisma.classSession.findUnique({
       where: { groupId_date: { groupId, date: new Date(date) } },
@@ -440,15 +448,8 @@ router.post('/assist', async (req, res, next) => {
 // validates (triple coincidence, see costEngine).
 router.post('/:id/assist', async (req, res, next) => {
   try {
-    if (!['ADMIN', 'ASSISTANT'].includes(req.user.role)) {
-      return res.status(403).json({ success: false, error: 'Solo asistentes pueden usar este endpoint' });
-    }
-
-    const assistant = req.user.role === 'ASSISTANT'
-      ? await prisma.assistant.findUnique({ where: { userId: req.user.id } })
-      : await prisma.assistant.findUnique({ where: { id: req.body.assistantId } });
-
-    if (!assistant) return res.status(404).json({ success: false, error: 'Asistente no encontrado' });
+    const assistant = await resolveActingAssistant(req);
+    if (!assistant) return res.status(403).json({ success: false, error: 'No estás habilitado como asistente' });
 
     const existing = await prisma.classSession.findUnique({ where: { id: req.params.id } });
     if (!existing) return res.status(404).json({ success: false, error: 'Sesión no encontrada' });
