@@ -58,10 +58,10 @@ describe('POST /api/sessions — guard canReportGroup', () => {
     expect(res.status).toBe(400);
   });
 
-  it('ADMIN puede reportar cualquier grupo → 201', async () => {
+  it('ADMIN es solo-lectura: NO puede reportar → 403', async () => {
     const res = await createSession(authAs('ADMIN'));
-    expect(res.status).toBe(201);
-    expect(prismaMock.classSession.upsert).toHaveBeenCalled();
+    expect(res.status).toBe(403);
+    expect(prismaMock.classSession.upsert).not.toHaveBeenCalled();
   });
 
   it('PHYSICAL_TRAINER (Coordinador) puede reportar cualquier grupo → 201', async () => {
@@ -97,18 +97,10 @@ describe('POST /api/sessions — guard canReportGroup', () => {
     expect(res.status).toBe(403);
   });
 
-  it('PARENT con un hijo inscrito en el grupo → 201', async () => {
-    const token = authAs('PARENT');
-    prismaMock.studentEnrollment.findFirst.mockResolvedValue({ id: 'e1', groupId: GROUP.id });
-    const res = await createSession(token);
-    expect(res.status).toBe(201);
-  });
-
-  it('PARENT sin hijo en el grupo → 403', async () => {
-    const token = authAs('PARENT');
-    prismaMock.studentEnrollment.findFirst.mockResolvedValue(null);
-    const res = await createSession(token);
+  it('PARENT ya no puede reportar (modelo doble reporte) → 403', async () => {
+    const res = await createSession(authAs('PARENT'));
     expect(res.status).toBe(403);
+    expect(prismaMock.classSession.upsert).not.toHaveBeenCalled();
   });
 
   it('ASSISTANT nunca puede reportar por esta vía → 403', async () => {

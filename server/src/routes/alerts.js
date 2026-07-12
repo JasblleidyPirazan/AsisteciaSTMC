@@ -34,17 +34,33 @@ router.get('/pending-reports', requireRole('ADMIN', 'PHYSICAL_TRAINER', 'TEACHER
     });
     if (groups.length === 0) return res.json({ success: true, data: { groups: [], totalPending: 0 } });
 
-    // Any non-PROGRAMADA session counts as reported (finalized or cancelled).
-    // PROGRAMADA means the flow was started but never finished → still pending.
+    // A class counts as "reported" per role (dual-report): the TEACHER needs
+    // their PROFESSOR report; the coordinator their COORDINATOR report; for
+    // management a class is done once both reports coincide (MATCHED). A
+    // cancelled class is always done.
     const sessions = await prisma.classSession.findMany({
       where: {
         groupId: { in: groups.map((g) => g.id) },
-        status: { not: 'PROGRAMADA' },
         date: { gte: new Date(semester.startDate) },
       },
-      select: { groupId: true, date: true },
+      select: {
+        groupId: true,
+        date: true,
+        status: true,
+        consolidationStatus: true,
+        reports: { select: { reporterType: true } },
+      },
     });
-    const reported = new Set(sessions.map((s) => `${s.groupId}|${dbDateStr(s.date)}`));
+    const neededType = req.user.role === 'TEACHER' ? 'PROFESSOR'
+      : req.user.role === 'PHYSICAL_TRAINER' ? 'COORDINATOR' : null;
+    const isReported = (s) => {
+      if (s.status === 'CANCELADA') return true;
+      if (neededType) return s.reports.some((r) => r.reporterType === neededType);
+      return s.consolidationStatus === 'MATCHED'; // ADMIN / SUPERADMIN
+    };
+    const reported = new Set(
+      sessions.filter(isReported).map((s) => `${s.groupId}|${dbDateStr(s.date)}`)
+    );
 
     const today = bogotaToday();
     const result = [];
@@ -66,6 +82,41 @@ router.get('/pending-reports', requireRole('ADMIN', 'PHYSICAL_TRAINER', 'TEACHER
     }
 
     res.json({ success: true, data: { groups: result, totalPending } });
+  } catch (err) {
+    next(err);
+  }
+});
+
+/**
+ * Report conflicts (dual-report): classes where the professor's and the
+ * coordinator's reports disagree (consolidationStatus = MISMATCH). Both must
+ * adjust their report until they coincide. TEACHER sees only their own groups.
+ */
+router.get('/report-conflicts', requireRole('ADMIN', 'PHYSICAL_TRAINER', 'TEACHER'), async (req, res, next) => {
+  try {
+    const where = { kind: 'REGULAR', consolidationStatus: 'MISMATCH' };
+
+    if (req.user.role === 'TEACHER') {
+      const professor = await prisma.professor.findUnique({ where: { userId: req.user.id } });
+      if (!professor) return res.json({ success: true, data: { conflicts: [], total: 0 } });
+      where.group = { professorId: professor.id };
+    }
+
+    const sessions = await prisma.classSession.findMany({
+      where,
+      include: { group: { select: { id: true, code: true, name: true } } },
+      orderBy: { date: 'asc' },
+    });
+
+    const conflicts = sessions.map((s) => ({
+      sessionId: s.id,
+      groupId: s.groupId,
+      group: s.group,
+      date: s.date,
+      diff: s.consolidationDiff,
+    }));
+
+    res.json({ success: true, data: { conflicts, total: conflicts.length } });
   } catch (err) {
     next(err);
   }

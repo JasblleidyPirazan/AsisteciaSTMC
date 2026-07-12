@@ -212,6 +212,14 @@ router.get('/class/:sessionId', requireRole('ADMIN', 'PHYSICAL_TRAINER', 'TEACHE
           orderBy: { student: { name: 'asc' } },
         },
         costRecords: true,
+        // Dual-report staging: the two independent reports and their attendance,
+        // so the class view can show a conflict side by side (read-only).
+        reports: {
+          include: {
+            reportedBy: { select: { email: true } },
+            attendance: { include: { student: { select: { id: true, name: true } } } },
+          },
+        },
         editLogs: {
           include: { editedBy: { select: { email: true } } },
           orderBy: { editedAt: 'desc' },

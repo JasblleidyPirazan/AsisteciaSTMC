@@ -1,6 +1,7 @@
 const express = require('express');
 const prisma = require('../lib/prisma');
 const { calculateCosts } = require('../services/costEngine');
+const { consolidateSession } = require('../services/consolidation');
 
 const router = express.Router();
 
@@ -13,14 +14,15 @@ const CANCEL_AUTO_TEXT = {
 };
 
 /**
- * Authorization for reporting attendance on a group:
- * - SUPERADMIN / ADMIN / PHYSICAL_TRAINER: any group
- * - TEACHER: only groups where they are the titular professor
- * - PARENT: only groups where one of their children is enrolled
- * - ASSISTANT: not allowed (they use /:id/assist)
+ * Authorization for reporting attendance on a group (dual-report model):
+ * - SUPERADMIN: any group (edits either report)
+ * - PHYSICAL_TRAINER (coordinador): any group (writes the COORDINATOR report)
+ * - TEACHER: only their own group (writes the PROFESSOR report)
+ * - ADMIN: read-only — cannot report/edit (uses the reports views instead)
+ * - PARENT / ASSISTANT: not allowed
  */
 async function canReportGroup(user, groupId) {
-  if (['SUPERADMIN', 'ADMIN', 'PHYSICAL_TRAINER'].includes(user.role)) return true;
+  if (['SUPERADMIN', 'PHYSICAL_TRAINER'].includes(user.role)) return true;
 
   if (user.role === 'TEACHER') {
     const professor = await prisma.professor.findUnique({ where: { userId: user.id } });
@@ -29,14 +31,16 @@ async function canReportGroup(user, groupId) {
     return !!group && group.professorId === professor.id;
   }
 
-  if (user.role === 'PARENT') {
-    const enrollment = await prisma.studentEnrollment.findFirst({
-      where: { groupId, student: { parentUserId: user.id, active: true } },
-    });
-    return !!enrollment;
-  }
-
   return false;
+}
+
+// Which staging report a user writes. TEACHER → PROFESSOR, PHYSICAL_TRAINER
+// (coordinador) → COORDINATOR. SUPERADMIN edits either and must say which.
+function resolveReporterType(role, requested) {
+  if (role === 'TEACHER') return 'PROFESSOR';
+  if (role === 'PHYSICAL_TRAINER') return 'COORDINATOR';
+  if (role === 'SUPERADMIN' && ['PROFESSOR', 'COORDINATOR'].includes(requested)) return requested;
+  return null;
 }
 
 // Check if session exists for a group on a date
@@ -52,6 +56,8 @@ router.get('/check', async (req, res, next) => {
         attendanceRecords: { include: { student: true } },
         substituteProfessor: { select: { id: true, name: true } },
         assistant: { select: { id: true, name: true } },
+        // Staging reports so the flow can preload the caller's own draft when editing
+        reports: { include: { attendance: { include: { student: { select: { name: true } } } } } },
       },
     });
     res.json({ success: true, data: { exists: !!session, session } });
@@ -128,7 +134,9 @@ router.post('/', async (req, res, next) => {
   }
 });
 
-// Finalize session: save attendance + run cost engine
+// Finalize session: save THIS reporter's staging report, then consolidate.
+// Under the dual-report model the professor and the coordinator each submit an
+// independent report; the cost engine only runs once both coincide.
 router.post('/:id/finalize', async (req, res, next) => {
   try {
     const { attendanceRecords, substituteProfessorId, assistantId, dictatedByOwner, notDictatedNote } = req.body;
@@ -136,8 +144,7 @@ router.post('/:id/finalize', async (req, res, next) => {
     if (attendanceRecords !== undefined && !Array.isArray(attendanceRecords)) {
       return res.status(400).json({ success: false, error: 'attendanceRecords debe ser una lista' });
     }
-    // "No dicté la clase yo": la asistencia se registra igual, pero exige
-    // quién la dictó y una observación obligatoria (queda para el coordinador)
+    // "No dicté la clase yo": exige quién la dictó y una observación obligatoria
     if (dictatedByOwner === false) {
       if (!notDictatedNote || !notDictatedNote.trim()) {
         return res.status(400).json({ success: false, error: 'La observación es obligatoria cuando la clase no fue dictada por el profesor titular' });
@@ -165,99 +172,99 @@ router.post('/:id/finalize', async (req, res, next) => {
       return res.status(403).json({ success: false, error: 'No tienes permiso para reportar este grupo' });
     }
 
-    // Re-finalizing an already-finalized session is an EDIT: we snapshot the
-    // previous state into an edit log and the new report becomes authoritative.
-    const isEdit = ['REALIZADA', 'CANCELADA_MITAD'].includes(session.status);
-    let previousState = null;
-    if (isEdit) {
-      const prevRecords = await prisma.attendanceRecord.findMany({
-        where: { sessionId: req.params.id },
-        include: { student: { select: { name: true } } },
-      });
-      previousState = {
-        status: session.status,
-        effectiveUnits: parseFloat(session.effectiveUnits),
-        dictatedByOwner: session.dictatedByOwner,
-        notDictatedNote: session.notDictatedNote,
-        records: prevRecords.map((r) => ({
-          studentId: r.studentId,
-          name: r.student?.name,
-          status: r.status,
-          attendanceType: r.attendanceType,
-          justification: r.justification,
-        })),
-      };
+    const reporterType = resolveReporterType(req.user.role, req.body.reporterType);
+    if (!reporterType) {
+      return res.status(400).json({ success: false, error: 'Indica el tipo de reporte (profesor o coordinador)' });
     }
 
-    // Every class counts as a single unit (double groups were removed).
-    const effectiveUnits = 1.0;
-    const status = 'REALIZADA';
+    // Editing an existing report of this type snapshots the previous version.
+    const prevReport = await prisma.classReport.findUnique({
+      where: { sessionId_reporterType: { sessionId: req.params.id, reporterType } },
+      include: { attendance: { include: { student: { select: { name: true } } } } },
+    });
 
-    // Replace all attendance records so the latest report is the single source
-    // of truth (an edit can also remove a reposition student, for example)
-    const newRecords = (attendanceRecords || []).map((record) => ({
-      sessionId: req.params.id,
+    const dictatingProfessorId = dictatedByOwner === false ? substituteProfessorId : null;
+    const report = await prisma.classReport.upsert({
+      where: { sessionId_reporterType: { sessionId: req.params.id, reporterType } },
+      update: {
+        reportedById: req.user.id,
+        dictatedByOwner: dictatedByOwner !== false,
+        dictatingProfessorId,
+        notDictatedNote: dictatedByOwner === false ? notDictatedNote.trim().slice(0, 500) : null,
+        assistantId: assistantId || null,
+      },
+      create: {
+        sessionId: req.params.id,
+        reporterType,
+        reportedById: req.user.id,
+        dictatedByOwner: dictatedByOwner !== false,
+        dictatingProfessorId,
+        notDictatedNote: dictatedByOwner === false ? notDictatedNote.trim().slice(0, 500) : null,
+        assistantId: assistantId || null,
+      },
+    });
+
+    // Replace this report's attendance rows so the latest submission wins.
+    const rows = (attendanceRecords || []).map((record) => ({
+      classReportId: report.id,
       studentId: record.studentId,
       status: record.status,
       attendanceType: record.attendanceType || 'REGULAR',
       justification: record.justification?.slice(0, 500) || null,
-      reportedById: req.user.id,
     }));
-    await prisma.attendanceRecord.deleteMany({ where: { sessionId: req.params.id } });
-    if (newRecords.length > 0) {
-      await prisma.attendanceRecord.createMany({ data: newRecords });
+    await prisma.classReportAttendance.deleteMany({ where: { classReportId: report.id } });
+    if (rows.length > 0) {
+      await prisma.classReportAttendance.createMany({ data: rows });
     }
 
-    // Persist who actually dictated/accompanied the class. Step 2 of the flow
-    // selects these AFTER the session is created, so finalize must save them.
-    const sessionData = { status, effectiveUnits, reportedById: req.user.id };
-    if (substituteProfessorId !== undefined) sessionData.substituteProfessorId = substituteProfessorId || null;
-    if (assistantId !== undefined) sessionData.assistantId = assistantId || null;
-    // Only the FIRST report stamps firstReportedAt — later edits never
-    // re-suspend a report that was made on time (regla de pago suspendido)
-    if (!session.firstReportedAt) sessionData.firstReportedAt = new Date();
-    if (dictatedByOwner !== undefined) {
-      sessionData.dictatedByOwner = dictatedByOwner !== false;
-      sessionData.notDictatedNote = dictatedByOwner === false
-        ? notDictatedNote.trim().slice(0, 500)
-        : null;
+    // First report of the class (either role) stamps firstReportedAt for the
+    // late-report suspension rule; later edits never re-stamp it.
+    if (!session.firstReportedAt) {
+      await prisma.classSession.update({
+        where: { id: req.params.id },
+        data: { firstReportedAt: new Date(), reportedById: req.user.id },
+      });
     }
 
-    await prisma.classSession.update({
-      where: { id: req.params.id },
-      data: sessionData,
-    });
-
-    if (isEdit) {
+    if (prevReport) {
       await prisma.sessionEditLog.create({
         data: {
           sessionId: req.params.id,
           editedById: req.user.id,
-          previousState,
+          previousState: {
+            reporterType,
+            dictatedByOwner: prevReport.dictatedByOwner,
+            notDictatedNote: prevReport.notDictatedNote,
+            records: prevReport.attendance.map((r) => ({
+              studentId: r.studentId, name: r.student?.name, status: r.status,
+              attendanceType: r.attendanceType, justification: r.justification,
+            })),
+          },
           newState: {
-            status,
-            effectiveUnits,
+            reporterType,
             dictatedByOwner: dictatedByOwner !== false,
             notDictatedNote: dictatedByOwner === false ? notDictatedNote.trim().slice(0, 500) : null,
-            records: newRecords.map(({ studentId, status: st, attendanceType, justification }) => ({
-              studentId, status: st, attendanceType, justification,
+            records: rows.map(({ studentId, status, attendanceType, justification }) => ({
+              studentId, status, attendanceType, justification,
             })),
           },
         },
       });
     }
 
-    const costs = await calculateCosts(req.params.id);
+    // Recompute consolidation: MATCHED writes the final records + runs costs.
+    const consolidation = await consolidateSession(req.params.id);
 
     const updated = await prisma.classSession.findUnique({
       where: { id: req.params.id },
       include: {
         attendanceRecords: { include: { student: true } },
         costRecords: true,
+        reports: { include: { attendance: true } },
       },
     });
 
-    res.json({ success: true, data: { session: updated, costs } });
+    res.json({ success: true, data: { session: updated, consolidation } });
   } catch (err) {
     next(err);
   }

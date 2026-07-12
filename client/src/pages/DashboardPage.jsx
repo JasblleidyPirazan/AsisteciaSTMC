@@ -81,6 +81,7 @@ export default function DashboardPage() {
         ) : (
           <>
             <PendingReportsAlert />
+            <ReportConflictsAlert />
             <PendingMakeups />
             {/* Professors don't report festivals — only coordinator/admin do. */}
             {['ADMIN', 'PHYSICAL_TRAINER', 'SUPERADMIN'].includes(user?.role) && <PendingFestivals />}
@@ -134,6 +135,31 @@ function PendingReportsAlert() {
             {g.pendingDates.length > 4 ? ` y ${g.pendingDates.length - 4} más` : ''}
           </div>
         ))}
+      </div>
+    </div>
+  );
+}
+
+function ReportConflictsAlert() {
+  const navigate = useNavigate();
+  const { user } = useAuth();
+  const [data, setData] = useState(null);
+
+  useEffect(() => {
+    if (!['TEACHER', 'PHYSICAL_TRAINER', 'SUPERADMIN'].includes(user?.role)) return;
+    api.get('/alerts/report-conflicts').then(setData).catch(() => {});
+  }, [user?.role]);
+
+  if (!data || data.total === 0) return null;
+
+  return (
+    <div className="alert alert-error mb-4" style={{ marginBottom: 16, cursor: 'pointer' }}
+      onClick={() => navigate('/admin/conflicts')}>
+      <div className="font-medium">
+        ⚖️ {data.total} clase{data.total !== 1 ? 's' : ''} con reportes en conflicto
+      </div>
+      <div className="text-sm mt-1">
+        El reporte del profesor y del coordinador no coinciden. Toca para revisar y ajustar.
       </div>
     </div>
   );

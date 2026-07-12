@@ -22,6 +22,7 @@ const NAV = [
   { section: 'Seguimiento', roles: ['ADMIN', 'PHYSICAL_TRAINER'] },
   { label: 'Reportes', path: '/admin/reports', icon: '📈', roles: ['ADMIN', 'PHYSICAL_TRAINER'] },
   { label: 'Validación', path: '/admin/validation', icon: '✅', roles: ['ADMIN', 'PHYSICAL_TRAINER'] },
+  { label: 'Conflictos', path: '/admin/conflicts', icon: '⚖️', roles: ['ADMIN', 'PHYSICAL_TRAINER'] },
   { label: 'Alertas', path: '/admin/alerts', icon: '🚨', roles: ['ADMIN', 'PHYSICAL_TRAINER'] },
 
   { section: 'Administración', roles: ['ADMIN'] },
