@@ -48,6 +48,8 @@ export default function GroupsPage() {
   const { user } = useAuth();
   // CRUD de grupos: ADMIN / SUPERADMIN / Coordinador (PHYSICAL_TRAINER)
   const canEdit = ['ADMIN', 'SUPERADMIN', 'PHYSICAL_TRAINER'].includes(user?.role);
+  // Borrado permanente: solo Admin y Superadmin.
+  const canHardDelete = ['ADMIN', 'SUPERADMIN'].includes(user?.role);
   const [groups, setGroups] = useState([]);
   const [professors, setProfessors] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -68,6 +70,24 @@ export default function GroupsPage() {
   const [deactivateTarget, setDeactivateTarget] = useState(null);
   const [deactivateReason, setDeactivateReason] = useState('');
   const [deactivating, setDeactivating] = useState(false);
+
+  const [hardDelTarget, setHardDelTarget] = useState(null);
+  const [hardDelText, setHardDelText] = useState('');
+  const [hardDeleting, setHardDeleting] = useState(false);
+
+  async function confirmHardDeleteGroup() {
+    if (hardDelText.trim().toLowerCase() !== hardDelTarget.code.trim().toLowerCase()) return;
+    setHardDeleting(true);
+    try {
+      await api.delete(`/groups/${hardDelTarget.id}/permanent`, { confirm: true });
+      setGroups(groups.filter((g) => g.id !== hardDelTarget.id));
+      setHardDelTarget(null);
+    } catch (err) {
+      alert(err.message);
+    } finally {
+      setHardDeleting(false);
+    }
+  }
 
   useEffect(() => {
     Promise.all([
@@ -462,6 +482,10 @@ export default function GroupsPage() {
                             onClick={() => startEdit(g)}>Editar</button>
                           <button className="btn btn-ghost" style={{ minHeight: 28, padding: '0 8px', fontSize: '0.72rem', color: 'var(--red)' }}
                             onClick={() => { setDeactivateTarget(g); setDeactivateReason(''); }}>Desactivar</button>
+                          {canHardDelete && (
+                            <button className="btn btn-ghost" style={{ minHeight: 28, padding: '0 8px', fontSize: '0.72rem', color: 'var(--red)', fontWeight: 700 }}
+                              onClick={() => { setHardDelTarget(g); setHardDelText(''); }}>Eliminar</button>
+                          )}
                         </div>
                       </td>
                     )}
@@ -490,6 +514,32 @@ export default function GroupsPage() {
               <button className="btn" style={{ flex: 2, background: 'var(--red)', color: '#fff' }}
                 disabled={!deactivateReason.trim() || deactivating} onClick={confirmDeactivate}>
                 {deactivating ? 'Desactivando...' : 'Confirmar'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {hardDelTarget && (
+        <div className="modal-overlay" onClick={() => setHardDelTarget(null)}>
+          <div className="modal-content" onClick={(e) => e.stopPropagation()}>
+            <h3 className="mb-2" style={{ color: 'var(--red)' }}>Eliminar grupo definitivamente</h3>
+            <div className="alert alert-error mb-3">
+              Esto borra el grupo <strong>{hardDelTarget.code}</strong> con sus matrículas y
+              <strong> todas sus clases</strong> (asistencia, reportes, costos). <strong>No se puede deshacer.</strong>
+            </div>
+            <div className="form-group">
+              <label className="form-label">Escribe el código del grupo para confirmar</label>
+              <input type="text" className="form-input" value={hardDelText} autoFocus
+                placeholder={hardDelTarget.code}
+                onChange={(e) => setHardDelText(e.target.value)} />
+            </div>
+            <div className="flex gap-2 mt-2">
+              <button className="btn btn-outline" style={{ flex: 1 }} onClick={() => setHardDelTarget(null)}>Cancelar</button>
+              <button className="btn" style={{ flex: 2, background: 'var(--red)', color: '#fff' }}
+                disabled={hardDeleting || hardDelText.trim().toLowerCase() !== hardDelTarget.code.trim().toLowerCase()}
+                onClick={confirmHardDeleteGroup}>
+                {hardDeleting ? 'Eliminando…' : 'Eliminar para siempre'}
               </button>
             </div>
           </div>

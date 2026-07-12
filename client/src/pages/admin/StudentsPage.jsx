@@ -86,6 +86,8 @@ export default function StudentsPage() {
   // Registro de pagos: solo Recepción, Admin y Superadmin.
   const canSeePayments = ['ADMIN', 'SUPERADMIN', 'RECEPTION'].includes(user?.role);
   const canDeletePayment = ['ADMIN', 'SUPERADMIN'].includes(user?.role);
+  // Borrado permanente: solo Admin y Superadmin.
+  const canHardDelete = ['ADMIN', 'SUPERADMIN'].includes(user?.role);
 
   // Import modal (ADMIN) — subir Excel de matrícula
   const [showImport, setShowImport] = useState(false);
@@ -143,6 +145,11 @@ export default function StudentsPage() {
   const [deactivateTarget, setDeactivateTarget] = useState(null);
   const [deactivateReason, setDeactivateReason] = useState('');
   const [deactivating, setDeactivating] = useState(false);
+
+  // Permanent-delete modal (Admin/Superadmin)
+  const [hardDelTarget, setHardDelTarget] = useState(null);
+  const [hardDelText, setHardDelText] = useState('');
+  const [hardDeleting, setHardDeleting] = useState(false);
 
   // Group management modal
   const [manageTarget, setManageTarget] = useState(null); // student object
@@ -453,6 +460,21 @@ export default function StudentsPage() {
     }
   }
 
+  async function confirmHardDelete() {
+    if (hardDelText.trim().toLowerCase() !== hardDelTarget.name.trim().toLowerCase()) return;
+    setHardDeleting(true);
+    try {
+      await api.delete(`/students/${hardDelTarget.id}/permanent`, { confirm: true });
+      setStudents(students.filter((s) => s.id !== hardDelTarget.id));
+      setHardDelTarget(null);
+      setDetailTarget(null);
+    } catch (err) {
+      alert(err.message);
+    } finally {
+      setHardDeleting(false);
+    }
+  }
+
   function openManageGroups(student) {
     setManageTarget(student);
     setGroupAction('transfer');
@@ -666,6 +688,7 @@ export default function StudentsPage() {
           {canManage && st.studentStatus === 'SUSPENDIDO' && <button className="btn btn-outline" style={{ flex: 1, color: 'var(--green)' }} onClick={() => handleUnsuspend(detailTarget)}>Levantar</button>}
           {canManage && st.studentStatus !== 'SUSPENDIDO' && st.studentStatus !== 'INACTIVO' && <button className="btn btn-outline" style={{ flex: 1, color: 'var(--yellow)' }} onClick={() => openSuspend(detailTarget)}>Suspender</button>}
           {canManage && st.active && <button className="btn btn-outline" style={{ flex: 1, color: 'var(--red)' }} onClick={() => openDeactivate(detailTarget)}>Desactivar</button>}
+          {canHardDelete && <button className="btn btn-outline" style={{ flex: 1, color: '#fff', background: 'var(--red)', borderColor: 'var(--red)' }} onClick={() => { setHardDelTarget(detailTarget); setHardDelText(''); }}>Eliminar definitivamente</button>}
         </div>
       </>
     );
@@ -1087,6 +1110,33 @@ export default function StudentsPage() {
                 onClick={confirmDeactivate}
               >
                 {deactivating ? 'Desactivando...' : 'Confirmar'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Permanent delete modal */}
+      {hardDelTarget && (
+        <div className="modal-overlay" onClick={() => setHardDelTarget(null)}>
+          <div className="modal-content" onClick={(e) => e.stopPropagation()}>
+            <h3 className="mb-2" style={{ color: 'var(--red)' }}>Eliminar definitivamente</h3>
+            <div className="alert alert-error mb-3">
+              Esto borra a <strong>{hardDelTarget.name}</strong> y <strong>todos</strong> sus registros
+              (matrículas, asistencia, pagos, historial). <strong>No se puede deshacer.</strong>
+            </div>
+            <div className="form-group">
+              <label className="form-label">Escribe el nombre del estudiante para confirmar</label>
+              <input type="text" className="form-input" value={hardDelText} autoFocus
+                placeholder={hardDelTarget.name}
+                onChange={(e) => setHardDelText(e.target.value)} />
+            </div>
+            <div className="flex gap-2 mt-2">
+              <button className="btn btn-outline" style={{ flex: 1 }} onClick={() => setHardDelTarget(null)}>Cancelar</button>
+              <button className="btn" style={{ flex: 2, background: 'var(--red)', color: '#fff' }}
+                disabled={hardDeleting || hardDelText.trim().toLowerCase() !== hardDelTarget.name.trim().toLowerCase()}
+                onClick={confirmHardDelete}>
+                {hardDeleting ? 'Eliminando…' : 'Eliminar para siempre'}
               </button>
             </div>
           </div>

@@ -434,6 +434,34 @@ router.delete('/:id', requireRole('ADMIN', 'SUPERADMIN', 'PHYSICAL_TRAINER'), as
   }
 });
 
+// Borrado PERMANENTE (irreversible) — solo ADMIN/SUPERADMIN. Elimina el
+// estudiante y todos sus registros dependientes. Para limpiar datos de prueba.
+router.delete('/:id/permanent', requireRole('ADMIN', 'SUPERADMIN'), async (req, res, next) => {
+  try {
+    if (req.body?.confirm !== true) {
+      return res.status(400).json({ success: false, error: 'Confirmación requerida para el borrado permanente' });
+    }
+    const id = req.params.id;
+    const student = await prisma.student.findUnique({ where: { id }, select: { id: true, name: true } });
+    if (!student) return res.status(404).json({ success: false, error: 'Estudiante no encontrado' });
+
+    // Hijos → estudiante, en una transacción (orden que respeta las FK).
+    await prisma.$transaction([
+      prisma.classReportAttendance.deleteMany({ where: { studentId: id } }),
+      prisma.attendanceRecord.deleteMany({ where: { studentId: id } }),
+      prisma.studentPayment.deleteMany({ where: { studentId: id } }),
+      prisma.makeupParticipant.deleteMany({ where: { studentId: id } }),
+      prisma.makeupEnrollment.deleteMany({ where: { studentId: id } }),
+      prisma.studentGroupHistory.deleteMany({ where: { studentId: id } }),
+      prisma.studentEnrollment.deleteMany({ where: { studentId: id } }),
+      prisma.student.delete({ where: { id } }),
+    ]);
+    res.json({ success: true, data: { message: `Estudiante ${student.name} eliminado permanentemente` } });
+  } catch (err) {
+    next(err);
+  }
+});
+
 // Transfer student from one group to another (replaces primary enrollment, records history)
 router.post('/:id/transfer', requireRole('ADMIN', 'SUPERADMIN', 'PHYSICAL_TRAINER'), async (req, res, next) => {
   try {
