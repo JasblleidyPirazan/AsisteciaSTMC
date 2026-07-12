@@ -2,11 +2,21 @@ import { useState, useEffect, useMemo } from 'react';
 import { api } from '../api/client';
 import { useAuth } from '../hooks/useAuth';
 
+// Colores por nivel (bola) para que el asistente ubique su clase de un vistazo.
+const LEVEL_COLOR = {
+  Roja: '#E8526A', Naranja: '#EA8A2E', Amarilla: '#E8A23B', Verde: '#1FA971',
+  Intermedio: '#7A5AF8', Avanzado: '#3F52A8',
+};
+function levelColor(level) {
+  return LEVEL_COLOR[level] || 'var(--gray-300)';
+}
+
 /**
- * Day view for assistants (req: clases del día con filtros por profesor,
- * cancha y nivel, ordenadas por horario). The toggle records the assistant's
- * own confirmation (assistantConfirmedId); pay turns green only when it
- * matches the professor's report AND the coordinator validates.
+ * Day view for assistants. Marca las clases que acompañó — NO requiere que el
+ * profesor o el coordinador hayan reportado primero: al marcar, se crea/actualiza
+ * la sesión con la confirmación del asistente (`POST /sessions/assist` por
+ * grupo+fecha). Desmarcar corrige el error. El pago se habilita solo con la
+ * triple coincidencia (profesor + asistente + coordinador).
  */
 export default function AssistantDayView({ groups, loading, date }) {
   const { user } = useAuth();
@@ -16,7 +26,6 @@ export default function AssistantDayView({ groups, loading, date }) {
   const [loadingSessions, setLoadingSessions] = useState(true);
   const [error, setError] = useState('');
 
-  // Filters
   const [profFilter, setProfFilter] = useState('');
   const [courtFilter, setCourtFilter] = useState('');
   const [levelFilter, setLevelFilter] = useState('');
@@ -55,21 +64,16 @@ export default function AssistantDayView({ groups, loading, date }) {
   );
 
   async function toggleAssist(group) {
+    if (!myAssistantId) return;
     const session = sessionsByGroup[group.id];
-    if (!session) return;
-    const isConfirmed = session.assistantConfirmedId === myAssistantId;
+    const isConfirmed = !!session && session.assistantConfirmedId === myAssistantId;
     setSaving((s) => ({ ...s, [group.id]: true }));
     setError('');
     try {
-      const updated = await api.post(`/sessions/${session.id}/assist`, isConfirmed ? { remove: true } : {});
-      setSessionsByGroup((m) => ({
-        ...m,
-        [group.id]: {
-          ...session,
-          assistantConfirmedId: updated.assistantConfirmedId,
-          coordinatorValidatedAt: updated.coordinatorValidatedAt,
-        },
-      }));
+      const updated = await api.post('/sessions/assist', {
+        groupId: group.id, date, remove: isConfirmed,
+      });
+      setSessionsByGroup((m) => ({ ...m, [group.id]: updated || null }));
     } catch (err) {
       setError(err.message);
     } finally {
@@ -77,33 +81,28 @@ export default function AssistantDayView({ groups, loading, date }) {
     }
   }
 
-  // Semáforo del pago para ESTE asistente en la sesión
-  function payState(session) {
-    if (!session || session.status === 'PROGRAMADA') {
-      return { color: 'var(--gray-400)', label: 'La clase aún no ha sido reportada' };
-    }
+  // Estado del acompañamiento de ESTE asistente (secundario al color de nivel).
+  function assistState(session) {
+    if (!session || session.assistantConfirmedId !== myAssistantId) return null;
     const reportedMe = session.assistantId === myAssistantId;
-    const confirmedMe = session.assistantConfirmedId === myAssistantId;
-    if (reportedMe && confirmedMe && session.coordinatorValidatedAt) {
+    if (reportedMe && session.coordinatorValidatedAt) {
       return { color: 'var(--green)', label: '✓ Validada — habilitada para pago' };
     }
-    if (reportedMe && confirmedMe) {
+    if (reportedMe) {
       return { color: 'var(--yellow)', label: 'Pendiente de validación del coordinador' };
     }
-    if (confirmedMe && !reportedMe) {
-      return { color: 'var(--yellow)', label: 'El profesor no te reportó en esta clase' };
-    }
-    if (reportedMe && !confirmedMe) {
-      return { color: 'var(--yellow)', label: 'El profesor te reportó — confirma tu acompañamiento' };
-    }
-    return null;
+    return { color: 'var(--blue)', label: 'Registrada · falta el reporte del profesor' };
   }
 
   if (loading || loadingSessions) return <div className="spinner" />;
 
   return (
     <>
-      <h2 className="mb-3">Clases del día</h2>
+      <h2 className="mb-1">Clases del día</h2>
+      <p className="text-sm text-gray mb-3">
+        Marca las clases que acompañaste. Puedes desmarcar para corregir. No hace falta que el
+        profesor o el coordinador hayan reportado.
+      </p>
       {error && <div className="alert alert-error mb-3">{error}</div>}
 
       {/* Filtros: profesor / cancha / nivel */}
@@ -125,27 +124,43 @@ export default function AssistantDayView({ groups, loading, date }) {
         </select>
       </div>
 
+      {/* Leyenda de niveles */}
+      <div className="flex items-center gap-3 mb-3" style={{ flexWrap: 'wrap' }}>
+        {['Roja', 'Naranja', 'Amarilla', 'Verde'].map((l) => (
+          <span key={l} className="text-xs text-gray" style={{ display: 'inline-flex', alignItems: 'center', gap: 5 }}>
+            <span className="legend-dot" style={{ background: levelColor(l) }} />{l}
+          </span>
+        ))}
+      </div>
+
       {filtered.length === 0 && <div className="alert alert-info">No hay clases para este filtro.</div>}
       {filtered.map((g) => {
         const session = sessionsByGroup[g.id];
         const isConfirmed = !!session && !!myAssistantId && session.assistantConfirmedId === myAssistantId;
-        const confirmedByOther = !!session?.assistantConfirmedId && !isConfirmed;
-        const state = payState(session);
+        const confirmedByOther = !!session?.assistantConfirmedId && session.assistantConfirmedId !== myAssistantId;
+        const state = assistState(session);
+        const color = levelColor(g.ballLevel);
         return (
           <div key={g.id} className="card mb-3"
-            style={state ? { borderLeft: `4px solid ${state.color}` } : undefined}>
+            style={{ borderLeft: `6px solid ${color}`, background: isConfirmed ? 'var(--surface-2, var(--gray-50))' : undefined }}>
             <div className="flex items-center justify-between">
               <div style={{ flex: 1, minWidth: 0 }}>
-                <div className="font-medium">{g.code}</div>
-                <div className="text-sm text-gray">
-                  {g.startTime}–{g.endTime}
-                  {g.court ? ` · Cancha ${g.court}` : ''}
-                  {g.ballLevel ? ` · ${g.ballLevel}${g.subLevel ? ` ${g.subLevel}` : ''}` : ''}
+                <div className="flex items-center gap-2">
+                  <span className="legend-dot" style={{ background: color, width: 12, height: 12 }} />
+                  <span className="font-medium">{g.code}</span>
+                  {g.ballLevel && (
+                    <span className="badge" style={{ background: color, color: '#fff', fontSize: '0.68rem' }}>
+                      {g.ballLevel}{g.subLevel ? ` ${g.subLevel}` : ''}
+                    </span>
+                  )}
+                </div>
+                <div className="text-sm text-gray" style={{ marginTop: 4 }}>
+                  {g.startTime}–{g.endTime}{g.court ? ` · Cancha ${g.court}` : ''}
                 </div>
                 {g.professor && <div className="text-xs text-gray">👤 {g.professor.name}</div>}
-                {state && <div className="text-xs mt-2" style={{ color: state.color }}>{state.label}</div>}
+                {state && <div className="text-xs mt-2" style={{ color: state.color, fontWeight: 600 }}>{state.label}</div>}
                 {confirmedByOther && (
-                  <div className="text-xs text-gray">Confirmada por otro asistente</div>
+                  <div className="text-xs text-gray mt-1">Confirmada por otro asistente</div>
                 )}
               </div>
               <label className="toggle" style={{ flexShrink: 0 }}>
@@ -153,7 +168,7 @@ export default function AssistantDayView({ groups, loading, date }) {
                   type="checkbox"
                   checked={isConfirmed}
                   onChange={() => toggleAssist(g)}
-                  disabled={!session || confirmedByOther || saving[g.id] || !myAssistantId}
+                  disabled={confirmedByOther || saving[g.id] || !myAssistantId}
                 />
                 <span className="toggle-slider" />
               </label>
