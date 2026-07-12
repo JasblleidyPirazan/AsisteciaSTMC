@@ -177,13 +177,15 @@ router.post('/:id/finalize', async (req, res, next) => {
       return res.status(403).json({ success: false, error: 'No tienes permiso para reportar este grupo' });
     }
 
-    if (await isSessionPeriodLocked(session.date)) {
-      return res.status(409).json({ success: false, error: LOCKED_MSG });
-    }
-
+    // Validar la entrada (tipo de reporte) antes de consultar el candado de la
+    // quincena: es más barato y evita cálculos de fecha sobre datos inválidos.
     const reporterType = resolveReporterType(req.user.role, req.body.reporterType);
     if (!reporterType) {
       return res.status(400).json({ success: false, error: 'Indica el tipo de reporte (profesor o coordinador)' });
+    }
+
+    if (await isSessionPeriodLocked(session.date)) {
+      return res.status(409).json({ success: false, error: LOCKED_MSG });
     }
 
     // Editing an existing report of this type snapshots the previous version.

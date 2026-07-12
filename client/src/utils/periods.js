@@ -1,30 +1,27 @@
 // Utilidades de quincenas (períodos de liquidación).
 //
 // El período se guarda como "YYYY-MM-h" (h = 1 → días 1–15, h = 2 → 16–fin).
-// Esos cortes NO cambian. Lo que cambia es la ETIQUETA: las quincenas se
-// numeran de forma correlativa desde la quincena en que arranca el semestre
-// activo (la 1ª quincena del semestre = "Quincena 1", la siguiente = 2, …).
+// Las quincenas se numeran de forma correlativa desde la quincena en que arranca
+// el semestre activo. El selector muestra EXACTAMENTE las quincenas del semestre
+// (de su fecha de inicio a su fecha de fin), no los últimos meses del calendario.
 
-export function getCurrentPeriod() {
-  const now = new Date();
-  const y = now.getFullYear();
-  const m = String(now.getMonth() + 1).padStart(2, '0');
-  const half = now.getDate() <= 15 ? '1' : '2';
-  return `${y}-${m}-${half}`;
+// "Hoy" en la hora de Bogotá (independiente de la zona del dispositivo).
+const BOGOTA_FMT = new Intl.DateTimeFormat('en-CA', {
+  timeZone: 'America/Bogota', year: 'numeric', month: '2-digit', day: '2-digit',
+});
+function bogotaParts() {
+  const p = BOGOTA_FMT.formatToParts(new Date());
+  const get = (t) => Number(p.find((x) => x.type === t).value);
+  return { y: get('year'), m: get('month'), d: get('day') };
 }
 
-// Últimas ~8 quincenas (de la próxima hacia atrás 6 meses), sin duplicados.
-export function buildPeriodOptions() {
-  const options = [];
-  const now = new Date();
-  for (let i = -1; i <= 6; i++) {
-    const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
-    const y = d.getFullYear();
-    const m = String(d.getMonth() + 1).padStart(2, '0');
-    options.push(`${y}-${m}-1`);
-    options.push(`${y}-${m}-2`);
-  }
-  return [...new Set(options)];
+function periodStr(y, m, half) {
+  return `${y}-${String(m).padStart(2, '0')}-${half}`;
+}
+
+export function getCurrentPeriod() {
+  const { y, m, d } = bogotaParts();
+  return periodStr(y, m, d <= 15 ? 1 : 2);
 }
 
 // Índice absoluto de una quincena: cada mes tiene 2, contadas desde el año 0.
@@ -33,17 +30,61 @@ function halfIndex(period) {
   return y * 24 + (m - 1) * 2 + (h - 1);
 }
 
-function periodForDate(dateLike) {
+// La quincena (año, mes, mitad) en que cae una fecha @db.Date (UTC).
+function periodPartsForDate(dateLike) {
   const d = new Date(dateLike);
-  // La fecha viene como Date @db.Date (medianoche UTC); usamos UTC para no
-  // correr un día por zona horaria.
-  const y = d.getUTCFullYear();
-  const m = String(d.getUTCMonth() + 1).padStart(2, '0');
-  const half = d.getUTCDate() <= 15 ? '1' : '2';
-  return `${y}-${m}-${half}`;
+  return { y: d.getUTCFullYear(), m: d.getUTCMonth() + 1, half: d.getUTCDate() <= 15 ? 1 : 2 };
+}
+function periodForDate(dateLike) {
+  const { y, m, half } = periodPartsForDate(dateLike);
+  return periodStr(y, m, half);
 }
 
-// Número correlativo de quincena dentro del semestre (1, 2, 3, …) o null si el
+function nextHalf(y, m, half) {
+  if (half === 1) return [y, m, 2];
+  if (m === 12) return [y + 1, 1, 1];
+  return [y, m + 1, 1];
+}
+
+// Todas las quincenas del semestre, en orden (Quincena 1 → última), inclusivas
+// de la quincena que contiene la fecha de inicio y la que contiene la de fin.
+export function semesterPeriods(semester) {
+  if (!semester?.startDate || !semester?.endDate) return null;
+  let { y, m, half } = periodPartsForDate(semester.startDate);
+  const endIdx = halfIndex(periodForDate(semester.endDate));
+  const out = [];
+  while (halfIndex(periodStr(y, m, half)) <= endIdx && out.length < 60) {
+    out.push(periodStr(y, m, half));
+    [y, m, half] = nextHalf(y, m, half);
+  }
+  return out;
+}
+
+// Respaldo sin semestre activo: la quincena actual y las 11 anteriores.
+function legacyOptions() {
+  const { y, m } = bogotaParts();
+  const out = [];
+  for (let i = 0; i < 12; i++) {
+    const mm = m - i;
+    const yy = y + Math.floor((mm - 1) / 12);
+    const norm = ((mm - 1) % 12 + 12) % 12 + 1;
+    out.push(periodStr(yy, norm, 2), periodStr(yy, norm, 1));
+  }
+  return [...new Set(out)].sort((a, b) => halfIndex(a) - halfIndex(b));
+}
+
+// Opciones del selector. Con semestre activo → sus quincenas; si el período
+// `ensure` (normalmente el seleccionado/actual) no cae dentro, se agrega para
+// que el selector nunca quede en blanco.
+export function buildPeriodOptions(semester, ensure) {
+  let list = semesterPeriods(semester) || legacyOptions();
+  if (ensure && !list.includes(ensure)) {
+    list = [...list, ensure].sort((a, b) => halfIndex(a) - halfIndex(b));
+  }
+  return list;
+}
+
+// Número correlativo de quincena dentro del semestre (1, 2, …) o null si el
 // período cae antes del inicio del semestre (o no hay semestre).
 export function quincenaNumber(period, semesterStart) {
   if (!semesterStart) return null;
@@ -51,21 +92,18 @@ export function quincenaNumber(period, semesterStart) {
   return n >= 1 ? n : null;
 }
 
-// Etiqueta de mes/mitad de un período: "2025-06 · 2ª".
 function calendarLabel(period) {
   const [y, m, h] = String(period).split('-');
   return `${y}-${m} · ${h === '1' ? '1ª' : '2ª'}`;
 }
 
-// Etiqueta completa para selectores/encabezados. Con semestre activo:
-// "Quincena 3 (2025-07 · 1ª)"; sin numeración: "2025-06 · 2ª quincena".
+// "Quincena 3 (2026-08 · 1ª)"; sin numeración: "2026-06 · 2ª quincena".
 export function periodLabel(period, semester) {
   const n = quincenaNumber(period, semester?.startDate);
   if (n) return `Quincena ${n} (${calendarLabel(period)})`;
   return `${calendarLabel(period)} quincena`;
 }
 
-// Etiqueta corta ("Quincena 3" o, sin semestre, "2025-07 · 1ª").
 export function quincenaShort(period, semester) {
   const n = quincenaNumber(period, semester?.startDate);
   return n ? `Quincena ${n}` : calendarLabel(period);

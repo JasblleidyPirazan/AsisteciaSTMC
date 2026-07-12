@@ -122,7 +122,7 @@ export default function MyPayrollPage() {
           <div className="flex items-center gap-2" style={{ flexWrap: 'wrap' }}>
             <select className="form-input form-select" style={{ minHeight: 40, width: 'auto', fontSize: '0.85rem' }}
               value={period} onChange={(e) => setPeriod(e.target.value)}>
-              {buildPeriodOptions().map((p) => (
+              {buildPeriodOptions(semester, period).map((p) => (
                 <option key={p} value={p}>{periodLabel(p, semester)}</option>
               ))}
             </select>

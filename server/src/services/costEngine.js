@@ -1,20 +1,20 @@
 const prisma = require('../lib/prisma');
 const { bogotaDateStr, dbDateStr } = require('../lib/dates');
 
+// Todas las fechas del sistema se anclan a la hora de Bogotá (America/Bogota),
+// no a la del servidor (UTC en Railway), para que la quincena "actual" y la
+// atribución por fecha coincidan con el día local de la academia.
+function periodFromDateStr(ymd) {
+  const [year, month, day] = ymd.split('-');
+  return `${year}-${month}-${Number(day) <= 15 ? '1' : '2'}`;
+}
+
 function getCurrentPeriod() {
-  const now = new Date();
-  const year = now.getFullYear();
-  const month = String(now.getMonth() + 1).padStart(2, '0');
-  const half = now.getDate() <= 15 ? '1' : '2';
-  return `${year}-${month}-${half}`;
+  return periodFromDateStr(bogotaDateStr());
 }
 
 function getPeriodForDate(date) {
-  const d = new Date(date);
-  const year = d.getFullYear();
-  const month = String(d.getMonth() + 1).padStart(2, '0');
-  const half = d.getDate() <= 15 ? '1' : '2';
-  return `${year}-${month}-${half}`;
+  return periodFromDateStr(dbDateStr(date));
 }
 
 // Siguiente quincena: "2025-06-1" → "2025-06-2" → "2025-07-1" → ... → "2025-12-2" → "2026-01-1"
