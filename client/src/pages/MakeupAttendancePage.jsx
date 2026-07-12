@@ -29,7 +29,7 @@ export default function MakeupAttendancePage() {
   const [cancelReason, setCancelReason] = useState('');
 
   const editing = makeup && ['REALIZADA', 'CANCELADA_MITAD'].includes(makeup.status);
-  const showCosts = ['ADMIN', 'TEACHER'].includes(user?.role);
+  const showCosts = ['ADMIN', 'SUPERADMIN', 'TEACHER'].includes(user?.role);
 
   useEffect(() => {
     Promise.all([
@@ -54,7 +54,7 @@ export default function MakeupAttendancePage() {
       );
     }).catch((err) => setError(err.message)).finally(() => setLoading(false));
 
-    if (['ADMIN', 'TEACHER'].includes(user?.role)) {
+    if (['ADMIN', 'SUPERADMIN', 'TEACHER'].includes(user?.role)) {
       api.get('/config/rates').then(setRates).catch(() => {});
     }
   }, [id]);

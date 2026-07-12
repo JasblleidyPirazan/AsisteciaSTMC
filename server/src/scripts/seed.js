@@ -7,18 +7,26 @@ async function main() {
   const email = process.env.ADMIN_EMAIL || 'admin@stmc.com';
   const password = process.env.ADMIN_PASSWORD || 'admin123';
 
+  // The root account bootstraps the SUPERADMIN role (the only role that can
+  // edit class reports and mint other ADMIN/SUPERADMIN accounts from the UI).
+  // Additional ADMINs are created later from /admin/users.
   const existing = await prisma.user.findUnique({ where: { email } });
   if (!existing) {
     await prisma.user.create({
       data: {
         email,
         passwordHash: await bcrypt.hash(password, 10),
-        role: 'ADMIN',
+        role: 'SUPERADMIN',
       },
     });
-    console.log(`Admin creado: ${email}`);
+    console.log(`Superadmin creado: ${email}`);
+  } else if (existing.role === 'ADMIN') {
+    // Upgrade a previously-seeded ADMIN root to SUPERADMIN so a superadmin
+    // always exists after deploying this change.
+    await prisma.user.update({ where: { email }, data: { role: 'SUPERADMIN' } });
+    console.log(`Cuenta raíz ascendida a Superadmin: ${email}`);
   } else {
-    console.log(`Admin ya existe: ${email}`);
+    console.log(`Cuenta raíz ya existe (${existing.role}): ${email}`);
   }
 
   // Default system config — ranged professor rates + assistant fixed rate

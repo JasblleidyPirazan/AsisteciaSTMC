@@ -279,8 +279,8 @@ router.get('/export', requireRole('ADMIN', 'TEACHER', 'ASSISTANT'), async (req, 
 
     const wb = XLSX.utils.book_new();
 
-    // Teachers/assistants get a single personal sheet
-    if (req.user.role !== 'ADMIN') {
+    // Teachers/assistants get a single personal sheet; ADMIN/SUPERADMIN get the full export
+    if (!['ADMIN', 'SUPERADMIN'].includes(req.user.role)) {
       const myRows = req.user.role === 'TEACHER' ? profRows : asstRows;
       const title = req.user.role === 'TEACHER' ? 'MI LIQUIDACIÓN — PROFESOR' : 'MI LIQUIDACIÓN — ASISTENTE';
       const wsMine = myRows.length > 0

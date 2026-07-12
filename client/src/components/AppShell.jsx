@@ -56,7 +56,8 @@ export default function AppShell({ children }) {
       pendingSection = entry;
       continue;
     }
-    if (!entry.roles.includes(role)) continue;
+    // SUPERADMIN is the superset of ADMIN — it sees every nav item.
+    if (role !== 'SUPERADMIN' && !entry.roles.includes(role)) continue;
     if (pendingSection) {
       items.push({ isSection: true, label: pendingSection.section });
       pendingSection = null;

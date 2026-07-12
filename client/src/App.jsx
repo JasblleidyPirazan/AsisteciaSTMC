@@ -61,7 +61,10 @@ class ErrorBoundary extends Component {
 function RequireAuth({ children, roles }) {
   const { user } = useAuth();
   if (!user) return <Navigate to="/login" replace />;
-  if (roles && !roles.includes(user.role)) return <Navigate to="/" replace />;
+  // SUPERADMIN is the superset of ADMIN — it passes every role gate.
+  if (roles && user.role !== 'SUPERADMIN' && !roles.includes(user.role)) {
+    return <Navigate to="/" replace />;
+  }
   return children;
 }
 
@@ -99,8 +102,10 @@ function AppRoutes() {
         </RequireAuth>
       } />
 
+      {/* Professors do NOT report festivals — only the coordinator/admin does.
+          A professor who participates is still paid via payroll. */}
       <Route path="/festivals/:id/attendance" element={
-        <RequireAuth roles={['ADMIN', 'TEACHER', 'PHYSICAL_TRAINER']}>
+        <RequireAuth roles={['ADMIN', 'PHYSICAL_TRAINER']}>
           <FestivalAttendancePage />
         </RequireAuth>
       } />

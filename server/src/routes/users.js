@@ -8,23 +8,32 @@ const router = express.Router();
 // Staff roles the admin can manage here. Professors/assistants have their own
 // account flows in /professors and /assistants; parents come from enrollment.
 const STAFF_ROLES = ['PHYSICAL_TRAINER', 'RECEPTION'];
+// Elevated roles: only a SUPERADMIN may create or manage these (no privilege
+// escalation — an ADMIN cannot mint another ADMIN or a SUPERADMIN).
+const ELEVATED_ROLES = ['ADMIN', 'SUPERADMIN'];
+
+// Roles the acting user is allowed to create/manage from this screen.
+function manageableRoles(actorRole) {
+  return actorRole === 'SUPERADMIN' ? [...STAFF_ROLES, ...ELEVATED_ROLES] : STAFF_ROLES;
+}
 
 router.get('/', requireRole('ADMIN'), async (req, res, next) => {
   try {
     const { role, scope } = req.query;
+    const manageable = manageableRoles(req.user.role);
 
     // scope=all → vista unificada de todas las cuentas (solo lectura para las
-    // que no son de personal). Sin scope → solo cuentas gestionables aquí.
+    // que no son gestionables). Sin scope → solo cuentas gestionables aquí.
     let where;
     if (scope === 'all') {
       where = {};
     } else if (role) {
-      if (!STAFF_ROLES.includes(role)) {
+      if (!manageable.includes(role)) {
         return res.status(400).json({ success: false, error: 'Rol no gestionable desde aquí' });
       }
       where = { role };
     } else {
-      where = { role: { in: STAFF_ROLES } };
+      where = { role: { in: manageable } };
     }
 
     const users = await prisma.user.findMany({
@@ -49,7 +58,7 @@ router.get('/', requireRole('ADMIN'), async (req, res, next) => {
       active: u.active,
       createdAt: u.createdAt,
       name: u.professor?.name || u.assistant?.name || null,
-      manageable: STAFF_ROLES.includes(u.role),
+      manageable: manageableRoles(req.user.role).includes(u.role),
     }));
 
     res.json({ success: true, data: enriched });
@@ -64,8 +73,8 @@ router.post('/', requireRole('ADMIN'), async (req, res, next) => {
     if (!email || !email.trim() || !password || !role) {
       return res.status(400).json({ success: false, error: 'Correo, contraseña y rol requeridos' });
     }
-    if (!STAFF_ROLES.includes(role)) {
-      return res.status(400).json({ success: false, error: 'Rol inválido' });
+    if (!manageableRoles(req.user.role).includes(role)) {
+      return res.status(403).json({ success: false, error: 'No tienes permiso para crear cuentas con ese rol' });
     }
     if (password.length < 8) {
       return res.status(400).json({ success: false, error: 'La contraseña debe tener al menos 8 caracteres' });
@@ -90,8 +99,8 @@ router.put('/:id', requireRole('ADMIN'), async (req, res, next) => {
 
     const existing = await prisma.user.findUnique({ where: { id: req.params.id } });
     if (!existing) return res.status(404).json({ success: false, error: 'Usuario no encontrado' });
-    if (!STAFF_ROLES.includes(existing.role)) {
-      return res.status(400).json({ success: false, error: 'Rol no gestionable desde aquí' });
+    if (!manageableRoles(req.user.role).includes(existing.role)) {
+      return res.status(403).json({ success: false, error: 'No tienes permiso para gestionar esta cuenta' });
     }
 
     const data = {};

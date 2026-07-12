@@ -11,7 +11,7 @@ export default function Step4Summary({ group, session, substitute, assistant, re
   const effectiveUnits = 1.0;
 
   useEffect(() => {
-    if (['ADMIN', 'TEACHER'].includes(userRole)) {
+    if (['ADMIN', 'SUPERADMIN', 'TEACHER'].includes(userRole)) {
       api.get('/config/rates').then(setRates).catch(() => {});
     }
   }, [userRole]);
@@ -26,7 +26,7 @@ export default function Step4Summary({ group, session, substitute, assistant, re
   const justified = records.filter((r) => r.status === 'JUSTIFICADA').length;
   const regularPresent = records.filter((r) => r.status === 'PRESENTE' && r.attendanceType !== 'REPOSICION').length;
   const repositionPresent = records.filter((r) => r.status === 'PRESENTE' && r.attendanceType === 'REPOSICION').length;
-  const showCosts = ['ADMIN', 'TEACHER'].includes(userRole);
+  const showCosts = ['ADMIN', 'SUPERADMIN', 'TEACHER'].includes(userRole);
   const professorName = (substitute || group.professor)?.name;
 
   return (

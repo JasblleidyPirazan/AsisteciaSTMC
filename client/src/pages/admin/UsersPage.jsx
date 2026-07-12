@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { api } from '../../api/client';
+import { useAuth } from '../../hooks/useAuth';
 import { roleLabel } from '../../utils/roles';
 
 const EMPTY_FORM = { email: '', password: '', role: 'PHYSICAL_TRAINER' };
@@ -9,10 +10,16 @@ const STAFF_ROLES = [
   { value: 'PHYSICAL_TRAINER', label: 'Coordinador' },
   { value: 'RECEPTION', label: 'Recepción' },
 ];
+// Elevated roles: only a SUPERADMIN can create these.
+const ELEVATED_ROLES = [
+  { value: 'SUPERADMIN', label: 'Superadministrador' },
+  { value: 'ADMIN', label: 'Administrador' },
+];
 
 // Orden y estilo de badge por rol para la vista unificada.
-const ROLE_ORDER = ['ADMIN', 'PHYSICAL_TRAINER', 'RECEPTION', 'TEACHER', 'ASSISTANT', 'PARENT'];
+const ROLE_ORDER = ['SUPERADMIN', 'ADMIN', 'PHYSICAL_TRAINER', 'RECEPTION', 'TEACHER', 'ASSISTANT', 'PARENT'];
 const ROLE_BADGE = {
+  SUPERADMIN: 'badge-blue',
   ADMIN: 'badge-blue',
   PHYSICAL_TRAINER: 'badge-green',
   RECEPTION: 'badge-green',
@@ -26,10 +33,14 @@ const MANAGED_AT = {
   ASSISTANT: 'Asistentes',
   PARENT: 'Inscripciones',
   ADMIN: null,
+  SUPERADMIN: null,
 };
 
 export default function UsersPage() {
   const navigate = useNavigate();
+  const { user } = useAuth();
+  // Only a SUPERADMIN may create ADMIN / SUPERADMIN accounts.
+  const creatableRoles = user?.role === 'SUPERADMIN' ? [...ELEVATED_ROLES, ...STAFF_ROLES] : STAFF_ROLES;
   const [users, setUsers] = useState([]);
   const [loading, setLoading] = useState(true);
   const [showForm, setShowForm] = useState(false);
@@ -133,7 +144,7 @@ export default function UsersPage() {
                 <label className="form-label">Rol *</label>
                 <select className="form-input form-select" value={form.role}
                   onChange={(e) => setForm({ ...form, role: e.target.value })}>
-                  {STAFF_ROLES.map((r) => <option key={r.value} value={r.value}>{r.label}</option>)}
+                  {creatableRoles.map((r) => <option key={r.value} value={r.value}>{r.label}</option>)}
                 </select>
               </div>
               <div className="form-group">

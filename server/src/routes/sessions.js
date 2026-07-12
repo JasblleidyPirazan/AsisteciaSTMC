@@ -14,13 +14,13 @@ const CANCEL_AUTO_TEXT = {
 
 /**
  * Authorization for reporting attendance on a group:
- * - ADMIN / PHYSICAL_TRAINER: any group
+ * - SUPERADMIN / ADMIN / PHYSICAL_TRAINER: any group
  * - TEACHER: only groups where they are the titular professor
  * - PARENT: only groups where one of their children is enrolled
  * - ASSISTANT: not allowed (they use /:id/assist)
  */
 async function canReportGroup(user, groupId) {
-  if (['ADMIN', 'PHYSICAL_TRAINER'].includes(user.role)) return true;
+  if (['SUPERADMIN', 'ADMIN', 'PHYSICAL_TRAINER'].includes(user.role)) return true;
 
   if (user.role === 'TEACHER') {
     const professor = await prisma.professor.findUnique({ where: { userId: user.id } });
@@ -306,7 +306,7 @@ router.post('/:id/cancel', async (req, res, next) => {
 // Unlock the pay of a late-reported class — ONLY the admin can do this
 router.post('/:id/unlock-payment', async (req, res, next) => {
   try {
-    if (req.user.role !== 'ADMIN') {
+    if (!['SUPERADMIN', 'ADMIN'].includes(req.user.role)) {
       return res.status(403).json({ success: false, error: 'Solo el administrador puede desbloquear pagos' });
     }
     const session = await prisma.classSession.findUnique({ where: { id: req.params.id } });
@@ -377,7 +377,7 @@ router.post('/:id/assist', async (req, res, next) => {
 // Coordinator/admin validates (or un-validates) the assistant match of a session
 router.post('/:id/validate-assistant', async (req, res, next) => {
   try {
-    if (!['ADMIN', 'PHYSICAL_TRAINER'].includes(req.user.role)) {
+    if (!['SUPERADMIN', 'ADMIN', 'PHYSICAL_TRAINER'].includes(req.user.role)) {
       return res.status(403).json({ success: false, error: 'Solo el coordinador o el administrador pueden validar' });
     }
     const existing = await prisma.classSession.findUnique({ where: { id: req.params.id } });
@@ -406,7 +406,7 @@ router.post('/:id/validate-assistant', async (req, res, next) => {
 // No money amounts here — the coordinator role doesn't see pay.
 router.get('/validation-queue', async (req, res, next) => {
   try {
-    if (!['ADMIN', 'PHYSICAL_TRAINER'].includes(req.user.role)) {
+    if (!['SUPERADMIN', 'ADMIN', 'PHYSICAL_TRAINER'].includes(req.user.role)) {
       return res.status(403).json({ success: false, error: 'Acceso no autorizado' });
     }
     const { date, from, to } = req.query;

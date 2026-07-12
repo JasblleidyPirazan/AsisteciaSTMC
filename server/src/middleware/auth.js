@@ -31,6 +31,9 @@ async function authMiddleware(req, res, next) {
 
 function requireRole(...roles) {
   return (req, res, next) => {
+    // SUPERADMIN is the top role: a strict superset of ADMIN, so it passes
+    // every role gate without having to be listed explicitly everywhere.
+    if (req.user?.role === 'SUPERADMIN') return next();
     if (!roles.includes(req.user?.role)) {
       return res.status(403).json({ success: false, error: 'Acceso no autorizado' });
     }
@@ -40,6 +43,7 @@ function requireRole(...roles) {
 
 // Operational management roles. PHYSICAL_TRAINER acts as the school's
 // "Coordinador" (renamed in the UI only — the enum value stays for db compat).
-const MANAGEMENT = ['ADMIN', 'PHYSICAL_TRAINER'];
+// SUPERADMIN is included as the superset of ADMIN.
+const MANAGEMENT = ['SUPERADMIN', 'ADMIN', 'PHYSICAL_TRAINER'];
 
 module.exports = { authMiddleware, requireRole, MANAGEMENT };

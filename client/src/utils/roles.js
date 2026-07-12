@@ -1,6 +1,7 @@
 // Display names for roles. PHYSICAL_TRAINER acts as the school's Coordinador —
 // the enum value in the database stays unchanged; only the label differs.
 export const ROLE_LABELS = {
+  SUPERADMIN: 'Superadministrador',
   ADMIN: 'Administrador',
   TEACHER: 'Profesor',
   ASSISTANT: 'Asistente',
