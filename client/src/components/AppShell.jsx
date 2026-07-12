@@ -8,9 +8,8 @@ import { roleLabel } from '../utils/roles';
 const NAV = [
   { section: 'Principal' },
   { label: 'Inicio', path: '/', icon: '🏠', roles: ['ADMIN', 'TEACHER', 'PHYSICAL_TRAINER', 'ASSISTANT'] },
-  { label: 'Panel', path: '/admin', icon: '📊', roles: ['ADMIN', 'PHYSICAL_TRAINER'] },
   { label: 'Mi quincena', path: '/my-payroll', icon: '💵', roles: ['TEACHER', 'ASSISTANT'] },
-  { label: 'Reporte', path: '/reporte', icon: '📋', roles: ['TEACHER', 'ADMIN', 'PHYSICAL_TRAINER'] },
+  { label: 'Clases dadas', path: '/reporte', icon: '📋', roles: ['TEACHER', 'ADMIN', 'PHYSICAL_TRAINER'] },
   { label: 'Horarios', path: '/horarios', icon: '🗓️', roles: ['ADMIN', 'TEACHER', 'PHYSICAL_TRAINER', 'ASSISTANT', 'RECEPTION', 'PARENT'] },
   { label: 'Portal', path: '/parent', icon: '👨‍👩‍👧', roles: ['PARENT'] },
 

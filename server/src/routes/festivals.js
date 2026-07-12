@@ -26,8 +26,14 @@ async function canReportFestival(user, session) {
 function festivalInclude() {
   return {
     festivalProfessors: { include: { professor: { select: { id: true, name: true } } } },
-    makeupParticipants: { include: { student: { select: { id: true, name: true } } } },
-    attendanceRecords: { include: { student: { select: { id: true, name: true } } } },
+    makeupParticipants: {
+      include: { student: { select: { id: true, name: true } } },
+      orderBy: { student: { name: 'asc' } },
+    },
+    attendanceRecords: {
+      include: { student: { select: { id: true, name: true } } },
+      orderBy: { student: { name: 'asc' } },
+    },
   };
 }
 

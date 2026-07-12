@@ -125,7 +125,10 @@ router.get('/schedule', async (req, res, next) => {
       where: { active: true },
       include: {
         professor: { select: { id: true, name: true } },
-        enrollments: { include: { student: { select: { id: true, name: true, active: true } } } },
+        enrollments: {
+          include: { student: { select: { id: true, name: true, active: true } } },
+          orderBy: { student: { name: 'asc' } },
+        },
       },
       orderBy: [{ startTime: 'asc' }, { court: 'asc' }],
     });
@@ -166,7 +169,7 @@ router.get('/:id', async (req, res, next) => {
       where: { id: req.params.id },
       include: {
         professor: { select: { id: true, name: true } },
-        enrollments: { include: { student: true } },
+        enrollments: { include: { student: true }, orderBy: { student: { name: 'asc' } } },
       },
     });
     if (!group) return res.status(404).json({ success: false, error: 'Grupo no encontrado' });
