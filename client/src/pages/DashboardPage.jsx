@@ -19,8 +19,12 @@ export default function DashboardPage() {
   const { user } = useAuth();
   const navigate = useNavigate();
   const [groups, setGroups] = useState([]);
+  const [sessionByGroup, setSessionByGroup] = useState({});
   const [date, setDate] = useState(todayStr());
   const [loading, setLoading] = useState(true);
+
+  // El reporte propio del usuario: profesor → PROFESSOR, coordinador → COORDINATOR
+  const reporterType = user?.role === 'TEACHER' ? 'PROFESSOR' : 'COORDINATOR';
 
   useEffect(() => {
     loadGroups();
@@ -30,7 +34,13 @@ export default function DashboardPage() {
     setLoading(true);
     try {
       const params = date === todayStr() ? { today: 'true' } : {};
-      const data = await api.get('/groups', params);
+      const [data, sessions] = await Promise.all([
+        api.get('/groups', params),
+        api.get('/sessions', { date }).catch(() => []),
+      ]);
+      const map = {};
+      (sessions || []).forEach((s) => { map[s.groupId || s.group?.id] = s; });
+      setSessionByGroup(map);
       // If custom date, filter by that day of week
       if (date !== todayStr()) {
         const dow = new Date(date + 'T12:00:00').getDay();
@@ -53,6 +63,18 @@ export default function DashboardPage() {
   }
 
   const isAssistant = user?.role === 'ASSISTANT';
+
+  // Agrupa los grupos del día por horario de inicio, para separarlos visualmente.
+  function byTimeSlot(list) {
+    const sorted = [...list].sort((a, b) => (a.startTime || '').localeCompare(b.startTime || ''));
+    const map = new Map();
+    for (const g of sorted) {
+      const t = g.startTime || '—';
+      if (!map.has(t)) map.set(t, []);
+      map.get(t).push(g);
+    }
+    return [...map.entries()];
+  }
 
   return (
     <div className="page">
@@ -94,11 +116,23 @@ export default function DashboardPage() {
             ) : groups.length === 0 ? (
               <div className="alert alert-info">No hay grupos programados para este día.</div>
             ) : (
-              <div className="card-grid">
-                {groups.map((g) => (
-                  <GroupCard key={g.id} group={g} onClick={() => handleGroupClick(g)} />
-                ))}
-              </div>
+              byTimeSlot(groups).map(([time, gs]) => (
+                <div key={time} className="mb-3">
+                  <div className="time-slot-header">🕐 {time}</div>
+                  <div className="card-grid">
+                    {gs.map((g) => {
+                      const session = sessionByGroup[g.id];
+                      const reportedByMe = !!session?.reports?.some((r) => r.reporterType === reporterType);
+                      const mismatch = session?.consolidationStatus === 'MISMATCH';
+                      return (
+                        <GroupCard key={g.id} group={g} session={session}
+                          reportedByMe={reportedByMe} mismatch={mismatch}
+                          onClick={() => handleGroupClick(g)} />
+                      );
+                    })}
+                  </div>
+                </div>
+              ))
             )}
           </>
         )}

@@ -25,6 +25,7 @@ export default function AssistantDayView({ groups, loading, date }) {
   const [saving, setSaving] = useState({});
   const [loadingSessions, setLoadingSessions] = useState(true);
   const [error, setError] = useState('');
+  const [flash, setFlash] = useState(''); // confirmación transitoria al guardar
 
   const [profFilter, setProfFilter] = useState('');
   const [courtFilter, setCourtFilter] = useState('');
@@ -74,11 +75,28 @@ export default function AssistantDayView({ groups, loading, date }) {
         groupId: group.id, date, remove: isConfirmed,
       });
       setSessionsByGroup((m) => ({ ...m, [group.id]: updated || null }));
+      setFlash(isConfirmed
+        ? `✓ Corregido: se quitó tu acompañamiento de ${group.code}`
+        : `✓ Guardado: registraste tu acompañamiento de ${group.code}`);
+      clearTimeout(toggleAssist._t);
+      toggleAssist._t = setTimeout(() => setFlash(''), 3000);
     } catch (err) {
       setError(err.message);
     } finally {
       setSaving((s) => ({ ...s, [group.id]: false }));
     }
+  }
+
+  // Agrupa las clases por horario de inicio para separarlas visualmente.
+  function byTimeSlot(list) {
+    const sorted = [...list].sort((a, b) => (a.startTime || '').localeCompare(b.startTime || ''));
+    const map = new Map();
+    for (const g of sorted) {
+      const t = g.startTime || '—';
+      if (!map.has(t)) map.set(t, []);
+      map.get(t).push(g);
+    }
+    return [...map.entries()];
   }
 
   // Estado del acompañamiento de ESTE asistente (secundario al color de nivel).
@@ -104,6 +122,9 @@ export default function AssistantDayView({ groups, loading, date }) {
         profesor o el coordinador hayan reportado.
       </p>
       {error && <div className="alert alert-error mb-3">{error}</div>}
+      {flash && (
+        <div className="save-flash" role="status">{flash}</div>
+      )}
 
       {/* Filtros: profesor / cancha / nivel */}
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 8, marginBottom: 12 }}>
@@ -134,7 +155,10 @@ export default function AssistantDayView({ groups, loading, date }) {
       </div>
 
       {filtered.length === 0 && <div className="alert alert-info">No hay clases para este filtro.</div>}
-      {filtered.map((g) => {
+      {byTimeSlot(filtered).map(([time, gs]) => (
+        <div key={time} className="mb-2">
+          <div className="time-slot-header">🕐 {time}</div>
+          {gs.map((g) => {
         const session = sessionsByGroup[g.id];
         const isConfirmed = !!session && !!myAssistantId && session.assistantConfirmedId === myAssistantId;
         const confirmedByOther = !!session?.assistantConfirmedId && session.assistantConfirmedId !== myAssistantId;
@@ -175,7 +199,9 @@ export default function AssistantDayView({ groups, loading, date }) {
             </div>
           </div>
         );
-      })}
+          })}
+        </div>
+      ))}
     </>
   );
 }
