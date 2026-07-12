@@ -33,6 +33,7 @@ const NAV = [
   { label: 'Usuarios y roles', path: '/admin/users', icon: '🔑', roles: ['ADMIN'] },
   { label: 'Liquidación', path: '/admin/payroll', icon: '💰', roles: ['ADMIN'] },
   { label: 'Inscripciones', path: '/admin/enrollment', icon: '📋', roles: ['ADMIN'] },
+  { label: 'Auditoría', path: '/admin/audit', icon: '🕵️', roles: ['ADMIN'] },
   { label: 'Configuración', path: '/admin/config', icon: '⚙️', roles: ['ADMIN'] },
 ];
 
