@@ -3,8 +3,34 @@ const prisma = require('../lib/prisma');
 const { requireRole } = require('../middleware/auth');
 const { bogotaToday } = require('../lib/dates');
 const { notSuspended } = require('../lib/filters');
+const { importFromBuffer } = require('../services/enrollmentImport');
+const { isSeenRecord } = require('../services/attendanceStats');
 
 const router = express.Router();
+
+// Importar matrícula desde un Excel subido por el admin. El archivo llega en
+// base64 (JSON) para reutilizar el parser de body existente. dryRun=true solo
+// previsualiza. Solo ADMIN (procesa archivos de confianza, subidos por el admin).
+router.post('/import', requireRole('ADMIN', 'SUPERADMIN', 'PHYSICAL_TRAINER'), async (req, res, next) => {
+  try {
+    const { fileBase64, dryRun } = req.body || {};
+    if (!fileBase64 || typeof fileBase64 !== 'string') {
+      return res.status(400).json({ success: false, error: 'Archivo requerido (fileBase64)' });
+    }
+    const buffer = Buffer.from(fileBase64, 'base64');
+    if (buffer.length === 0) {
+      return res.status(400).json({ success: false, error: 'El archivo está vacío o no es válido' });
+    }
+    const summary = await importFromBuffer(buffer, { dryRun: !!dryRun });
+    res.json({ success: true, data: summary });
+  } catch (err) {
+    // Errores de formato del Excel se devuelven como 400 legible
+    if (/hoja|encabezados|Consolidado/i.test(err.message)) {
+      return res.status(400).json({ success: false, error: err.message });
+    }
+    next(err);
+  }
+});
 
 // Derived state shown across the app:
 // INACTIVO (soft-deleted) | SUSPENDIDO (today inside suspension range) |
@@ -38,7 +64,13 @@ router.get('/', async (req, res, next) => {
       where.parentUserId = req.user.id;
     }
 
-    const include = { enrollments: { include: { group: { select: { id: true, code: true, name: true } } } } };
+    const include = {
+      enrollments: {
+        include: {
+          group: { select: { id: true, code: true, name: true, ballLevel: true, subLevel: true, professor: { select: { name: true } } } },
+        },
+      },
+    };
 
     let students;
     if (groupId) {
@@ -57,6 +89,34 @@ router.get('/', async (req, res, next) => {
     }
 
     res.json({ success: true, data: students.map(withStatus) });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// Resumen de asistencia por estudiante para la lista (1 sola query).
+// rate = present/(present+absent): las justificadas no penalizan.
+router.get('/attendance-summary', requireRole('ADMIN', 'SUPERADMIN', 'PHYSICAL_TRAINER', 'RECEPTION'), async (req, res, next) => {
+  try {
+    const semester = await prisma.semester.findFirst({ where: { active: true } });
+    const where = { status: { in: ['PRESENTE', 'AUSENTE'] } };
+    if (semester) where.session = { date: { gte: semester.startDate, lte: semester.endDate } };
+
+    const rows = await prisma.attendanceRecord.groupBy({
+      by: ['studentId', 'status'], where, _count: { _all: true },
+    });
+    const map = {};
+    for (const r of rows) {
+      const s = (map[r.studentId] ||= { present: 0, absent: 0 });
+      if (r.status === 'PRESENTE') s.present += r._count._all;
+      else if (r.status === 'AUSENTE') s.absent += r._count._all;
+    }
+    for (const id of Object.keys(map)) {
+      const s = map[id];
+      const den = s.present + s.absent;
+      s.rate = den > 0 ? Math.round((s.present / den) * 100) : null;
+    }
+    res.json({ success: true, data: map });
   } catch (err) {
     next(err);
   }
@@ -93,15 +153,21 @@ router.get('/:id', async (req, res, next) => {
   }
 });
 
-router.post('/', requireRole('ADMIN', 'PHYSICAL_TRAINER'), async (req, res, next) => {
+router.post('/', requireRole('ADMIN', 'SUPERADMIN', 'PHYSICAL_TRAINER'), async (req, res, next) => {
   try {
-    const { name, email, parentUserId, primaryGroupId, secondaryGroupId, classesAcquired } = req.body;
+    const { name, email, parentUserId, primaryGroupId, secondaryGroupId, classesAcquired,
+      paymentComplete, document, phone, guardianName, birthDate } = req.body;
     if (!name) return res.status(400).json({ success: false, error: 'Nombre requerido' });
 
     const student = await prisma.student.create({
       data: {
         name,
         email: email || null,
+        document: document || null,
+        phone: phone || null,
+        guardianName: guardianName || null,
+        birthDate: birthDate ? new Date(birthDate) : null,
+        paymentComplete: !!paymentComplete,
         parentUserId: parentUserId || null,
         classesAcquired: Number.isFinite(+classesAcquired) ? Math.max(0, parseInt(classesAcquired)) : 0,
         enrollments: {
@@ -134,12 +200,17 @@ router.post('/', requireRole('ADMIN', 'PHYSICAL_TRAINER'), async (req, res, next
   }
 });
 
-router.put('/:id', requireRole('ADMIN', 'PHYSICAL_TRAINER'), async (req, res, next) => {
+router.put('/:id', requireRole('ADMIN', 'SUPERADMIN', 'PHYSICAL_TRAINER'), async (req, res, next) => {
   try {
-    const { name, email, parentUserId, active, deactivationReason, classesAcquired } = req.body;
+    const { name, email, parentUserId, active, deactivationReason, classesAcquired,
+      document, phone, guardianName, birthDate } = req.body;
     const data = {};
     if (name !== undefined) data.name = name;
     if (email !== undefined) data.email = email;
+    if (document !== undefined) data.document = document || null;
+    if (phone !== undefined) data.phone = phone || null;
+    if (guardianName !== undefined) data.guardianName = guardianName || null;
+    if (birthDate !== undefined) data.birthDate = birthDate ? new Date(birthDate) : null;
     if (parentUserId !== undefined) data.parentUserId = parentUserId;
     if (classesAcquired !== undefined) data.classesAcquired = Math.max(0, parseInt(classesAcquired) || 0);
     if (active !== undefined) {
@@ -163,7 +234,7 @@ router.put('/:id', requireRole('ADMIN', 'PHYSICAL_TRAINER'), async (req, res, ne
 
 // Payment status (Inscrito ↔ Matriculado). Separate endpoint so RECEPTION can
 // flip it without being able to edit anything else about the student.
-router.patch('/:id/payment-status', requireRole('ADMIN', 'RECEPTION'), async (req, res, next) => {
+router.patch('/:id/payment-status', requireRole('ADMIN', 'SUPERADMIN', 'RECEPTION', 'PHYSICAL_TRAINER'), async (req, res, next) => {
   try {
     const { paymentComplete } = req.body;
     if (typeof paymentComplete !== 'boolean') {
@@ -183,7 +254,7 @@ router.patch('/:id/payment-status', requireRole('ADMIN', 'RECEPTION'), async (re
 // Temporary suspension (>2 weeks, shorter than the semester). While active the
 // student disappears from group rosters and attendance lists; when the range
 // ends they reappear automatically (filtering is done per-query, no cron).
-router.post('/:id/suspend', requireRole('ADMIN', 'PHYSICAL_TRAINER'), async (req, res, next) => {
+router.post('/:id/suspend', requireRole('ADMIN', 'SUPERADMIN', 'PHYSICAL_TRAINER'), async (req, res, next) => {
   try {
     const { from, until, reason } = req.body;
     if (!from || !until || !reason || !reason.trim()) {
@@ -214,7 +285,7 @@ router.post('/:id/suspend', requireRole('ADMIN', 'PHYSICAL_TRAINER'), async (req
   }
 });
 
-router.post('/:id/unsuspend', requireRole('ADMIN', 'PHYSICAL_TRAINER'), async (req, res, next) => {
+router.post('/:id/unsuspend', requireRole('ADMIN', 'SUPERADMIN', 'PHYSICAL_TRAINER'), async (req, res, next) => {
   try {
     const student = await prisma.student.update({
       where: { id: req.params.id },
@@ -227,7 +298,7 @@ router.post('/:id/unsuspend', requireRole('ADMIN', 'PHYSICAL_TRAINER'), async (r
   }
 });
 
-router.delete('/:id', requireRole('ADMIN', 'PHYSICAL_TRAINER'), async (req, res, next) => {
+router.delete('/:id', requireRole('ADMIN', 'SUPERADMIN', 'PHYSICAL_TRAINER'), async (req, res, next) => {
   try {
     const { reason } = req.body || {};
     if (!reason || !reason.trim()) {
@@ -249,7 +320,7 @@ router.delete('/:id', requireRole('ADMIN', 'PHYSICAL_TRAINER'), async (req, res,
 });
 
 // Transfer student from one group to another (replaces primary enrollment, records history)
-router.post('/:id/transfer', requireRole('ADMIN', 'PHYSICAL_TRAINER'), async (req, res, next) => {
+router.post('/:id/transfer', requireRole('ADMIN', 'SUPERADMIN', 'PHYSICAL_TRAINER'), async (req, res, next) => {
   try {
     const { fromGroupId, toGroupId, reason } = req.body;
     if (!toGroupId) return res.status(400).json({ success: false, error: 'toGroupId requerido' });
@@ -308,7 +379,7 @@ router.post('/:id/transfer', requireRole('ADMIN', 'PHYSICAL_TRAINER'), async (re
 });
 
 // Add student to an additional group (multigrupo)
-router.post('/:id/enrollments', requireRole('ADMIN', 'PHYSICAL_TRAINER'), async (req, res, next) => {
+router.post('/:id/enrollments', requireRole('ADMIN', 'SUPERADMIN', 'PHYSICAL_TRAINER'), async (req, res, next) => {
   try {
     const { groupId, enrollmentType } = req.body;
     const studentId = req.params.id;
@@ -337,7 +408,7 @@ router.post('/:id/enrollments', requireRole('ADMIN', 'PHYSICAL_TRAINER'), async 
   }
 });
 
-router.delete('/:id/enrollments/:groupId', requireRole('ADMIN', 'PHYSICAL_TRAINER'), async (req, res, next) => {
+router.delete('/:id/enrollments/:groupId', requireRole('ADMIN', 'SUPERADMIN', 'PHYSICAL_TRAINER'), async (req, res, next) => {
   try {
     const { studentId: sid, groupId } = { studentId: req.params.id, groupId: req.params.groupId };
 
@@ -358,6 +429,100 @@ router.delete('/:id/enrollments/:groupId', requireRole('ADMIN', 'PHYSICAL_TRAINE
     });
 
     res.json({ success: true, data: { message: 'Matrícula eliminada' } });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// Ficha del estudiante: datos + historial de asistencia (combina sesiones del
+// grupo —para incluir cancelaciones— con los registros del estudiante).
+router.get('/:id/report', requireRole('ADMIN', 'SUPERADMIN', 'PHYSICAL_TRAINER', 'RECEPTION'), async (req, res, next) => {
+  try {
+    const student = await prisma.student.findUnique({
+      where: { id: req.params.id },
+      include: {
+        enrollments: {
+          include: { group: { select: { id: true, code: true, ballLevel: true, subLevel: true, professor: { select: { name: true } } } } },
+        },
+      },
+    });
+    if (!student) return res.status(404).json({ success: false, error: 'Estudiante no encontrado' });
+
+    const semester = await prisma.semester.findFirst({ where: { active: true } });
+    const dateRange = semester ? { gte: semester.startDate, lte: semester.endDate } : undefined;
+    const groupIds = student.enrollments.map((e) => e.group.id);
+
+    const groupSessions = groupIds.length ? await prisma.classSession.findMany({
+      where: { groupId: { in: groupIds }, status: { not: 'PROGRAMADA' }, ...(dateRange ? { date: dateRange } : {}) },
+      select: { id: true, date: true, status: true, cancellationCategory: true, kind: true, title: true, group: { select: { code: true, professor: { select: { name: true } } } } },
+    }) : [];
+
+    const records = await prisma.attendanceRecord.findMany({
+      where: { studentId: student.id, ...(dateRange ? { session: { date: dateRange } } : {}) },
+      include: { session: { select: { id: true, date: true, kind: true, status: true, cancellationCategory: true, title: true, group: { select: { code: true, professor: { select: { name: true } } } } } } },
+    });
+    const recBySession = Object.fromEntries(records.map((r) => [r.sessionId, r]));
+
+    const seen = new Set();
+    const timeline = [];
+    const push = (sess, rec) => {
+      if (!sess || seen.has(sess.id)) return;
+      seen.add(sess.id);
+      const cancelled = sess.status === 'CANCELADA';
+      timeline.push({
+        date: sess.date,
+        groupCode: sess.group?.code || sess.title || '—',
+        professor: sess.group?.professor?.name || '—',
+        kind: sess.kind,
+        cancellationCategory: cancelled ? sess.cancellationCategory : null,
+        studentStatus: cancelled ? 'CANCELADA' : (rec?.status || null),
+        attendanceType: rec?.attendanceType || null,
+      });
+    };
+    for (const s of groupSessions) push(s, recBySession[s.id]);
+    for (const r of records) if (!seen.has(r.sessionId)) push(r.session, r);
+    timeline.sort((a, b) => new Date(b.date) - new Date(a.date));
+
+    let present = 0, absent = 0, justified = 0, cancelledRain = 0, classesSeen = 0;
+    for (const r of records) {
+      if (r.status === 'PRESENTE') present++;
+      else if (r.status === 'AUSENTE') absent++;
+      else if (r.status === 'JUSTIFICADA') justified++;
+      if (isSeenRecord(r, r.session?.kind)) classesSeen++;
+    }
+    for (const s of groupSessions) if (s.status === 'CANCELADA' && s.cancellationCategory === 'LLUVIA') cancelledRain++;
+    const attendanceRate = (present + absent) > 0 ? Math.round((present / (present + absent)) * 100) : null;
+
+    res.json({
+      success: true,
+      data: {
+        student: withStatus(student),
+        timeline,
+        summary: {
+          present, absent, justified, cancelledRain, classesSeen, attendanceRate,
+          classesAcquired: (student.classesAcquired || 0) + (student.previousClasses || 0),
+        },
+      },
+    });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// Sumar clases de semestre anterior (solo administradores). Se acumulan aparte
+// para no ser pisadas por la importación del semestre actual.
+router.post('/:id/previous-classes', requireRole('ADMIN', 'SUPERADMIN', 'PHYSICAL_TRAINER'), async (req, res, next) => {
+  try {
+    const amount = parseInt(req.body?.amount, 10);
+    if (!Number.isFinite(amount) || amount === 0) {
+      return res.status(400).json({ success: false, error: 'Cantidad inválida' });
+    }
+    const student = await prisma.student.update({
+      where: { id: req.params.id },
+      data: { previousClasses: { increment: amount } },
+      include: { enrollments: { include: { group: true } } },
+    });
+    res.json({ success: true, data: withStatus(student) });
   } catch (err) {
     next(err);
   }

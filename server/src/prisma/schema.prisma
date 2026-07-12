@@ -77,8 +77,13 @@ model Student {
   id                 String    @id @default(cuid())
   name               String
   email              String?
+  document           String?   @map("document")
+  phone              String?   @map("phone")
+  guardianName       String?   @map("guardian_name")
+  birthDate          DateTime? @map("birth_date") @db.Date
   parentUserId       String?   @map("parent_user_id")
   classesAcquired    Int       @default(0) @map("classes_acquired")
+  previousClasses    Int       @default(0) @map("previous_classes")
   paymentComplete    Boolean   @default(false) @map("payment_complete")
   suspendedFrom      DateTime? @map("suspended_from") @db.Date
   suspendedUntil     DateTime? @map("suspended_until") @db.Date
