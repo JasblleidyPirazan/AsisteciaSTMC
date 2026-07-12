@@ -29,6 +29,7 @@ import FestivalAttendancePage from './pages/FestivalAttendancePage';
 import AlertsPage from './pages/admin/AlertsPage';
 import HorariosPage from './pages/HorariosPage';
 import ReportePage from './pages/ReportePage';
+import AuditPage from './pages/admin/AuditPage';
 
 class ErrorBoundary extends Component {
   constructor(props) {
@@ -190,6 +191,11 @@ function AppRoutes() {
       <Route path="/admin/alerts" element={
         <RequireAuth roles={['ADMIN', 'PHYSICAL_TRAINER']}>
           <Shell><AlertsPage /></Shell>
+        </RequireAuth>
+      } />
+      <Route path="/admin/audit" element={
+        <RequireAuth roles={['ADMIN']}>
+          <Shell><AuditPage /></Shell>
         </RequireAuth>
       } />
       {/* ADMIN-only routes */}
