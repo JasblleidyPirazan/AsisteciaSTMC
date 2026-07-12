@@ -10,16 +10,82 @@ const STATUS_BADGE = {
   INACTIVO: { cls: 'badge-gray', label: 'Inactivo' },
 };
 
+const BALL_COLOR = { Roja: '#E8526A', Naranja: '#EA8A2E', Verde: '#1FA971', Amarilla: '#E8A23B' };
+const AVATAR_COLORS = ['#3F52A8', '#4F9FB2', '#7A5AF8', '#E8A23B', '#1FA971', '#E8526A', '#6F7BA6'];
+
+function initials(name) {
+  const p = String(name || '').trim().split(/\s+/);
+  return ((p[0]?.[0] || '') + (p[1]?.[0] || '')).toUpperCase() || '·';
+}
+function colorFor(str) {
+  let h = 0;
+  for (const c of String(str || '')) h = (h + c.charCodeAt(0)) % AVATAR_COLORS.length;
+  return AVATAR_COLORS[h];
+}
+function primaryEnrollment(s) {
+  return s.enrollments?.find((e) => e.enrollmentType === 'PRIMARY') || s.enrollments?.[0] || null;
+}
+function groupedByCode(list) {
+  const out = {};
+  for (const s of list) {
+    const code = primaryEnrollment(s)?.group?.code || 'Sin grupo';
+    (out[code] ||= []).push(s);
+  }
+  return out;
+}
+const HISTORY_BADGE = {
+  PRESENTE: ['badge-green', 'Presente'],
+  AUSENTE: ['badge-red', 'Ausente'],
+  JUSTIFICADA: ['badge-blue', 'Justificado'],
+};
+function historyBadge(t) {
+  if (t.studentStatus === 'CANCELADA') {
+    return <span className="badge badge-gray">Cancelado{t.cancellationCategory === 'LLUVIA' ? ' por lluvia' : ''}</span>;
+  }
+  const m = HISTORY_BADGE[t.studentStatus];
+  return m ? <span className={`badge ${m[0]}`}>{m[1]}</span> : <span className="badge badge-gray">—</span>;
+}
+function ageFrom(birthDate) {
+  if (!birthDate) return null;
+  const b = new Date(birthDate);
+  if (isNaN(b)) return null;
+  const now = new Date();
+  let a = now.getFullYear() - b.getFullYear();
+  if (now.getMonth() < b.getMonth() || (now.getMonth() === b.getMonth() && now.getDate() < b.getDate())) a--;
+  return a >= 0 && a < 120 ? a : null;
+}
+function fmtDay(d) {
+  if (!d) return '';
+  return new Date(d).toLocaleDateString('es-CO', { day: 'numeric', month: 'short', timeZone: 'UTC' });
+}
+function fmtFullDate(d) {
+  if (!d) return '';
+  return new Date(d).toLocaleDateString('es-CO', { day: 'numeric', month: 'short', year: 'numeric', timeZone: 'UTC' });
+}
+
 export default function StudentsPage() {
   const navigate = useNavigate();
   const { user } = useAuth();
   // Recepción only manages the payment status (Inscrito ↔ Matriculado)
   const isReception = user?.role === 'RECEPTION';
+  const isAdmin = user?.role === 'ADMIN';
+  // CRUD de estudiantes: ADMIN / SUPERADMIN / Coordinador (PHYSICAL_TRAINER)
+  const canEdit = ['ADMIN', 'SUPERADMIN', 'PHYSICAL_TRAINER'].includes(user?.role);
+  const canImport = canEdit;                          // importar Excel
+
+  // Import modal (ADMIN) — subir Excel de matrícula
+  const [showImport, setShowImport] = useState(false);
+  const [importB64, setImportB64] = useState('');
+  const [importName, setImportName] = useState('');
+  const [importPreview, setImportPreview] = useState(null);
+  const [importResult, setImportResult] = useState(null);
+  const [importError, setImportError] = useState('');
+  const [importBusy, setImportBusy] = useState(false);
   const [students, setStudents] = useState([]);
   const [groups, setGroups] = useState([]);
   const [loading, setLoading] = useState(true);
   const [showForm, setShowForm] = useState(false);
-  const [form, setForm] = useState({ name: '', email: '', primaryGroupId: '', secondaryGroupId: '', classesAcquired: '' });
+  const [form, setForm] = useState({ name: '', email: '', document: '', phone: '', guardianName: '', birthDate: '', primaryGroupId: '', secondaryGroupId: '', classesAcquired: '', paymentComplete: false });
   const [error, setError] = useState('');
   const [saving, setSaving] = useState(false);
 
@@ -35,8 +101,21 @@ export default function StudentsPage() {
   const [suspendError, setSuspendError] = useState('');
   const [suspendSaving, setSuspendSaving] = useState(false);
 
-  // Sort: 'name' or 'group'
+  // Sort: 'name' | 'group' | 'attendance'
   const [sortBy, setSortBy] = useState('name');
+  // Búsqueda y filtros
+  const [search, setSearch] = useState('');
+  const [statusFilter, setStatusFilter] = useState('ACTIVOS');
+  const [groupFilter, setGroupFilter] = useState('');
+  const [attendance, setAttendance] = useState({});
+  const [semester, setSemester] = useState(null);
+
+  // Ficha del estudiante (modal de detalle)
+  const [detailTarget, setDetailTarget] = useState(null);
+  const [detail, setDetail] = useState(null);
+  const [detailLoading, setDetailLoading] = useState(false);
+  const [prevAmount, setPrevAmount] = useState('');
+  const [prevSaving, setPrevSaving] = useState(false);
 
   // Deactivation modal
   const [deactivateTarget, setDeactivateTarget] = useState(null);
@@ -54,25 +133,132 @@ export default function StudentsPage() {
 
   useEffect(() => {
     Promise.all([
-      api.get('/students', { active: 'true' }),
+      api.get('/students', { active: 'false' }),          // todos (activos e inactivos)
       api.get('/groups', { active: 'true' }),
-    ]).then(([s, g]) => { setStudents(s); setGroups(g); }).finally(() => setLoading(false));
+      api.get('/students/attendance-summary').catch(() => ({})),
+      api.get('/semesters/active').catch(() => null),
+    ]).then(([s, g, att, sem]) => { setStudents(s); setGroups(g); setAttendance(att || {}); setSemester(sem); }).finally(() => setLoading(false));
   }, []);
 
-  const sorted = useMemo(() => {
-    const arr = [...students];
-    if (sortBy === 'name') {
-      arr.sort((a, b) => a.name.localeCompare(b.name));
-    } else {
-      arr.sort((a, b) => {
-        const ga = a.enrollments?.[0]?.group?.code || 'zzz';
-        const gb = b.enrollments?.[0]?.group?.code || 'zzz';
-        if (ga !== gb) return ga.localeCompare(gb);
-        return a.name.localeCompare(b.name);
-      });
+  // Resumen por estado (tarjeta superior)
+  const summary = useMemo(() => {
+    const c = { total: students.length, activos: 0, matriculados: 0, suspendidos: 0, inactivos: 0 };
+    for (const s of students) {
+      if (s.studentStatus === 'INACTIVO') c.inactivos++;
+      else {
+        c.activos++;
+        if (s.studentStatus === 'MATRICULADO') c.matriculados++;
+        else if (s.studentStatus === 'SUSPENDIDO') c.suspendidos++;
+      }
     }
+    return c;
+  }, [students]);
+
+  const visible = useMemo(() => {
+    const q = search.trim().toLowerCase();
+    let arr = students.filter((s) => {
+      if (statusFilter === 'ACTIVOS' && s.studentStatus === 'INACTIVO') return false;
+      if (statusFilter !== 'ACTIVOS' && statusFilter !== 'TODOS' && s.studentStatus !== statusFilter) return false;
+      if (groupFilter && !s.enrollments?.some((e) => e.group?.id === groupFilter)) return false;
+      if (q && !s.name.toLowerCase().includes(q)) return false;
+      return true;
+    });
+    const rate = (s) => attendance[s.id]?.rate ?? -1;
+    arr.sort((a, b) => {
+      if (sortBy === 'attendance') return rate(b) - rate(a) || a.name.localeCompare(b.name);
+      if (sortBy === 'group') {
+        const ga = primaryEnrollment(a)?.group?.code || 'zzz';
+        const gb = primaryEnrollment(b)?.group?.code || 'zzz';
+        if (ga !== gb) return ga.localeCompare(gb);
+      }
+      return a.name.localeCompare(b.name);
+    });
     return arr;
-  }, [students, sortBy]);
+  }, [students, search, statusFilter, groupFilter, sortBy, attendance]);
+
+  function openDetail(s) {
+    setDetailTarget(s); setDetail(null); setDetailLoading(true); setPrevAmount('');
+    api.get(`/students/${s.id}/report`)
+      .then(setDetail).catch(() => setDetail({ error: true })).finally(() => setDetailLoading(false));
+  }
+
+  async function addPreviousClasses() {
+    const amount = parseInt(prevAmount, 10);
+    if (!Number.isFinite(amount) || amount === 0) return;
+    setPrevSaving(true);
+    try {
+      const updated = await api.post(`/students/${detailTarget.id}/previous-classes`, { amount });
+      setStudents(students.map((s) => (s.id === updated.id ? { ...s, ...updated } : s)));
+      const rep = await api.get(`/students/${detailTarget.id}/report`);
+      setDetail(rep); setPrevAmount('');
+    } catch (err) { alert(err.message); } finally { setPrevSaving(false); }
+  }
+
+  function StudentRow({ s }) {
+    const pe = primaryEnrollment(s);
+    const g = pe?.group;
+    const secondaries = (s.enrollments?.length || 0) - (pe ? 1 : 0);
+    const rate = attendance[s.id]?.rate;
+    return (
+      <div className="card card-tap mb-2" onClick={() => openDetail(s)}>
+        <div className="flex items-center gap-3">
+          <span className="avatar" style={{ background: colorFor(s.name) }}>{initials(s.name)}</span>
+          <div style={{ flex: 1, minWidth: 0 }}>
+            <div className="flex items-center gap-2" style={{ flexWrap: 'wrap' }}>
+              <span className="font-medium">{s.name}</span>
+              {STATUS_BADGE[s.studentStatus] && (
+                <span className={`badge ${STATUS_BADGE[s.studentStatus].cls}`}>{STATUS_BADGE[s.studentStatus].label}</span>
+              )}
+            </div>
+            <div className="text-xs text-gray" style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+              {g?.code || 'Sin grupo'}{secondaries > 0 ? ` +${secondaries}` : ''}{g?.professor?.name ? ` · ${g.professor.name}` : ''}
+            </div>
+          </div>
+          <div className="flex items-center gap-2" style={{ flexShrink: 0 }}>
+            {rate != null && (
+              <span className="font-medium text-sm" style={{ color: rate >= 90 ? 'var(--green)' : rate >= 75 ? 'var(--yellow)' : 'var(--red)' }}>{rate}%</span>
+            )}
+            {g?.ballLevel && <span className="legend-dot" style={{ background: BALL_COLOR[g.ballLevel] || 'var(--gray-400)' }} />}
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  function openImport() {
+    setShowImport(true);
+    setImportB64(''); setImportName('');
+    setImportPreview(null); setImportResult(null); setImportError('');
+  }
+
+  function onImportFile(e) {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setImportName(file.name);
+    setImportPreview(null); setImportResult(null); setImportError('');
+    const reader = new FileReader();
+    reader.onload = () => setImportB64(String(reader.result).split(',')[1] || '');
+    reader.onerror = () => setImportError('No se pudo leer el archivo');
+    reader.readAsDataURL(file);
+  }
+
+  async function runImport(dryRun) {
+    if (!importB64) { setImportError('Selecciona un archivo .xlsx'); return; }
+    setImportBusy(true); setImportError('');
+    try {
+      const data = await api.post('/students/import', { fileBase64: importB64, dryRun });
+      if (dryRun) { setImportPreview(data); setImportResult(null); }
+      else {
+        setImportResult(data);
+        const s = await api.get('/students', { active: 'true' });
+        setStudents(s);
+      }
+    } catch (err) {
+      setImportError(err.message);
+    } finally {
+      setImportBusy(false);
+    }
+  }
 
   async function handleCreate(e) {
     e.preventDefault();
@@ -82,7 +268,7 @@ export default function StudentsPage() {
       const s = await api.post('/students', form);
       setStudents([...students, s]);
       setShowForm(false);
-      setForm({ name: '', email: '', primaryGroupId: '', secondaryGroupId: '', classesAcquired: '' });
+      setForm({ name: '', email: '', document: '', phone: '', guardianName: '', birthDate: '', primaryGroupId: '', secondaryGroupId: '', classesAcquired: '', paymentComplete: false });
     } catch (err) {
       setError(err.message);
     } finally {
@@ -95,6 +281,10 @@ export default function StudentsPage() {
     setEditForm({
       name: student.name,
       email: student.email || '',
+      document: student.document || '',
+      phone: student.phone || '',
+      guardianName: student.guardianName || '',
+      birthDate: student.birthDate ? String(student.birthDate).slice(0, 10) : '',
       classesAcquired: student.classesAcquired != null ? String(student.classesAcquired) : '',
       paymentComplete: !!student.paymentComplete,
     });
@@ -107,11 +297,15 @@ export default function StudentsPage() {
     setEditError('');
     try {
       let updated = editTarget;
-      // General fields — not editable by Recepción
-      if (!isReception) {
+      // General fields — solo si tiene permiso de editar estudiantes
+      if (canEdit) {
         updated = await api.put(`/students/${editTarget.id}`, {
           name: editForm.name,
           email: editForm.email || null,
+          document: editForm.document || null,
+          phone: editForm.phone || null,
+          guardianName: editForm.guardianName || null,
+          birthDate: editForm.birthDate || null,
           classesAcquired: parseInt(editForm.classesAcquired) || 0,
         });
       }
@@ -171,7 +365,7 @@ export default function StudentsPage() {
     setDeactivating(true);
     try {
       await api.delete(`/students/${deactivateTarget.id}`, { reason: deactivateReason.trim() });
-      setStudents(students.filter((s) => s.id !== deactivateTarget.id));
+      setStudents(students.map((s) => (s.id === deactivateTarget.id ? { ...s, active: false, studentStatus: 'INACTIVO' } : s)));
       setDeactivateTarget(null);
     } catch (err) {
       alert(err.message);
@@ -231,38 +425,166 @@ export default function StudentsPage() {
     }
   }
 
+  function renderDetail() {
+    if (detailLoading || !detail) return <div className="spinner" />;
+    if (detail.error) return <div className="alert alert-error">No se pudo cargar la ficha.</div>;
+    const st = detail.student;
+    const sum = detail.summary;
+    const g = primaryEnrollment(st)?.group;
+    const age = ageFrom(st.birthDate);
+    const totalClasses = (st.classesAcquired || 0) + (st.previousClasses || 0);
+    const wa = String(st.phone || '').replace(/\D/g, '');
+    return (
+      <>
+        <div className="flex items-center gap-3 mb-3">
+          <span className="avatar" style={{ width: 52, height: 52, fontSize: '1rem', background: colorFor(st.name) }}>{initials(st.name)}</span>
+          <div style={{ flex: 1, minWidth: 0 }}>
+            <div className="flex items-center gap-2" style={{ flexWrap: 'wrap' }}>
+              <h3>{st.name}</h3>
+              {STATUS_BADGE[st.studentStatus] && <span className={`badge ${STATUS_BADGE[st.studentStatus].cls}`}>{STATUS_BADGE[st.studentStatus].label}</span>}
+            </div>
+            <div className="flex items-center gap-2 mt-1" style={{ flexWrap: 'wrap' }}>
+              {g?.ballLevel && <span className="chip"><span className="legend-dot" style={{ background: BALL_COLOR[g.ballLevel] || 'var(--gray-400)' }} /> {g.ballLevel}{g.subLevel || ''}</span>}
+              {g?.code && <span className="chip">{g.code}</span>}
+              {g?.professor?.name && <span className="chip">{g.professor.name}</span>}
+              {age != null && <span className="chip">{age} años</span>}
+            </div>
+          </div>
+        </div>
+
+        <div className="text-sm text-gray mb-1">
+          {st.guardianName && <>Acudiente: <strong>{st.guardianName}</strong></>}
+          {st.phone && <> · 📞 {st.phone}</>}
+        </div>
+        <div className="text-xs text-gray mb-3">
+          {st.email && <>✉️ {st.email}</>}
+          {primaryEnrollment(st)?.enrolledAt && <> · Ingreso {fmtFullDate(primaryEnrollment(st).enrolledAt)}</>}
+        </div>
+
+        <div className="flex gap-2 mb-3">
+          {wa && <a className="btn btn-success" style={{ flex: 1 }} href={`https://wa.me/57${wa}`} target="_blank" rel="noreferrer">WhatsApp</a>}
+          {st.email && <a className="btn btn-outline" style={{ flex: 1 }} href={`mailto:${st.email}`}>Enviar correo</a>}
+        </div>
+
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(108px, 1fr))', gap: 8 }} className="mb-3">
+          <div className="stat-box"><div className="num">{totalClasses}</div><div className="lbl">Clases adquiridas</div></div>
+          <div className="stat-box"><div className="num">{sum.attendanceRate != null ? `${sum.attendanceRate}%` : '—'}</div><div className="lbl">Asistencia · {sum.classesSeen} clases</div></div>
+          <div className="stat-box"><div className="num" style={{ color: 'var(--red)' }}>{sum.absent}</div><div className="lbl">Faltas</div></div>
+          <div className="stat-box"><div className="num" style={{ color: 'var(--blue)' }}>{sum.cancelledRain}</div><div className="lbl">Canceladas · lluvia</div></div>
+        </div>
+
+        {isAdmin && (
+          <div className="card mb-3" style={{ background: 'var(--surface-2)' }}>
+            <div className="text-sm font-medium">Clases de semestre anterior</div>
+            <div className="text-xs text-gray mb-2">Se suman a las adquiridas ({st.classesAcquired} de este semestre + {st.previousClasses} previas).</div>
+            <div className="flex gap-2">
+              <input type="number" className="form-input" style={{ maxWidth: 130 }} placeholder="Ej: 8"
+                value={prevAmount} onChange={(e) => setPrevAmount(e.target.value)} />
+              <button className="btn btn-primary" onClick={addPreviousClasses} disabled={prevSaving || !prevAmount}>
+                {prevSaving ? '...' : 'Sumar'}
+              </button>
+            </div>
+          </div>
+        )}
+
+        <div className="flex items-center justify-between mb-2" style={{ flexWrap: 'wrap', gap: 6 }}>
+          <h3>Historial de asistencia</h3>
+          <div className="flex gap-2" style={{ flexWrap: 'wrap' }}>
+            <span className="badge badge-green">{sum.present} Presente</span>
+            <span className="badge badge-red">{sum.absent} Ausente</span>
+            <span className="badge badge-gray">{sum.cancelledRain} Lluvia</span>
+            <span className="badge badge-blue">{sum.justified} Justif.</span>
+          </div>
+        </div>
+        <div className="card" style={{ maxHeight: 260, overflowY: 'auto' }}>
+          {detail.timeline.length === 0 ? <div className="text-sm text-gray">Sin registros.</div> : detail.timeline.map((t, i) => (
+            <div key={i} className="home-list-row">
+              <span className="text-sm text-gray" style={{ width: 56 }}>{fmtDay(t.date)}</span>
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <div className="text-sm font-medium">{t.groupCode} <span className="text-xs text-gray">{t.kind === 'MAKEUP' ? 'Reposición' : t.kind === 'FESTIVAL' ? 'Festival' : 'Regular'}</span></div>
+                <div className="text-xs text-gray">{t.professor}</div>
+              </div>
+              {historyBadge(t)}
+            </div>
+          ))}
+        </div>
+
+        <div className="flex gap-2 mt-3" style={{ flexWrap: 'wrap' }}>
+          {(canEdit || isReception) && <button className="btn btn-outline" style={{ flex: 1 }} onClick={() => { const s = detailTarget; openEdit(s); }}>Editar</button>}
+          {canEdit && <button className="btn btn-outline" style={{ flex: 1 }} onClick={() => { const s = detailTarget; openManageGroups(s); }}>Grupos</button>}
+          {canEdit && st.studentStatus === 'SUSPENDIDO' && <button className="btn btn-outline" style={{ flex: 1, color: 'var(--green)' }} onClick={() => handleUnsuspend(detailTarget)}>Levantar</button>}
+          {canEdit && st.studentStatus !== 'SUSPENDIDO' && st.studentStatus !== 'INACTIVO' && <button className="btn btn-outline" style={{ flex: 1, color: 'var(--yellow)' }} onClick={() => openSuspend(detailTarget)}>Suspender</button>}
+          {canEdit && st.active && <button className="btn btn-outline" style={{ flex: 1, color: 'var(--red)' }} onClick={() => openDeactivate(detailTarget)}>Desactivar</button>}
+        </div>
+      </>
+    );
+  }
+
   if (loading) return <div className="page"><div className="spinner" /></div>;
 
   return (
-    <div className="page">
+    <div className="page page-wide">
       <div className="page-header">
         <button className="nav-back" onClick={() => navigate('/admin')}>←</button>
-        <h1>Estudiantes</h1>
-        {!isReception && (
-          <button className="btn btn-primary" style={{ marginLeft: 'auto', minHeight: 36, padding: '0 12px', fontSize: '0.875rem' }}
-            onClick={() => setShowForm(true)}>
-            + Nuevo
-          </button>
-        )}
+        <div style={{ flex: 1 }}>
+          <h1>Estudiantes</h1>
+          <p className="text-xs text-gray">{summary.activos} estudiantes{semester ? ` · ${semester.name}` : ''}</p>
+        </div>
+        <div style={{ display: 'flex', gap: 8 }}>
+          {canImport && (
+            <button className="btn btn-outline" style={{ minHeight: 36, padding: '0 12px', fontSize: '0.875rem' }}
+              onClick={openImport}>
+              ⬆ Importar
+            </button>
+          )}
+          {canEdit && (
+            <button className="btn btn-primary" style={{ minHeight: 36, padding: '0 12px', fontSize: '0.875rem' }}
+              onClick={() => setShowForm(true)}>
+              + Nuevo
+            </button>
+          )}
+        </div>
       </div>
 
       <div className="page-content">
-        {/* Sort toggle */}
-        <div style={{ display: 'flex', gap: 8, marginBottom: 12 }}>
-          <button
-            className={`btn ${sortBy === 'name' ? 'btn-primary' : 'btn-outline'}`}
-            style={{ flex: 1, minHeight: 34, fontSize: '0.8rem' }}
-            onClick={() => setSortBy('name')}
-          >
-            Por nombre
-          </button>
-          <button
-            className={`btn ${sortBy === 'group' ? 'btn-primary' : 'btn-outline'}`}
-            style={{ flex: 1, minHeight: 34, fontSize: '0.8rem' }}
-            onClick={() => setSortBy('group')}
-          >
-            Por grupo
-          </button>
+        {/* Resumen por estado */}
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(84px, 1fr))', gap: 8 }} className="mb-3">
+          <div className="stat-box"><div className="num">{summary.total}</div><div className="lbl">Total</div></div>
+          <div className="stat-box"><div className="num" style={{ color: 'var(--blue)' }}>{summary.activos}</div><div className="lbl">Activos</div></div>
+          <div className="stat-box"><div className="num" style={{ color: 'var(--green)' }}>{summary.matriculados}</div><div className="lbl">Matriculados</div></div>
+          <div className="stat-box"><div className="num" style={{ color: 'var(--yellow)' }}>{summary.suspendidos}</div><div className="lbl">Suspendidos</div></div>
+          <div className="stat-box"><div className="num" style={{ color: 'var(--gray-400)' }}>{summary.inactivos}</div><div className="lbl">Inactivos</div></div>
+        </div>
+
+        <div className="students-layout">
+        <div className="students-list">
+        {/* Búsqueda */}
+        <input className="form-input mb-2" placeholder="🔎 Buscar estudiante..." value={search}
+          onChange={(e) => setSearch(e.target.value)} />
+
+        {/* Filtros */}
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8, marginBottom: 8 }}>
+          <select className="form-input form-select" value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)}>
+            <option value="ACTIVOS">Activos</option>
+            <option value="TODOS">Todos</option>
+            <option value="MATRICULADO">Matriculados</option>
+            <option value="INSCRITO">Inscritos</option>
+            <option value="SUSPENDIDO">Suspendidos</option>
+            <option value="INACTIVO">Inactivos</option>
+          </select>
+          <select className="form-input form-select" value={groupFilter} onChange={(e) => setGroupFilter(e.target.value)}>
+            <option value="">Todos los grupos</option>
+            {groups.map((g) => <option key={g.id} value={g.id}>{g.code}</option>)}
+          </select>
+        </div>
+        <div className="flex items-center justify-between mb-3">
+          <span className="text-xs text-gray">{visible.length} de {students.length}</span>
+          <select className="form-input form-select" style={{ minHeight: 34, width: 'auto', fontSize: '0.85rem' }}
+            value={sortBy} onChange={(e) => setSortBy(e.target.value)}>
+            <option value="name">Nombre</option>
+            <option value="group">Grupo</option>
+            <option value="attendance">% Asistencia</option>
+          </select>
         </div>
 
         {showForm && (
@@ -279,6 +601,28 @@ export default function StudentsPage() {
                 <label className="form-label">Email</label>
                 <input type="email" className="form-input" value={form.email}
                   onChange={(e) => setForm({ ...form, email: e.target.value })} />
+              </div>
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+                <div className="form-group">
+                  <label className="form-label">Documento</label>
+                  <input type="text" className="form-input" value={form.document} maxLength={40}
+                    onChange={(e) => setForm({ ...form, document: e.target.value })} />
+                </div>
+                <div className="form-group">
+                  <label className="form-label">WhatsApp</label>
+                  <input type="text" className="form-input" value={form.phone} maxLength={40}
+                    onChange={(e) => setForm({ ...form, phone: e.target.value })} />
+                </div>
+              </div>
+              <div className="form-group">
+                <label className="form-label">Acudiente</label>
+                <input type="text" className="form-input" value={form.guardianName} maxLength={200}
+                  onChange={(e) => setForm({ ...form, guardianName: e.target.value })} />
+              </div>
+              <div className="form-group">
+                <label className="form-label">Fecha de nacimiento</label>
+                <input type="date" className="form-input" value={form.birthDate}
+                  onChange={(e) => setForm({ ...form, birthDate: e.target.value })} />
               </div>
               <div className="form-group">
                 <label className="form-label">Grupo principal</label>
@@ -303,6 +647,16 @@ export default function StudentsPage() {
                   onChange={(e) => setForm({ ...form, classesAcquired: e.target.value })} />
                 <span className="text-xs text-gray">Total de clases que el estudiante compró para el semestre.</span>
               </div>
+              <label style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 16, cursor: 'pointer' }}>
+                <input type="checkbox" checked={form.paymentComplete}
+                  onChange={(e) => setForm({ ...form, paymentComplete: e.target.checked })} />
+                <span className="text-sm">
+                  Pago completo — <strong>Matriculado</strong>
+                  <span className="text-xs text-gray" style={{ display: 'block' }}>
+                    Sin marcar, el estudiante figura como Inscrito (pagos pendientes).
+                  </span>
+                </span>
+              </label>
               <div className="flex gap-2">
                 <button type="button" className="btn btn-outline" style={{ flex: 1 }} onClick={() => setShowForm(false)}>
                   Cancelar
@@ -315,83 +669,37 @@ export default function StudentsPage() {
           </div>
         )}
 
-        {sorted.length === 0 ? (
-          <div className="alert alert-info">No hay estudiantes activos.</div>
-        ) : (
-          sorted.map((s) => (
-            <div key={s.id} className="card mb-2">
-              <div className="flex items-center justify-between">
-                <div style={{ flex: 1, minWidth: 0 }}>
-                  <div className="flex items-center gap-2">
-                    <span className="font-medium">{s.name}</span>
-                    {STATUS_BADGE[s.studentStatus] && (
-                      <span className={`badge ${STATUS_BADGE[s.studentStatus].cls}`}>
-                        {STATUS_BADGE[s.studentStatus].label}
-                      </span>
-                    )}
-                  </div>
-                  {s.enrollments?.length > 0 && (
-                    <div className="text-xs text-gray">
-                      {s.enrollments.map((e) => e.group?.code).join(' · ')}
-                    </div>
-                  )}
-                  <div className="text-xs text-gray">Clases adquiridas: {s.classesAcquired ?? 0}</div>
-                  {s.studentStatus === 'SUSPENDIDO' && (
-                    <div className="text-xs" style={{ color: 'var(--yellow)' }}>
-                      Suspendido hasta {String(s.suspendedUntil).slice(0, 10)}
-                      {s.suspensionReason ? ` — ${s.suspensionReason}` : ''}
-                    </div>
-                  )}
-                </div>
-                <div style={{ display: 'flex', gap: 6, flexShrink: 0, flexWrap: 'wrap', justifyContent: 'flex-end' }}>
-                  <button
-                    className="btn btn-ghost"
-                    style={{ minHeight: 32, padding: '0 8px', fontSize: '0.75rem' }}
-                    onClick={() => openEdit(s)}
-                  >
-                    Editar
-                  </button>
-                  {!isReception && (
-                    <>
-                      <button
-                        className="btn btn-ghost"
-                        style={{ minHeight: 32, padding: '0 8px', fontSize: '0.75rem', color: 'var(--primary)' }}
-                        onClick={() => openManageGroups(s)}
-                      >
-                        Grupos
-                      </button>
-                      {s.studentStatus === 'SUSPENDIDO' ? (
-                        <button
-                          className="btn btn-ghost"
-                          style={{ minHeight: 32, padding: '0 8px', fontSize: '0.75rem', color: 'var(--green)' }}
-                          onClick={() => handleUnsuspend(s)}
-                        >
-                          Levantar
-                        </button>
-                      ) : (
-                        <button
-                          className="btn btn-ghost"
-                          style={{ minHeight: 32, padding: '0 8px', fontSize: '0.75rem', color: 'var(--yellow)' }}
-                          onClick={() => openSuspend(s)}
-                        >
-                          Suspender
-                        </button>
-                      )}
-                      <button
-                        className="btn btn-ghost"
-                        style={{ minHeight: 32, padding: '0 8px', fontSize: '0.75rem', color: 'var(--red)' }}
-                        onClick={() => openDeactivate(s)}
-                      >
-                        Desactivar
-                      </button>
-                    </>
-                  )}
-                </div>
-              </div>
+        {visible.length === 0 ? (
+          <div className="alert alert-info">No hay estudiantes que coincidan.</div>
+        ) : sortBy === 'group' ? (
+          Object.entries(groupedByCode(visible)).map(([code, list]) => (
+            <div key={code} className="mb-3">
+              <h3 className="mb-2" style={{ color: 'var(--gray-600)', fontSize: '0.85rem', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+                {code} · {list.length}
+              </h3>
+              {list.map((s) => <StudentRow key={s.id} s={s} />)}
             </div>
           ))
+        ) : (
+          visible.map((s) => <StudentRow key={s.id} s={s} />)
         )}
+        </div>
+        <div className="students-detail">
+          {detailTarget ? <div className="card">{renderDetail()}</div> : (
+            <div className="card text-center text-gray" style={{ padding: 40 }}>Selecciona un estudiante para ver su ficha.</div>
+          )}
+        </div>
+        </div>
       </div>
+
+      {/* Ficha en modal (móvil/tablet) */}
+      {detailTarget && (
+        <div className="modal-overlay detail-modal" onClick={() => setDetailTarget(null)}>
+          <div className="modal-content" onClick={(e) => e.stopPropagation()} style={{ maxWidth: 640 }}>
+            {renderDetail()}
+          </div>
+        </div>
+      )}
 
       {/* Edit modal */}
       {editTarget && (
@@ -402,17 +710,42 @@ export default function StudentsPage() {
             <form onSubmit={handleEdit}>
               <div className="form-group">
                 <label className="form-label">Nombre *</label>
-                <input type="text" className="form-input" required maxLength={200} disabled={isReception}
+                <input type="text" className="form-input" required maxLength={200} disabled={!canEdit}
                   value={editForm.name} onChange={(e) => setEditForm({ ...editForm, name: e.target.value })} />
               </div>
               <div className="form-group">
                 <label className="form-label">Email</label>
-                <input type="email" className="form-input" maxLength={254} disabled={isReception}
+                <input type="email" className="form-input" maxLength={254} disabled={!canEdit}
                   value={editForm.email} onChange={(e) => setEditForm({ ...editForm, email: e.target.value })} />
+              </div>
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+                <div className="form-group">
+                  <label className="form-label">Documento</label>
+                  <input type="text" className="form-input" maxLength={40} disabled={!canEdit}
+                    value={editForm.document} onChange={(e) => setEditForm({ ...editForm, document: e.target.value })} />
+                </div>
+                <div className="form-group">
+                  <label className="form-label">WhatsApp</label>
+                  <input type="text" className="form-input" maxLength={40} disabled={!canEdit}
+                    value={editForm.phone} onChange={(e) => setEditForm({ ...editForm, phone: e.target.value })} />
+                </div>
+              </div>
+              <div className="form-group">
+                <label className="form-label">Acudiente</label>
+                <input type="text" className="form-input" maxLength={200} disabled={!canEdit}
+                  value={editForm.guardianName} onChange={(e) => setEditForm({ ...editForm, guardianName: e.target.value })} />
+              </div>
+              <div className="form-group">
+                <label className="form-label">Fecha de nacimiento</label>
+                <input type="date" className="form-input" disabled={!canEdit}
+                  value={editForm.birthDate} onChange={(e) => setEditForm({ ...editForm, birthDate: e.target.value })} />
+                {editForm.birthDate && ageFrom(editForm.birthDate) != null && (
+                  <span className="text-xs text-gray">Edad: {ageFrom(editForm.birthDate)} años</span>
+                )}
               </div>
               <div className="form-group">
                 <label className="form-label">Clases adquiridas</label>
-                <input type="number" className="form-input" min={0} disabled={isReception}
+                <input type="number" className="form-input" min={0} disabled={!canEdit}
                   value={editForm.classesAcquired}
                   onChange={(e) => setEditForm({ ...editForm, classesAcquired: e.target.value })} />
                 <span className="text-xs text-gray">Total de clases que el estudiante compró para el semestre.</span>
@@ -439,6 +772,73 @@ export default function StudentsPage() {
                 </button>
               </div>
             </form>
+          </div>
+        </div>
+      )}
+
+      {/* Import modal (ADMIN) */}
+      {showImport && (
+        <div className="modal-overlay" onClick={() => !importBusy && setShowImport(false)}>
+          <div className="modal-content" onClick={(e) => e.stopPropagation()}>
+            <h3 className="mb-1">Importar matrícula (Excel)</h3>
+            <p className="text-xs text-gray mb-3">
+              Sube el archivo <strong>.xlsx</strong> de preinscripción. Se leen los estudiantes de la hoja
+              «Consolidado Matrícula». Actualiza los existentes (por documento) y agrega los nuevos; no borra a nadie.
+            </p>
+
+            {importError && <div className="alert alert-error">{importError}</div>}
+
+            <div className="form-group">
+              <label className="form-label">Archivo</label>
+              <input type="file" accept=".xlsx,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+                onChange={onImportFile} disabled={importBusy} />
+              {importName && <span className="text-xs text-gray mt-1">{importName}</span>}
+            </div>
+
+            {importPreview && !importResult && (
+              <div className="card mb-3" style={{ background: 'var(--surface-2)' }}>
+                <div className="font-medium mb-1">Vista previa</div>
+                <div className="text-sm">
+                  {importPreview.counts.students} estudiantes · {importPreview.counts.groups} grupos ·{' '}
+                  {importPreview.counts.professors} profesores
+                </div>
+                <div className="text-xs text-gray mt-1">
+                  {importPreview.counts.multiGroup} con más de un grupo · Profesores: {importPreview.professors.join(', ')}
+                </div>
+                <div className="text-xs text-gray mt-2">
+                  Revisa que los números cuadren y luego presiona <strong>Importar</strong>.
+                </div>
+              </div>
+            )}
+
+            {importResult && (
+              <div className="alert alert-success">
+                ✅ Importación completa: {importResult.result.created} creados,{' '}
+                {importResult.result.updated} actualizados, {importResult.result.moved} cambios de grupo.
+                {importResult.warnings?.length > 0 && (
+                  <div className="text-xs mt-1">Avisos: {importResult.warnings.join('; ')}</div>
+                )}
+              </div>
+            )}
+
+            <div className="flex gap-2 mt-2">
+              <button type="button" className="btn btn-outline" style={{ flex: 1 }}
+                onClick={() => setShowImport(false)} disabled={importBusy}>
+                {importResult ? 'Cerrar' : 'Cancelar'}
+              </button>
+              {!importResult && (
+                <>
+                  <button type="button" className="btn btn-outline" style={{ flex: 1 }}
+                    onClick={() => runImport(true)} disabled={importBusy || !importB64}>
+                    {importBusy ? '...' : 'Previsualizar'}
+                  </button>
+                  <button type="button" className="btn btn-primary" style={{ flex: 1 }}
+                    onClick={() => runImport(false)} disabled={importBusy || !importB64}>
+                    {importBusy ? 'Importando...' : 'Importar'}
+                  </button>
+                </>
+              )}
+            </div>
           </div>
         </div>
       )}
