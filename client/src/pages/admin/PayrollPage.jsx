@@ -2,6 +2,7 @@ import { useState, useEffect, Fragment } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { api } from '../../api/client';
 import { fmtDate } from '../../utils/dates';
+import { buildPeriodOptions, getCurrentPeriod, periodLabel } from '../../utils/periods';
 
 function fmt(n) {
   return new Intl.NumberFormat('es-CO', { style: 'currency', currency: 'COP', maximumFractionDigits: 0 }).format(n || 0);
@@ -30,29 +31,6 @@ function colorFor(str) {
   return AVATAR_COLORS[h];
 }
 
-function buildPeriodOptions() {
-  const options = [];
-  const now = new Date();
-  // From next month back through the previous 6 months
-  for (let i = -1; i <= 6; i++) {
-    const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
-    const y = d.getFullYear();
-    const m = String(d.getMonth() + 1).padStart(2, '0');
-    options.push({ value: `${y}-${m}-1`, label: `${y}-${m} (1ª quincena)` });
-    options.push({ value: `${y}-${m}-2`, label: `${y}-${m} (2ª quincena)` });
-  }
-  const seen = new Set();
-  return options.filter((o) => { if (seen.has(o.value)) return false; seen.add(o.value); return true; });
-}
-
-function getCurrentPeriod() {
-  const now = new Date();
-  const y = now.getFullYear();
-  const m = String(now.getMonth() + 1).padStart(2, '0');
-  const half = now.getDate() <= 15 ? '1' : '2';
-  return `${y}-${m}-${half}`;
-}
-
 // Tarjeta KPI (mismo lenguaje visual que el panel de Bienvenida).
 function StatCard({ icon, tint, label, value, sub, subColor }) {
   return (
@@ -75,8 +53,14 @@ export default function PayrollPage() {
   const [exporting, setExporting] = useState(false);
   const [approving, setApproving] = useState(false);
   const [closure, setClosure] = useState(null);
+  const [semester, setSemester] = useState(null);
 
   const locked = !!closure?.locked;
+
+  // Semestre activo → numeración correlativa de quincenas en las etiquetas.
+  useEffect(() => {
+    api.get('/semesters/active').then(setSemester).catch(() => setSemester(null));
+  }, []);
 
   async function load() {
     setLoading(true);
@@ -331,7 +315,7 @@ export default function PayrollPage() {
   const hasItems = summaryData && summaryData.items?.length > 0;
   const retainedTotal = summaryData
     ? (summaryData.suspendedGrandTotal || 0) + (summaryData.pendingGrandTotal || 0) : 0;
-  const periodLabel = buildPeriodOptions().find((o) => o.value === period)?.label || period;
+  const headerPeriodLabel = periodLabel(period, semester);
 
   return (
     <div className="page page-wide">
@@ -342,14 +326,14 @@ export default function PayrollPage() {
             <button className="nav-back" onClick={() => navigate('/admin')}>←</button>
             <div>
               <h1 style={{ fontSize: '1.9rem' }}>Liquidación</h1>
-              <p className="text-gray text-sm">Pago quincenal a profesores y asistentes · {periodLabel}</p>
+              <p className="text-gray text-sm">Pago quincenal a profesores y asistentes · {headerPeriodLabel}</p>
             </div>
           </div>
           <div className="flex items-center gap-2" style={{ flexWrap: 'wrap' }}>
             <select className="form-input form-select" style={{ minHeight: 40, width: 'auto', fontSize: '0.85rem' }}
               value={period} onChange={(e) => setPeriod(e.target.value)}>
-              {buildPeriodOptions().map((o) => (
-                <option key={o.value} value={o.value}>{o.label}</option>
+              {buildPeriodOptions().map((p) => (
+                <option key={p} value={p}>{periodLabel(p, semester)}</option>
               ))}
             </select>
             <button className="btn btn-outline" style={{ minHeight: 40 }}
