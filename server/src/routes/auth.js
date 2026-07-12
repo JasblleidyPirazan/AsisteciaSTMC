@@ -19,6 +19,7 @@ router.post('/login', async (req, res, next) => {
 
     const user = await prisma.user.findUnique({
       where: { email: email.toLowerCase().trim() },
+      include: { professor: { select: { id: true } }, assistant: { select: { id: true } } },
     });
 
     // Always compare hash to prevent timing attacks (even if user not found)
@@ -39,7 +40,10 @@ router.post('/login', async (req, res, next) => {
       success: true,
       data: {
         token,
-        user: { id: user.id, email: user.email, role: user.role, policiesAcceptedAt: user.policiesAcceptedAt },
+        user: {
+          id: user.id, email: user.email, role: user.role, policiesAcceptedAt: user.policiesAcceptedAt,
+          professorId: user.professor?.id || null, assistantId: user.assistant?.id || null,
+        },
       },
     });
   } catch (err) {
@@ -51,12 +55,22 @@ router.get('/me', authMiddleware, async (req, res, next) => {
   try {
     const user = await prisma.user.findUnique({
       where: { id: req.user.id },
-      select: { id: true, email: true, role: true, active: true, policiesAcceptedAt: true },
+      select: {
+        id: true, email: true, role: true, active: true, policiesAcceptedAt: true,
+        professor: { select: { id: true } }, assistant: { select: { id: true } },
+      },
     });
     if (!user || !user.active) {
       return res.status(401).json({ success: false, error: 'Usuario no encontrado o inactivo' });
     }
-    res.json({ success: true, data: user });
+    res.json({
+      success: true,
+      data: {
+        id: user.id, email: user.email, role: user.role, active: user.active,
+        policiesAcceptedAt: user.policiesAcceptedAt,
+        professorId: user.professor?.id || null, assistantId: user.assistant?.id || null,
+      },
+    });
   } catch (err) {
     next(err);
   }

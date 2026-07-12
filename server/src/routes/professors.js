@@ -69,7 +69,14 @@ router.put('/:id', requireRole('ADMIN'), async (req, res, next) => {
         return res.status(400).json({ success: false, error: 'La contraseña debe tener al menos 8 caracteres' });
       }
 
-      if (existing.userId) {
+      const normalizedEmail = email && email.trim() ? email.toLowerCase().trim() : null;
+      const existingUser = normalizedEmail ? await prisma.user.findUnique({ where: { email: normalizedEmail } }) : null;
+
+      // Rol dual: vincular a una cuenta que YA existe (mismo correo, sin
+      // contraseña) — p. ej. un asistente que además será profesor.
+      if (existingUser && !password && existingUser.id !== existing.userId) {
+        data.userId = existingUser.id;
+      } else if (existing.userId) {
         // Update existing account
         const userData = {};
         if (email && email.trim()) {

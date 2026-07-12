@@ -41,7 +41,8 @@ describe('GET /api/payroll/my-semester — acumulado del semestre', () => {
     expect(res.status).toBe(403);
   });
 
-  it('TEACHER → separa pagado / pendiente / retenido', async () => {
+  it('TEACHER (solo profesor) → separa pagado / pendiente / retenido y filtra por profesor', async () => {
+    prismaMock.assistant.findUnique.mockResolvedValue(null); // sin enlace de asistente
     const res = await request(app).get('/api/payroll/my-semester')
       .set('Authorization', `Bearer ${authAs('TEACHER')}`);
     expect(res.status).toBe(200);
@@ -51,18 +52,27 @@ describe('GET /api/payroll/my-semester — acumulado del semestre', () => {
     expect(d.retainedTotal).toBe(45000);
     expect(d.classCount).toBe(4);
     expect(d.semesterName).toBe('2025-2');
-    // Filtra por el profesor y el tipo PROFESSOR
     const where = prismaMock.costRecord.findMany.mock.calls[0][0].where;
-    expect(where.professorId).toBe('p1');
-    expect(where.payeeType).toBe('PROFESSOR');
+    expect(where.OR).toEqual([{ professorId: 'p1', payeeType: 'PROFESSOR' }]);
   });
 
-  it('ASSISTANT → filtra por asistente', async () => {
+  it('ASSISTANT (solo asistente) → filtra por asistente', async () => {
+    prismaMock.professor.findUnique.mockResolvedValue(null);
     const res = await request(app).get('/api/payroll/my-semester')
       .set('Authorization', `Bearer ${authAs('ASSISTANT')}`);
     expect(res.status).toBe(200);
     const where = prismaMock.costRecord.findMany.mock.calls[0][0].where;
-    expect(where.assistantId).toBe('a1');
-    expect(where.payeeType).toBe('ASSISTANT');
+    expect(where.OR).toEqual([{ assistantId: 'a1', payeeType: 'ASSISTANT' }]);
+  });
+
+  it('rol dual (profesor Y asistente) → incluye ambos en el OR', async () => {
+    const res = await request(app).get('/api/payroll/my-semester')
+      .set('Authorization', `Bearer ${authAs('TEACHER')}`);
+    expect(res.status).toBe(200);
+    const where = prismaMock.costRecord.findMany.mock.calls[0][0].where;
+    expect(where.OR).toEqual([
+      { professorId: 'p1', payeeType: 'PROFESSOR' },
+      { assistantId: 'a1', payeeType: 'ASSISTANT' },
+    ]);
   });
 });

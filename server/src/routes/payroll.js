@@ -19,18 +19,20 @@ router.get('/', async (req, res, next) => {
 
     const where = { period };
 
-    if (req.user.role === 'TEACHER') {
-      const professor = await prisma.professor.findUnique({ where: { userId: req.user.id } });
-      if (!professor) return res.json({ success: true, data: [] });
-      where.professorId = professor.id;
-      where.payeeType = 'PROFESSOR';
-    } else if (req.user.role === 'ASSISTANT') {
-      const assistant = await prisma.assistant.findUnique({ where: { userId: req.user.id } });
-      if (!assistant) return res.json({ success: true, data: [] });
-      where.assistantId = assistant.id;
-      where.payeeType = 'ASSISTANT';
-    } else if (payeeId) {
-      where.OR = [{ professorId: payeeId }, { assistantId: payeeId }];
+    if (['ADMIN', 'SUPERADMIN'].includes(req.user.role)) {
+      if (payeeId) where.OR = [{ professorId: payeeId }, { assistantId: payeeId }];
+    } else {
+      // Autoservicio: incluye lo del profesor Y lo del asistente si la persona
+      // está enlazada a ambos (rol dual profesor+asistente).
+      const [professor, assistant] = await Promise.all([
+        prisma.professor.findUnique({ where: { userId: req.user.id } }),
+        prisma.assistant.findUnique({ where: { userId: req.user.id } }),
+      ]);
+      const or = [];
+      if (professor) or.push({ professorId: professor.id, payeeType: 'PROFESSOR' });
+      if (assistant) or.push({ assistantId: assistant.id, payeeType: 'ASSISTANT' });
+      if (or.length === 0) return res.json({ success: true, data: [] });
+      where.OR = or;
     }
 
     const records = await prisma.costRecord.findMany({
@@ -78,18 +80,16 @@ router.get('/my-semester', async (req, res, next) => {
       return res.status(403).json({ success: false, error: 'Acceso no autorizado' });
     }
 
-    const where = {};
-    if (req.user.role === 'TEACHER') {
-      const professor = await prisma.professor.findUnique({ where: { userId: req.user.id } });
-      if (!professor) return res.json({ success: true, data: null });
-      where.professorId = professor.id;
-      where.payeeType = 'PROFESSOR';
-    } else {
-      const assistant = await prisma.assistant.findUnique({ where: { userId: req.user.id } });
-      if (!assistant) return res.json({ success: true, data: null });
-      where.assistantId = assistant.id;
-      where.payeeType = 'ASSISTANT';
-    }
+    // Incluye profesor Y asistente si la persona está enlazada a ambos (rol dual).
+    const [professor, assistant] = await Promise.all([
+      prisma.professor.findUnique({ where: { userId: req.user.id } }),
+      prisma.assistant.findUnique({ where: { userId: req.user.id } }),
+    ]);
+    const or = [];
+    if (professor) or.push({ professorId: professor.id, payeeType: 'PROFESSOR' });
+    if (assistant) or.push({ assistantId: assistant.id, payeeType: 'ASSISTANT' });
+    if (or.length === 0) return res.json({ success: true, data: null });
+    const where = { OR: or };
 
     const semester = await prisma.semester.findFirst({ where: { active: true } });
     if (semester) {

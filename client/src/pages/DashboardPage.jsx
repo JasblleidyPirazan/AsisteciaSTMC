@@ -20,10 +20,15 @@ export default function DashboardPage() {
   const { user } = useAuth();
   const navigate = useNavigate();
   const [groups, setGroups] = useState([]);
+  const [allGroups, setAllGroups] = useState([]); // para el modo asistente (rol dual)
   const [sessionByGroup, setSessionByGroup] = useState({});
   const [date, setDate] = useState(todayStr());
   const [loading, setLoading] = useState(true);
   const [exclusions, setExclusions] = useState({}); // { 'YYYY-MM-DD': reason }
+
+  // Rol dual: un profesor/coordinador que TAMBIÉN es asistente ve, además de sus
+  // grupos, una sección para marcar acompañamiento sobre TODOS los grupos del día.
+  const alsoAssistant = user?.role !== 'ASSISTANT' && !!user?.assistantId;
 
   // El reporte propio del usuario: profesor → PROFESSOR, coordinador → COORDINATOR
   const reporterType = user?.role === 'TEACHER' ? 'PROFESSOR' : 'COORDINATOR';
@@ -58,6 +63,19 @@ export default function DashboardPage() {
       setSessionByGroup(map);
       // Cache la lista completa del día para poder mostrarla sin conexión.
       cacheSet(CACHE_KEYS.groups, data);
+
+      // Rol dual: además, todos los grupos del día para la sección de asistente.
+      if (alsoAssistant) {
+        const allParams = date === todayStr() ? { today: 'true', all: 'true' } : { all: 'true' };
+        const everyGroup = await api.get('/groups', allParams).catch(() => []);
+        if (date !== todayStr()) {
+          const dow = new Date(date + 'T12:00:00').getDay();
+          const dayFields = ['domingo','lunes','martes','miercoles','jueves','viernes','sabado'];
+          setAllGroups(everyGroup.filter((g) => g[dayFields[dow]]));
+        } else {
+          setAllGroups(everyGroup);
+        }
+      }
       // If custom date, filter by that day of week
       if (date !== todayStr()) {
         const dow = new Date(date + 'T12:00:00').getDay();
@@ -163,6 +181,17 @@ export default function DashboardPage() {
               ))
             )}
             </>
+            )}
+
+            {/* Rol dual: sección de acompañamiento como asistente */}
+            {alsoAssistant && !isExcluded && (
+              <div style={{ marginTop: 24, borderTop: '2px solid var(--gray-200)', paddingTop: 16 }}>
+                <h2 className="mb-1">🤝 Acompañamiento (asistente)</h2>
+                <p className="text-xs text-gray mb-3">
+                  Además de tus grupos, marca aquí las clases del día que acompañaste como asistente.
+                </p>
+                <AssistantDayView groups={allGroups} loading={loading} date={date} />
+              </div>
             )}
           </>
         )}
