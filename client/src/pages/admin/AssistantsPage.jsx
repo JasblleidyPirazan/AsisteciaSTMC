@@ -20,7 +20,9 @@ export default function AssistantsPage() {
   const [editSaving, setEditSaving] = useState(false);
 
   useEffect(() => {
-    api.get('/assistants', { active: 'true' })
+    // active:'false' = todos (activos e inactivos); los desactivados se
+    // muestran en su propia sección para poder editarlos o reactivarlos.
+    api.get('/assistants', { active: 'false' })
       .then(setAssistants)
       .finally(() => setLoading(false));
   }, []);
@@ -52,8 +54,13 @@ export default function AssistantsPage() {
 
   async function handleDeactivate(id) {
     if (!confirm('¿Desactivar asistente?')) return;
-    await api.put(`/assistants/${id}`, { active: false });
-    setAssistants(assistants.filter((a) => a.id !== id));
+    const updated = await api.put(`/assistants/${id}`, { active: false });
+    setAssistants(assistants.map((a) => (a.id === id ? { ...a, ...updated } : a)));
+  }
+
+  async function handleReactivate(id) {
+    const updated = await api.put(`/assistants/${id}`, { active: true });
+    setAssistants(assistants.map((a) => (a.id === id ? { ...a, ...updated } : a)));
   }
 
   function openEdit(a) {
@@ -81,6 +88,9 @@ export default function AssistantsPage() {
   }
 
   if (loading) return <div className="page"><div className="spinner" /></div>;
+
+  const activeAssistants = assistants.filter((a) => a.active);
+  const inactiveAssistants = assistants.filter((a) => !a.active);
 
   return (
     <div className="page">
@@ -142,7 +152,7 @@ export default function AssistantsPage() {
           </div>
         )}
 
-        {assistants.length === 0 ? (
+        {activeAssistants.length === 0 ? (
           <div className="alert alert-info">No hay asistentes activos.</div>
         ) : (
           <>
@@ -153,7 +163,7 @@ export default function AssistantsPage() {
                   <tr><th>Nombre</th><th>Cuenta de acceso</th><th></th></tr>
                 </thead>
                 <tbody>
-                  {assistants.map((a) => (
+                  {activeAssistants.map((a) => (
                     <tr key={a.id}>
                       <td className="font-medium">{a.name}</td>
                       <td className="text-gray">{a.user?.email || '— sin cuenta'}</td>
@@ -173,7 +183,7 @@ export default function AssistantsPage() {
 
             {/* Móvil: cards */}
             <div className="only-mobile">
-              {assistants.map((a) => (
+              {activeAssistants.map((a) => (
                 <div key={a.id} className="card mb-2">
                   <div className="flex items-center justify-between">
                     <div>
@@ -192,6 +202,33 @@ export default function AssistantsPage() {
                 </div>
               ))}
             </div>
+          </>
+        )}
+
+        {/* Asistentes desactivados: visibles para poder editarlos o reactivarlos */}
+        {inactiveAssistants.length > 0 && (
+          <>
+            <h3 className="mb-2 mt-4" style={{ color: 'var(--gray-600)', fontSize: '0.85rem', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+              Desactivados · {inactiveAssistants.length}
+            </h3>
+            {inactiveAssistants.map((a) => (
+              <div key={a.id} className="card mb-2" style={{ opacity: 0.75 }}>
+                <div className="flex items-center justify-between">
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <div className="font-medium">
+                      {a.name} <span className="badge badge-gray" style={{ marginLeft: 6 }}>Inactivo</span>
+                    </div>
+                    {a.user?.email && <div className="text-xs text-gray">{a.user.email}</div>}
+                  </div>
+                  <div className="flex gap-1" style={{ flexShrink: 0 }}>
+                    <button className="btn btn-ghost" style={{ minHeight: 32, padding: '0 8px', fontSize: '0.8rem' }}
+                      onClick={() => openEdit(a)}>Editar</button>
+                    <button className="btn btn-ghost" style={{ minHeight: 32, padding: '0 8px', fontSize: '0.8rem', color: 'var(--green)' }}
+                      onClick={() => handleReactivate(a.id)}>Reactivar</button>
+                  </div>
+                </div>
+              </div>
+            ))}
           </>
         )}
       </div>
