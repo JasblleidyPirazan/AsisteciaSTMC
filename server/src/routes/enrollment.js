@@ -3,6 +3,7 @@ const bcrypt = require('bcryptjs');
 const rateLimit = require('express-rate-limit');
 const prisma = require('../lib/prisma');
 const { authMiddleware, requireRole } = require('../middleware/auth');
+const { byGroupCode } = require('../lib/sort');
 
 const router = express.Router();
 
@@ -26,8 +27,8 @@ router.get('/groups', async (req, res, next) => {
           select: { studentId: true },
         },
       },
-      orderBy: [{ startTime: 'asc' }],
     });
+    groups.sort(byGroupCode);
 
     const data = groups.map((g) => {
       const maxStudents = g.ballLevel === 'Roja' ? 6 : 4;

@@ -298,7 +298,7 @@ router.get('/class-log', requireRole('ADMIN', 'SUPERADMIN', 'PHYSICAL_TRAINER', 
         rows,
         totals,
         options: {
-          groups: [...groupOpts.values()].sort((a, b) => a.code.localeCompare(b.code)),
+          groups: [...groupOpts.values()].sort((a, b) => a.code.localeCompare(b.code, 'es', { numeric: true, sensitivity: 'base' })),
           levels: [...levelSet],
           students: [...studentOpts.values()].sort((a, b) => a.name.localeCompare(b.name)),
         },

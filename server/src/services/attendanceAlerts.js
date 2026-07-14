@@ -63,7 +63,13 @@ async function computeAttendanceDeviations({ studentIds } = {}) {
     let expected = 0;
     for (const e of s.enrollments) {
       if (!e.group?.active) continue;
-      const floor = new Date(Math.max(new Date(e.enrolledAt), new Date(e.group.createdAt)));
+      // El piso incluye la fecha de inicio de clases del estudiante (si la
+      // tiene), para no esperarle clases antes de que empiece.
+      const floor = new Date(Math.max(
+        new Date(e.enrolledAt),
+        new Date(e.group.createdAt),
+        ...(s.classesStartDate ? [new Date(s.classesStartDate)] : [])
+      ));
       expected += expectedDatesForGroup(e.group, semester, semester.exclusions, today, floor).length;
     }
     const seen = seenById[s.id] || 0;
