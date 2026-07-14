@@ -4,11 +4,6 @@ import { api } from '../../api/client';
 import { useAuth } from '../../hooks/useAuth';
 
 const DAYS = ['Lun', 'Mar', 'Mié', 'Jue', 'Vie', 'Sáb'];
-const BALL_COLOR = { Roja: '#E8526A', Naranja: '#EA8A2E', Verde: '#1FA971', Amarilla: '#E8A23B' };
-const STATUS_BADGE = {
-  Lista: 'badge-green', 'En curso': 'badge-blue', Próxima: 'badge-gray',
-  Pendiente: 'badge-yellow', Cancelada: 'badge-red',
-};
 const AVATAR_COLORS = ['#3F52A8', '#4F9FB2', '#7A5AF8', '#E8A23B', '#1FA971', '#E8526A', '#6F7BA6'];
 
 function capitalize(s) {
@@ -165,29 +160,46 @@ export default function AdminDashboard() {
             <div className="home-2col">
               <div className="card">
                 <div className="flex items-center justify-between mb-2">
-                  <h3>Clases de hoy</h3>
+                  <h3>Resumen del día</h3>
                   <button className="btn btn-ghost" style={{ minHeight: 30, fontSize: '0.8rem' }}
-                    onClick={() => navigate('/')}>Ver todo</button>
+                    onClick={() => navigate('/')}>Ver clases</button>
                 </div>
                 {d.todayClasses.length === 0 ? (
                   <div className="alert alert-info" style={{ marginBottom: 0 }}>No hay clases programadas hoy.</div>
-                ) : d.todayClasses.map((c) => (
-                  <div key={c.groupId} className="home-list-row">
-                    <span className="text-sm text-gray" style={{ width: 46 }}>{c.startTime}</span>
-                    <div style={{ flex: 1, minWidth: 0 }}>
-                      <div className="font-medium">
-                        {c.code}{' '}
-                        {c.ballLevel && (
-                          <span className="legend-dot" style={{ background: BALL_COLOR[c.ballLevel] || 'var(--gray-400)' }} />
-                        )}
-                        <span className="text-sm text-gray"> {c.ballLevel || ''}</span>
+                ) : (() => {
+                  // Resumen a partir de las clases del día: dadas, canceladas,
+                  // pendientes y estudiantes que asistieron (presentes).
+                  const dadas = d.todayClasses.filter((c) => c.status === 'Lista').length;
+                  const canceladas = d.todayClasses.filter((c) => c.status === 'Cancelada').length;
+                  const pendientes = d.todayClasses.length - dadas - canceladas;
+                  const asistieron = d.todayClasses.reduce((sum, c) => sum + (c.present || 0), 0);
+                  return (
+                    <>
+                      <div className="stats-row mb-3">
+                        <div className="stat-box">
+                          <div className="num" style={{ color: 'var(--green)' }}>{dadas}</div>
+                          <div className="lbl">Clases dadas</div>
+                        </div>
+                        <div className="stat-box">
+                          <div className="num" style={{ color: canceladas > 0 ? 'var(--red)' : 'var(--gray-400)' }}>{canceladas}</div>
+                          <div className="lbl">Canceladas</div>
+                        </div>
+                        <div className="stat-box">
+                          <div className="num" style={{ color: pendientes > 0 ? 'var(--yellow)' : 'var(--gray-400)' }}>{pendientes}</div>
+                          <div className="lbl">Pendientes</div>
+                        </div>
+                        <div className="stat-box">
+                          <div className="num" style={{ color: 'var(--brand-indigo, var(--blue))' }}>{asistieron}</div>
+                          <div className="lbl">Estudiantes asistieron</div>
+                        </div>
                       </div>
-                      <div className="text-xs text-gray">{c.professor}{c.court ? ` · Cancha ${c.court}` : ''}</div>
-                    </div>
-                    <span className="text-sm text-gray">{c.present}/{c.total}</span>
-                    <span className={`badge ${STATUS_BADGE[c.status] || 'badge-gray'}`}>{c.status}</span>
-                  </div>
-                ))}
+                      <div className="text-xs text-gray">
+                        {d.todayClasses.length} clase{d.todayClasses.length !== 1 ? 's' : ''} programada{d.todayClasses.length !== 1 ? 's' : ''} hoy
+                        {pendientes > 0 ? ` · ${pendientes} aún sin reportar` : ' · todas resueltas ✓'}
+                      </div>
+                    </>
+                  );
+                })()}
               </div>
 
               <div className="home-side">
