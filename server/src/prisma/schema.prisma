@@ -87,6 +87,9 @@ model Student {
   // crearlo (por defecto, el día del registro) y sirve de piso para las
   // clases esperadas en las alertas de asistencia.
   classesStartDate   DateTime? @map("classes_start_date") @db.Date
+  // Clase de prueba: estudiante prospecto creado por el profesor desde el
+  // flujo de asistencia (menú de reposición) con solo el nombre. Sin grupos.
+  isTrial            Boolean   @default(false) @map("is_trial")
   classesAcquired    Int       @default(0) @map("classes_acquired")
   previousClasses    Int       @default(0) @map("previous_classes")
   paymentComplete    Boolean   @default(false) @map("payment_complete")

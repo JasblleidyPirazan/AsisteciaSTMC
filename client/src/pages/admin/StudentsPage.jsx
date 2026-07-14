@@ -278,6 +278,7 @@ export default function StudentsPage() {
               {STATUS_BADGE[s.studentStatus] && (
                 <span className={`badge ${STATUS_BADGE[s.studentStatus].cls}`}>{STATUS_BADGE[s.studentStatus].label}</span>
               )}
+              {s.isTrial && <span className="badge badge-yellow">🧪 Prueba</span>}
             </div>
             <div className="text-xs text-gray" style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
               {g?.code || 'Sin grupo'}{secondaries > 0 ? ` +${secondaries}` : ''}{g?.professor?.name ? ` · ${g.professor.name}` : ''}
@@ -378,6 +379,7 @@ export default function StudentsPage() {
       classesStartDate: student.classesStartDate ? String(student.classesStartDate).slice(0, 10) : '',
       classesAcquired: student.classesAcquired != null ? String(student.classesAcquired) : '',
       paymentComplete: !!student.paymentComplete,
+      isTrial: !!student.isTrial,
     });
     setEditError('');
   }
@@ -399,6 +401,7 @@ export default function StudentsPage() {
           birthDate: editForm.birthDate || null,
           classesStartDate: editForm.classesStartDate || null,
           classesAcquired: parseInt(editForm.classesAcquired) || 0,
+          isTrial: editForm.isTrial,
         });
       }
       // Payment status (Admin y Recepción) via its dedicated endpoint
@@ -549,6 +552,7 @@ export default function StudentsPage() {
             <div className="flex items-center gap-2" style={{ flexWrap: 'wrap' }}>
               <h3>{st.name}</h3>
               {STATUS_BADGE[st.studentStatus] && <span className={`badge ${STATUS_BADGE[st.studentStatus].cls}`}>{STATUS_BADGE[st.studentStatus].label}</span>}
+              {st.isTrial && <span className="badge badge-yellow">🧪 Clase de prueba</span>}
             </div>
             <div className="flex items-center gap-2 mt-1" style={{ flexWrap: 'wrap' }}>
               {g?.ballLevel && <span className="chip"><span className="legend-dot" style={{ background: BALL_COLOR[g.ballLevel] || 'var(--gray-400)' }} /> {g.ballLevel}{g.subLevel || ''}</span>}
@@ -945,6 +949,18 @@ export default function StudentsPage() {
                   onChange={(e) => setEditForm({ ...editForm, classesAcquired: e.target.value })} />
                 <span className="text-xs text-gray">Total de clases que el estudiante compró para el semestre.</span>
               </div>
+              {editTarget.isTrial && canEdit && (
+                <label style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 16, cursor: 'pointer' }}>
+                  <input type="checkbox" checked={editForm.isTrial}
+                    onChange={(e) => setEditForm({ ...editForm, isTrial: e.target.checked })} />
+                  <span className="text-sm">
+                    🧪 Clase de prueba
+                    <span className="text-xs text-gray" style={{ display: 'block' }}>
+                      Desmárcala para convertirlo en estudiante regular (asígnale grupo desde su ficha).
+                    </span>
+                  </span>
+                </label>
+              )}
               {user?.role !== 'PHYSICAL_TRAINER' && (
                 <label style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 16, cursor: 'pointer' }}>
                   <input type="checkbox" checked={editForm.paymentComplete}

@@ -15,6 +15,10 @@ export default function Step3Students({ groupId, records, onChange, onNext }) {
   const [loading, setLoading] = useState(true);
   const [justifStudent, setJustifStudent] = useState(null);
   const [justifText, setJustifText] = useState('');
+  // Clase de prueba: prospecto nuevo, solo con nombre (se crea al confirmar).
+  const [trialMode, setTrialMode] = useState(false);
+  const [trialName, setTrialName] = useState('');
+  const [trialSaving, setTrialSaving] = useState(false);
 
   useEffect(() => {
     // Aplica el roster (de red o de caché) al estado de la pantalla.
@@ -74,6 +78,25 @@ export default function Step3Students({ groupId, records, onChange, onNext }) {
     setSearch('');
   }
 
+  // Crea el estudiante de clase de prueba (isTrial) y lo agrega a la lista.
+  async function addTrialStudent() {
+    const name = trialName.trim();
+    if (!name) return;
+    setTrialSaving(true);
+    try {
+      const s = await api.post('/students/trial', { name });
+      onChange([...records, { studentId: s.id, name: s.name, status: null, attendanceType: 'REPOSICION', isTrial: true }]);
+      setShowRepoSearch(false);
+      setTrialMode(false);
+      setTrialName('');
+      setSearch('');
+    } catch (err) {
+      alert(err.message || 'No se pudo crear la clase de prueba (¿sin conexión?)');
+    } finally {
+      setTrialSaving(false);
+    }
+  }
+
   const allMarked = records.length > 0 && records.every((r) => r.status !== null);
   const present = records.filter((r) => r.status === 'PRESENTE').length;
   const absent = records.filter((r) => r.status === 'AUSENTE').length;
@@ -107,7 +130,9 @@ export default function Step3Students({ groupId, records, onChange, onNext }) {
         <div key={r.studentId} className="student-row">
           <div className="student-name">
             {r.name}
-            {r.attendanceType === 'REPOSICION' && (
+            {r.isTrial ? (
+              <span className="badge badge-yellow" style={{ marginLeft: 6, fontSize: '0.7rem' }}>🧪 prueba</span>
+            ) : r.attendanceType === 'REPOSICION' && (
               <span className="badge badge-blue" style={{ marginLeft: 6, fontSize: '0.7rem' }}>repo</span>
             )}
             {meta[r.studentId] && (
@@ -136,9 +161,41 @@ export default function Step3Students({ groupId, records, onChange, onNext }) {
         <button className="btn btn-ghost btn-full mt-3" onClick={() => setShowRepoSearch(true)}>
           + Agregar estudiante de reposición
         </button>
+      ) : trialMode ? (
+        <div className="card mt-3" style={{ borderLeft: '4px solid var(--yellow)' }}>
+          <h3 className="mb-1">🧪 Clase de prueba</h3>
+          <p className="text-xs text-gray mb-2">
+            Estudiante nuevo que viene a probar. Escribe su nombre; quedará marcado
+            como «Clase de prueba» para que la Escuela le haga seguimiento.
+          </p>
+          <input
+            type="text"
+            className="form-input mb-2"
+            placeholder="Nombre del estudiante..."
+            value={trialName}
+            maxLength={200}
+            onChange={(e) => setTrialName(e.target.value)}
+            autoFocus
+          />
+          <div className="flex gap-2">
+            <button className="btn btn-outline" style={{ flex: 1 }}
+              onClick={() => { setTrialMode(false); setTrialName(''); }}>
+              ← Volver
+            </button>
+            <button className="btn btn-primary" style={{ flex: 2 }}
+              onClick={addTrialStudent} disabled={trialSaving || !trialName.trim()}>
+              {trialSaving ? 'Agregando…' : 'Agregar a la lista'}
+            </button>
+          </div>
+        </div>
       ) : (
         <div className="card mt-3">
           <h3 className="mb-2">Buscar estudiante</h3>
+          <button className="btn btn-outline btn-full mb-2"
+            style={{ borderColor: 'var(--yellow)', color: 'var(--yellow)' }}
+            onClick={() => setTrialMode(true)}>
+            🧪 Clase de prueba (estudiante nuevo)
+          </button>
           <input
             type="text"
             className="form-input mb-2"
@@ -152,7 +209,7 @@ export default function Step3Students({ groupId, records, onChange, onNext }) {
             .slice(0, 8)
             .map((s) => (
               <button key={s.id} className="btn btn-outline btn-full mb-1" onClick={() => addReposition(s)}>
-                {s.name}
+                {s.name}{s.isTrial ? ' 🧪' : ''}
               </button>
             ))}
           <button className="btn btn-ghost btn-full mt-1" onClick={() => setShowRepoSearch(false)}>
