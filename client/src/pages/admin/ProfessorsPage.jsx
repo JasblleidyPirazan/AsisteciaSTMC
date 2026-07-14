@@ -20,7 +20,9 @@ export default function ProfessorsPage() {
   const [editSaving, setEditSaving] = useState(false);
 
   useEffect(() => {
-    api.get('/professors', { active: 'true' })
+    // active:'false' = todos (activos e inactivos); los desactivados se
+    // muestran en su propia sección para poder editarlos o reactivarlos.
+    api.get('/professors', { active: 'false' })
       .then(setProfessors)
       .finally(() => setLoading(false));
   }, []);
@@ -79,11 +81,19 @@ export default function ProfessorsPage() {
 
   async function handleDeactivate(id) {
     if (!confirm('¿Desactivar profesor?')) return;
-    await api.put(`/professors/${id}`, { active: false });
-    setProfessors(professors.filter((p) => p.id !== id));
+    const updated = await api.put(`/professors/${id}`, { active: false });
+    setProfessors(professors.map((p) => (p.id === id ? { ...p, ...updated } : p)));
+  }
+
+  async function handleReactivate(id) {
+    const updated = await api.put(`/professors/${id}`, { active: true });
+    setProfessors(professors.map((p) => (p.id === id ? { ...p, ...updated } : p)));
   }
 
   if (loading) return <div className="page"><div className="spinner" /></div>;
+
+  const activeProfessors = professors.filter((p) => p.active);
+  const inactiveProfessors = professors.filter((p) => !p.active);
 
   return (
     <div className="page">
@@ -145,10 +155,10 @@ export default function ProfessorsPage() {
           </div>
         )}
 
-        {professors.length === 0 ? (
+        {activeProfessors.length === 0 ? (
           <div className="alert alert-info">No hay profesores activos.</div>
         ) : (
-          professors.map((p) => (
+          activeProfessors.map((p) => (
             <div key={p.id} className="card mb-2">
               <div className="flex items-center justify-between">
                 <div style={{ flex: 1, minWidth: 0 }}>
@@ -183,6 +193,43 @@ export default function ProfessorsPage() {
               </div>
             </div>
           ))
+        )}
+
+        {/* Profesores desactivados: visibles para poder editarlos o reactivarlos */}
+        {inactiveProfessors.length > 0 && (
+          <>
+            <h3 className="mb-2 mt-4" style={{ color: 'var(--gray-600)', fontSize: '0.85rem', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+              Desactivados · {inactiveProfessors.length}
+            </h3>
+            {inactiveProfessors.map((p) => (
+              <div key={p.id} className="card mb-2" style={{ opacity: 0.75 }}>
+                <div className="flex items-center justify-between">
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <div className="font-medium">
+                      {p.name} <span className="badge badge-gray" style={{ marginLeft: 6 }}>Inactivo</span>
+                    </div>
+                    {p.user?.email && <div className="text-xs text-gray">{p.user.email}</div>}
+                  </div>
+                  <div style={{ display: 'flex', gap: 6, flexShrink: 0 }}>
+                    <button
+                      className="btn btn-ghost"
+                      style={{ minHeight: 32, padding: '0 8px', fontSize: '0.8rem' }}
+                      onClick={() => openEdit(p)}
+                    >
+                      Editar
+                    </button>
+                    <button
+                      className="btn btn-ghost"
+                      style={{ minHeight: 32, padding: '0 8px', fontSize: '0.8rem', color: 'var(--green)' }}
+                      onClick={() => handleReactivate(p.id)}
+                    >
+                      Reactivar
+                    </button>
+                  </div>
+                </div>
+              </div>
+            ))}
+          </>
         )}
       </div>
 
