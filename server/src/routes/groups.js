@@ -131,7 +131,8 @@ router.get('/schedule', async (req, res, next) => {
       include: {
         professor: { select: { id: true, name: true } },
         enrollments: {
-          include: { student: { select: { id: true, name: true, active: true } } },
+          // paymentComplete distingue matriculado (true) de inscrito (false) en la malla
+          include: { student: { select: { id: true, name: true, active: true, paymentComplete: true } } },
           orderBy: { student: { name: 'asc' } },
         },
       },
@@ -139,15 +140,18 @@ router.get('/schedule', async (req, res, next) => {
     });
     groups.sort(byGroupCode);
 
+    const toStudent = (e) => ({
+      id: e.student.id,
+      name: e.student.name,
+      paymentComplete: !!e.student.paymentComplete,
+    });
     const data = groups.map((g) => {
       const activeEnr = g.enrollments.filter((e) => e.student?.active);
       let students = [];
       if (isStaff) {
-        students = activeEnr.map((e) => ({ id: e.student.id, name: e.student.name }));
+        students = activeEnr.map(toStudent);
       } else if (parentIds) {
-        students = activeEnr
-          .filter((e) => parentIds.has(e.student.id))
-          .map((e) => ({ id: e.student.id, name: e.student.name }));
+        students = activeEnr.filter((e) => parentIds.has(e.student.id)).map(toStudent);
       }
       return {
         id: g.id, code: g.code, name: g.name, court: g.court,

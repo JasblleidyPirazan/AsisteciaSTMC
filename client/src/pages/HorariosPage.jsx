@@ -1,6 +1,10 @@
 import { useState, useEffect, useMemo } from 'react';
 import { api } from '../api/client';
 
+// Malla semanal organizada SOLO por horarios (las canchas ya no estructuran la
+// vista; se muestran como dato dentro de cada grupo). Los estudiantes van
+// siempre visibles, distinguiendo matriculados (verde) de inscritos (amarillo).
+
 const DAY_ORDER = ['lunes', 'martes', 'miercoles', 'jueves', 'viernes', 'sabado', 'domingo'];
 const DAY_FULL = {
   lunes: 'Lunes', martes: 'Martes', miercoles: 'Miércoles', jueves: 'Jueves',
@@ -11,6 +15,8 @@ const LEVEL_COLOR = {
   Intermedio: '#7A5AF8', Avanzado: '#3F52A8',
 };
 const LEVELS = ['Roja', 'Naranja', 'Amarilla', 'Verde'];
+const ENROLLED_COLOR = 'var(--green)'; // matriculado (pago completo)
+const REGISTERED_COLOR = '#E8A23B';    // inscrito (pago pendiente)
 
 function signature(days) {
   return DAY_ORDER.filter((d) => days[d]);
@@ -21,6 +27,9 @@ function sigLabel(sig) {
   if (names.length === 1) return names[0];
   return names[0] + ' y ' + names.slice(1).map((n) => n.toLowerCase()).join(' y ');
 }
+function byCode(a, b) {
+  return String(a.code || '').localeCompare(String(b.code || ''), 'es', { numeric: true, sensitivity: 'base' });
+}
 
 export default function HorariosPage() {
   const [groups, setGroups] = useState([]);
@@ -28,7 +37,6 @@ export default function HorariosPage() {
   const [tab, setTab] = useState(null);
   const [profFilter, setProfFilter] = useState('');
   const [levelFilter, setLevelFilter] = useState('');
-  const [showStudents, setShowStudents] = useState(false);
 
   useEffect(() => {
     api.get('/groups/schedule')
@@ -57,10 +65,6 @@ export default function HorariosPage() {
     () => [...new Set(groups.map((g) => g.professor?.name).filter(Boolean))].sort(),
     [groups]
   );
-  const courts = useMemo(
-    () => [...new Set(groups.map((g) => g.court).filter((c) => c != null))].sort((a, b) => a - b),
-    [groups]
-  );
 
   const inTab = groups.filter((g) => {
     if (signature(g.days).join(',') !== activeTab) return false;
@@ -69,13 +73,8 @@ export default function HorariosPage() {
     return true;
   });
 
-  const times = [...new Set(inTab.filter((g) => g.court != null).map((g) => g.startTime))]
-    .sort((a, b) => a.localeCompare(b));
-  const unassigned = inTab.filter((g) => g.court == null);
-
-  function cellGroups(court, time) {
-    return inTab.filter((g) => g.court === court && g.startTime === time);
-  }
+  // Franjas horarias: TODOS los grupos del día (con o sin cancha asignada)
+  const times = [...new Set(inTab.map((g) => g.startTime))].sort((a, b) => a.localeCompare(b));
 
   if (loading) return <div className="page"><div className="spinner" /></div>;
 
@@ -85,15 +84,9 @@ export default function HorariosPage() {
         <div className="flex items-center justify-between mb-2" style={{ gap: 12, flexWrap: 'wrap' }}>
           <div>
             <h1>Horarios</h1>
-            <p className="text-gray text-sm">Malla semanal de las canchas</p>
+            <p className="text-gray text-sm">Malla semanal por horarios</p>
           </div>
-          <div className="flex items-center gap-2" style={{ flexWrap: 'wrap' }}>
-            <label className="btn btn-outline" style={{ cursor: 'pointer', gap: 8, display: 'inline-flex', alignItems: 'center' }}>
-              <input type="checkbox" checked={showStudents} onChange={(e) => setShowStudents(e.target.checked)} />
-              Mostrar estudiantes
-            </label>
-            <button className="btn btn-outline no-print" onClick={() => window.print()}>🖨 Imprimir</button>
-          </div>
+          <button className="btn btn-outline no-print" onClick={() => window.print()}>🖨 Imprimir</button>
         </div>
 
         {/* Pestañas por días */}
@@ -109,7 +102,7 @@ export default function HorariosPage() {
         </div>
 
         {/* Filtros */}
-        <div className="flex items-center gap-2 mb-3 no-print" style={{ flexWrap: 'wrap' }}>
+        <div className="flex items-center gap-2 mb-2 no-print" style={{ flexWrap: 'wrap' }}>
           <select className="form-input form-select" style={{ maxWidth: 200 }}
             value={profFilter} onChange={(e) => setProfFilter(e.target.value)}>
             <option value="">Todos los profes</option>
@@ -122,82 +115,51 @@ export default function HorariosPage() {
           </select>
         </div>
 
-        <div className="home-2col" style={{ gridTemplateColumns: '1fr' }}>
-          {/* Malla */}
-          <div style={{ overflowX: 'auto' }}>
-            {times.length === 0 ? (
-              <div className="alert alert-info">No hay grupos con cancha asignada para estos días.</div>
-            ) : (
-              <table className="schedule-grid">
-                <thead>
-                  <tr>
-                    <th style={{ minWidth: 64 }}>Hora</th>
-                    {courts.map((c) => <th key={c} style={{ minWidth: 150 }}>Cancha {c}</th>)}
-                  </tr>
-                </thead>
-                <tbody>
-                  {times.map((time) => (
-                    <tr key={time}>
-                      <td className="sched-hour">{time}</td>
-                      {courts.map((c) => {
-                        const gs = cellGroups(c, time);
-                        if (gs.length === 0) return <td key={c} className="sched-free">Libre</td>;
-                        return (
-                          <td key={c}>
-                            {gs.map((g) => (
-                              <div key={g.id} className="sched-cell"
-                                style={{ borderLeft: `3px solid ${LEVEL_COLOR[g.ballLevel] || 'var(--gray-300)'}` }}>
-                                <div className="flex items-center justify-between">
-                                  <span className="font-medium text-sm">{g.code}</span>
-                                  <span className="legend-dot" style={{ background: LEVEL_COLOR[g.ballLevel] || 'var(--gray-300)' }} />
-                                </div>
-                                <div className="text-xs text-gray">{g.professor?.name || '—'}</div>
-                                <div className="text-xs text-gray">{g.studentCount}/{g.capacity ?? 8} est.</div>
-                                {showStudents && (
-                                  <StudentList students={g.students} count={g.studentCount} />
-                                )}
-                              </div>
-                            ))}
-                          </td>
-                        );
-                      })}
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            )}
-          </div>
-
-          {/* Panel lateral */}
-          <div className="home-side">
-            <div className="card">
-              <h3 className="mb-1">Sin asignar</h3>
-              <p className="text-xs text-gray mb-2">Grupos creados sin cancha asignada</p>
-              {unassigned.length === 0 ? (
-                <div className="text-sm text-gray">Todos los grupos tienen cancha. ✅</div>
-              ) : unassigned.map((g) => (
-                <div key={g.id} className="sched-cell mb-2"
-                  style={{ borderLeft: `3px solid ${LEVEL_COLOR[g.ballLevel] || 'var(--gray-300)'}` }}>
-                  <div className="flex items-center justify-between">
-                    <span className="font-medium text-sm">{g.code}</span>
-                    <span className="text-xs text-gray">{g.startTime}</span>
-                  </div>
-                  <div className="text-xs text-gray">{g.professor?.name || '—'} · {g.studentCount} est.</div>
-                  {showStudents && <StudentList students={g.students} count={g.studentCount} />}
-                </div>
-              ))}
-            </div>
-
-            <div className="card">
-              <h3 className="mb-2">Niveles (bola)</h3>
-              {LEVELS.map((l) => (
-                <div key={l} className="legend-row">
-                  <span><span className="legend-dot" style={{ background: LEVEL_COLOR[l] }} />{l}</span>
-                </div>
-              ))}
-            </div>
-          </div>
+        {/* Leyenda: estado de los estudiantes + niveles */}
+        <div className="flex items-center gap-3 mb-3 text-xs text-gray" style={{ flexWrap: 'wrap' }}>
+          <span><span className="legend-dot" style={{ background: ENROLLED_COLOR }} /> Matriculado</span>
+          <span><span className="legend-dot" style={{ background: REGISTERED_COLOR }} /> Inscrito (pago pendiente)</span>
+          <span style={{ opacity: 0.5 }}>|</span>
+          {LEVELS.map((l) => (
+            <span key={l}><span className="legend-dot" style={{ background: LEVEL_COLOR[l] }} /> {l}</span>
+          ))}
         </div>
+
+        {times.length === 0 ? (
+          <div className="alert alert-info">No hay grupos para estos días con los filtros elegidos.</div>
+        ) : (
+          times.map((time) => {
+            const gs = inTab.filter((g) => g.startTime === time).sort(byCode);
+            return (
+              <div key={time} className="mb-3">
+                <div className="time-slot-header">🕐 {time}</div>
+                <div className="card-grid">
+                  {gs.map((g) => (
+                    <div key={g.id} className="card"
+                      style={{ borderLeft: `4px solid ${LEVEL_COLOR[g.ballLevel] || 'var(--gray-300)'}` }}>
+                      <div className="flex items-center justify-between mb-1">
+                        <span className="font-medium">{g.code}</span>
+                        <span className="text-xs text-gray">
+                          {g.ballLevel && (
+                            <span className="legend-dot" style={{ background: LEVEL_COLOR[g.ballLevel], marginRight: 4 }} />
+                          )}
+                          {g.ballLevel || ''}{g.subLevel ? ` ${g.subLevel}` : ''}
+                        </span>
+                      </div>
+                      <div className="text-xs text-gray mb-1">
+                        {g.professor?.name || '—'}
+                        {g.court != null && ` · Cancha ${g.court}`}
+                        {' · '}{g.startTime}–{g.endTime}
+                      </div>
+                      <div className="text-xs text-gray mb-1">{g.studentCount}/{g.capacity ?? 8} estudiantes</div>
+                      <StudentList students={g.students} count={g.studentCount} />
+                    </div>
+                  ))}
+                </div>
+              </div>
+            );
+          })
+        )}
       </div>
     </div>
   );
@@ -211,7 +173,15 @@ function StudentList({ students, count }) {
   }
   return (
     <ul className="sched-students">
-      {students.map((s) => <li key={s.id}>{s.name}</li>)}
+      {students.map((s) => (
+        <li key={s.id}>
+          <span className="legend-dot" style={{
+            background: s.paymentComplete ? ENROLLED_COLOR : REGISTERED_COLOR,
+            width: 8, height: 8, marginRight: 5, flexShrink: 0,
+          }} />
+          {s.name}
+        </li>
+      ))}
     </ul>
   );
 }
