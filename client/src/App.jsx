@@ -19,6 +19,7 @@ import EventsPage from './pages/admin/EventsPage';
 import ReportsPage from './pages/admin/ReportsPage';
 import PayrollPage from './pages/admin/PayrollPage';
 import AccountingPage from './pages/admin/AccountingPage';
+import StrategyPage from './pages/admin/StrategyPage';
 import ConfigPage from './pages/admin/ConfigPage';
 import MakeupsPage from './pages/admin/MakeupsPage';
 import UsersPage from './pages/admin/UsersPage';
@@ -210,6 +211,11 @@ function AppRoutes() {
       <Route path="/admin/accounting" element={
         <RequireAuth roles={['ADMIN']}>
           <Shell><AccountingPage /></Shell>
+        </RequireAuth>
+      } />
+      <Route path="/admin/strategy" element={
+        <RequireAuth roles={['ADMIN']}>
+          <Shell><StrategyPage /></Shell>
         </RequireAuth>
       } />
       <Route path="/admin/config" element={
