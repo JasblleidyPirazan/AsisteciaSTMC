@@ -64,6 +64,7 @@ router.get('/export', requireRole('ADMIN', 'SUPERADMIN', 'PHYSICAL_TRAINER', 'RE
         Acudiente: s.guardianName || '',
         'Fecha nacimiento': s.birthDate ? new Date(s.birthDate).toISOString().slice(0, 10) : '',
         'Inicio de clases': s.classesStartDate ? new Date(s.classesStartDate).toISOString().slice(0, 10) : '',
+        'Clase de prueba': s.isTrial ? 'Sí' : 'No',
         'Clases adquiridas': s.classesAcquired || 0,
         'Pago completo': s.paymentComplete ? 'Sí' : 'No',
         'Pagos registrados': s.payments.length,
@@ -204,6 +205,25 @@ router.get('/:id', async (req, res, next) => {
   }
 });
 
+// Clase de prueba: el PROFESOR (o coordinador/admin) crea un prospecto con
+// solo el nombre desde el menú de reposición del flujo de asistencia, para
+// poder marcarle asistencia. Queda marcado isTrial y sin grupos; luego el
+// admin lo convierte en estudiante normal (editándolo) o lo elimina.
+router.post('/trial', requireRole('ADMIN', 'SUPERADMIN', 'PHYSICAL_TRAINER', 'TEACHER'), async (req, res, next) => {
+  try {
+    const name = (req.body?.name || '').trim();
+    if (!name) return res.status(400).json({ success: false, error: 'Nombre requerido' });
+    if (name.length > 200) return res.status(400).json({ success: false, error: 'Nombre demasiado largo' });
+
+    const student = await prisma.student.create({
+      data: { name, isTrial: true, classesStartDate: bogotaToday() },
+    });
+    res.status(201).json({ success: true, data: withStatus(student) });
+  } catch (err) {
+    next(err);
+  }
+});
+
 router.post('/', requireRole('ADMIN', 'SUPERADMIN', 'PHYSICAL_TRAINER', 'RECEPTION'), async (req, res, next) => {
   try {
     const { name, email, parentUserId, primaryGroupId, secondaryGroupId, classesAcquired,
@@ -256,7 +276,7 @@ router.post('/', requireRole('ADMIN', 'SUPERADMIN', 'PHYSICAL_TRAINER', 'RECEPTI
 router.put('/:id', requireRole('ADMIN', 'SUPERADMIN', 'PHYSICAL_TRAINER', 'RECEPTION'), async (req, res, next) => {
   try {
     const { name, email, parentUserId, active, deactivationReason, classesAcquired,
-      document, phone, guardianName, birthDate, classesStartDate } = req.body;
+      document, phone, guardianName, birthDate, classesStartDate, isTrial } = req.body;
     // Recepción solo crea/edita datos: nunca activa/desactiva.
     const canDeactivate = req.user.role !== 'RECEPTION';
     const data = {};
@@ -267,6 +287,8 @@ router.put('/:id', requireRole('ADMIN', 'SUPERADMIN', 'PHYSICAL_TRAINER', 'RECEP
     if (guardianName !== undefined) data.guardianName = guardianName || null;
     if (birthDate !== undefined) data.birthDate = birthDate ? new Date(birthDate) : null;
     if (classesStartDate !== undefined) data.classesStartDate = classesStartDate ? new Date(classesStartDate) : null;
+    // Conversión de clase de prueba → estudiante regular (o viceversa).
+    if (isTrial !== undefined) data.isTrial = !!isTrial;
     if (parentUserId !== undefined) data.parentUserId = parentUserId;
     if (classesAcquired !== undefined) data.classesAcquired = Math.max(0, parseInt(classesAcquired) || 0);
     if (active !== undefined && canDeactivate) {
