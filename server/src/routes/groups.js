@@ -3,6 +3,7 @@ const XLSX = require('xlsx');
 const prisma = require('../lib/prisma');
 const { requireRole } = require('../middleware/auth');
 const { notSuspended } = require('../lib/filters');
+const { byGroupCode } = require('../lib/sort');
 const { seenAttendanceFilter } = require('../services/attendanceStats');
 
 const router = express.Router();
@@ -64,8 +65,10 @@ router.get('/', async (req, res, next) => {
         professor: { select: { id: true, name: true } },
         _count: { select: { enrollments: true } },
       },
-      orderBy: [{ startTime: 'asc' }],
     });
+    // Orden alfanumérico por código: es lo que muestran los desplegables y
+    // listados. El Dashboard reagrupa por horario en el cliente.
+    groups.sort(byGroupCode);
 
     res.json({ success: true, data: groups });
   } catch (err) {
@@ -79,8 +82,8 @@ router.get('/export', requireRole('ADMIN', 'SUPERADMIN', 'PHYSICAL_TRAINER'), as
     const groups = await prisma.group.findMany({
       where: { active: true },
       include: { professor: { select: { name: true } }, _count: { select: { enrollments: true } } },
-      orderBy: [{ court: 'asc' }, { startTime: 'asc' }],
     });
+    groups.sort(byGroupCode);
     const rows = groups.map((g) => ({
       Grupo: g.code,
       Días: daysText(g),
@@ -134,6 +137,7 @@ router.get('/schedule', async (req, res, next) => {
       },
       orderBy: [{ startTime: 'asc' }, { court: 'asc' }],
     });
+    groups.sort(byGroupCode);
 
     const data = groups.map((g) => {
       const activeEnr = g.enrollments.filter((e) => e.student?.active);

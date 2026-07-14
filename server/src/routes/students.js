@@ -63,6 +63,7 @@ router.get('/export', requireRole('ADMIN', 'SUPERADMIN', 'PHYSICAL_TRAINER', 'RE
         WhatsApp: s.phone || '',
         Acudiente: s.guardianName || '',
         'Fecha nacimiento': s.birthDate ? new Date(s.birthDate).toISOString().slice(0, 10) : '',
+        'Inicio de clases': s.classesStartDate ? new Date(s.classesStartDate).toISOString().slice(0, 10) : '',
         'Clases adquiridas': s.classesAcquired || 0,
         'Pago completo': s.paymentComplete ? 'Sí' : 'No',
         'Pagos registrados': s.payments.length,
@@ -206,7 +207,7 @@ router.get('/:id', async (req, res, next) => {
 router.post('/', requireRole('ADMIN', 'SUPERADMIN', 'PHYSICAL_TRAINER', 'RECEPTION'), async (req, res, next) => {
   try {
     const { name, email, parentUserId, primaryGroupId, secondaryGroupId, classesAcquired,
-      paymentComplete, document, phone, guardianName, birthDate } = req.body;
+      paymentComplete, document, phone, guardianName, birthDate, classesStartDate } = req.body;
     if (!name) return res.status(400).json({ success: false, error: 'Nombre requerido' });
 
     const student = await prisma.student.create({
@@ -217,6 +218,8 @@ router.post('/', requireRole('ADMIN', 'SUPERADMIN', 'PHYSICAL_TRAINER', 'RECEPTI
         phone: phone || null,
         guardianName: guardianName || null,
         birthDate: birthDate ? new Date(birthDate) : null,
+        // Fecha de inicio de clases: si no llega, el día del registro (Bogotá).
+        classesStartDate: classesStartDate ? new Date(classesStartDate) : bogotaToday(),
         paymentComplete: !!paymentComplete,
         parentUserId: parentUserId || null,
         classesAcquired: Number.isFinite(+classesAcquired) ? Math.max(0, parseInt(classesAcquired)) : 0,
@@ -253,7 +256,7 @@ router.post('/', requireRole('ADMIN', 'SUPERADMIN', 'PHYSICAL_TRAINER', 'RECEPTI
 router.put('/:id', requireRole('ADMIN', 'SUPERADMIN', 'PHYSICAL_TRAINER', 'RECEPTION'), async (req, res, next) => {
   try {
     const { name, email, parentUserId, active, deactivationReason, classesAcquired,
-      document, phone, guardianName, birthDate } = req.body;
+      document, phone, guardianName, birthDate, classesStartDate } = req.body;
     // Recepción solo crea/edita datos: nunca activa/desactiva.
     const canDeactivate = req.user.role !== 'RECEPTION';
     const data = {};
@@ -263,6 +266,7 @@ router.put('/:id', requireRole('ADMIN', 'SUPERADMIN', 'PHYSICAL_TRAINER', 'RECEP
     if (phone !== undefined) data.phone = phone || null;
     if (guardianName !== undefined) data.guardianName = guardianName || null;
     if (birthDate !== undefined) data.birthDate = birthDate ? new Date(birthDate) : null;
+    if (classesStartDate !== undefined) data.classesStartDate = classesStartDate ? new Date(classesStartDate) : null;
     if (parentUserId !== undefined) data.parentUserId = parentUserId;
     if (classesAcquired !== undefined) data.classesAcquired = Math.max(0, parseInt(classesAcquired) || 0);
     if (active !== undefined && canDeactivate) {

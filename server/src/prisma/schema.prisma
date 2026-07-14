@@ -83,6 +83,10 @@ model Student {
   guardianName       String?   @map("guardian_name")
   birthDate          DateTime? @map("birth_date") @db.Date
   parentUserId       String?   @map("parent_user_id")
+  // Fecha en que el estudiante empieza (o empezó) clases. Se pregunta al
+  // crearlo (por defecto, el día del registro) y sirve de piso para las
+  // clases esperadas en las alertas de asistencia.
+  classesStartDate   DateTime? @map("classes_start_date") @db.Date
   classesAcquired    Int       @default(0) @map("classes_acquired")
   previousClasses    Int       @default(0) @map("previous_classes")
   paymentComplete    Boolean   @default(false) @map("payment_complete")

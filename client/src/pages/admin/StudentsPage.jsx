@@ -25,6 +25,10 @@ function colorFor(str) {
 function primaryEnrollment(s) {
   return s.enrollments?.find((e) => e.enrollmentType === 'PRIMARY') || s.enrollments?.[0] || null;
 }
+// "Hoy" en hora de Bogotá (YYYY-MM-DD) — default de la fecha de inicio de clases.
+function bogotaTodayStr() {
+  return new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Bogota' }).format(new Date());
+}
 function groupedByCode(list) {
   const out = {};
   for (const s of list) {
@@ -102,7 +106,7 @@ export default function StudentsPage() {
   const [groups, setGroups] = useState([]);
   const [loading, setLoading] = useState(true);
   const [showForm, setShowForm] = useState(false);
-  const [form, setForm] = useState({ name: '', email: '', document: '', phone: '', guardianName: '', birthDate: '', primaryGroupId: '', secondaryGroupId: '', classesAcquired: '', paymentComplete: false });
+  const [form, setForm] = useState({ name: '', email: '', document: '', phone: '', guardianName: '', birthDate: '', classesStartDate: bogotaTodayStr(), primaryGroupId: '', secondaryGroupId: '', classesAcquired: '', paymentComplete: false });
   const [error, setError] = useState('');
   const [saving, setSaving] = useState(false);
 
@@ -198,7 +202,7 @@ export default function StudentsPage() {
       if (sortBy === 'group') {
         const ga = primaryEnrollment(a)?.group?.code || 'zzz';
         const gb = primaryEnrollment(b)?.group?.code || 'zzz';
-        if (ga !== gb) return ga.localeCompare(gb);
+        if (ga !== gb) return ga.localeCompare(gb, 'es', { numeric: true, sensitivity: 'base' });
       }
       return a.name.localeCompare(b.name);
     });
@@ -354,7 +358,7 @@ export default function StudentsPage() {
       const s = await api.post('/students', form);
       setStudents([...students, s]);
       setShowForm(false);
-      setForm({ name: '', email: '', document: '', phone: '', guardianName: '', birthDate: '', primaryGroupId: '', secondaryGroupId: '', classesAcquired: '', paymentComplete: false });
+      setForm({ name: '', email: '', document: '', phone: '', guardianName: '', birthDate: '', classesStartDate: bogotaTodayStr(), primaryGroupId: '', secondaryGroupId: '', classesAcquired: '', paymentComplete: false });
     } catch (err) {
       setError(err.message);
     } finally {
@@ -371,6 +375,7 @@ export default function StudentsPage() {
       phone: student.phone || '',
       guardianName: student.guardianName || '',
       birthDate: student.birthDate ? String(student.birthDate).slice(0, 10) : '',
+      classesStartDate: student.classesStartDate ? String(student.classesStartDate).slice(0, 10) : '',
       classesAcquired: student.classesAcquired != null ? String(student.classesAcquired) : '',
       paymentComplete: !!student.paymentComplete,
     });
@@ -392,6 +397,7 @@ export default function StudentsPage() {
           phone: editForm.phone || null,
           guardianName: editForm.guardianName || null,
           birthDate: editForm.birthDate || null,
+          classesStartDate: editForm.classesStartDate || null,
           classesAcquired: parseInt(editForm.classesAcquired) || 0,
         });
       }
@@ -560,6 +566,7 @@ export default function StudentsPage() {
         <div className="text-xs text-gray mb-3">
           {st.email && <>✉️ {st.email}</>}
           {primaryEnrollment(st)?.enrolledAt && <> · Ingreso {fmtFullDate(primaryEnrollment(st).enrolledAt)}</>}
+          {st.classesStartDate && <> · Inicio de clases {fmtFullDate(st.classesStartDate)}</>}
         </div>
 
         <div className="flex gap-2 mb-3">
@@ -803,6 +810,12 @@ export default function StudentsPage() {
                   onChange={(e) => setForm({ ...form, birthDate: e.target.value })} />
               </div>
               <div className="form-group">
+                <label className="form-label">Fecha de inicio de clases *</label>
+                <input type="date" className="form-input" required value={form.classesStartDate}
+                  onChange={(e) => setForm({ ...form, classesStartDate: e.target.value })} />
+                <span className="text-xs text-gray">Desde cuándo empieza a asistir. Por defecto, hoy (día del registro).</span>
+              </div>
+              <div className="form-group">
                 <label className="form-label">Grupo principal</label>
                 <select className="form-input form-select" value={form.primaryGroupId}
                   onChange={(e) => setForm({ ...form, primaryGroupId: e.target.value })}>
@@ -920,6 +933,12 @@ export default function StudentsPage() {
                 {editForm.birthDate && ageFrom(editForm.birthDate) != null && (
                   <span className="text-xs text-gray">Edad: {ageFrom(editForm.birthDate)} años</span>
                 )}
+              </div>
+              <div className="form-group">
+                <label className="form-label">Fecha de inicio de clases</label>
+                <input type="date" className="form-input" disabled={!canEdit}
+                  value={editForm.classesStartDate} onChange={(e) => setEditForm({ ...editForm, classesStartDate: e.target.value })} />
+                <span className="text-xs text-gray">Desde cuándo asiste; piso de las clases esperadas en alertas.</span>
               </div>
               <div className="form-group">
                 <label className="form-label">Clases adquiridas</label>
