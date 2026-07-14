@@ -121,6 +121,11 @@ model StudentPayment {
   receivedById   String?       @map("received_by_id")
   receivedByName String?       @map("received_by_name")
   note           String?
+  // Verificación contable (módulo Contabilidad): el Admin/Superadmin confirma
+  // contra extracto bancario o arqueo de caja que el dinero efectivamente entró.
+  verifiedAt     DateTime?     @map("verified_at")
+  verifiedById   String?       @map("verified_by_id")
+  verifiedByName String?       @map("verified_by_name")
   createdAt      DateTime      @default(now()) @map("created_at")
 
   student    Student @relation(fields: [studentId], references: [id])
