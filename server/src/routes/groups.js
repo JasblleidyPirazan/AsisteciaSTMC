@@ -288,9 +288,17 @@ router.put('/:id', requireRole('ADMIN', 'SUPERADMIN', 'PHYSICAL_TRAINER'), async
       const current = await prisma.group.findUnique({ where: { id: req.params.id } });
       const effectiveLevel = ballLevel !== undefined ? ballLevel : current?.ballLevel;
       const effectiveSub = subLevel !== undefined ? subLevel : current?.subLevel;
-      const sub = validateSubLevel(effectiveSub, effectiveLevel);
-      if (sub.error) return res.status(400).json({ success: false, error: sub.error });
-      data.subLevel = sub.value;
+      // Solo se valida cuando nivel/subnivel realmente CAMBIAN. El formulario
+      // reenvía todos los campos, y un subnivel histórico que hoy ya no es
+      // válido no debe bloquear la edición de otros campos (p. ej. el cupo).
+      const unchanged =
+        (effectiveLevel || null) === (current?.ballLevel || null) &&
+        (effectiveSub || null) === (current?.subLevel || null);
+      if (!unchanged) {
+        const sub = validateSubLevel(effectiveSub, effectiveLevel);
+        if (sub.error) return res.status(400).json({ success: false, error: sub.error });
+        data.subLevel = sub.value;
+      }
     }
     if (court !== undefined) data.court = court ? parseInt(court) : null;
     if (active !== undefined) data.active = active;
