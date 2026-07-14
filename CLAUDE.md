@@ -268,6 +268,9 @@ Desde la base de datos o el seed, crear un `User` con `role: 'PHYSICAL_TRAINER'`
 - `GET /api/reports/class/:sessionId`
 - `GET/PUT /api/config`
 - `GET /api/payroll/export?period=X` — descarga Excel. ADMIN: 3 hojas (Profesores, Asistentes, Resumen). TEACHER/ASSISTANT: una sola hoja "Mi liquidación" con solo sus registros
+- `GET /api/accounting/summary?from=Y-M-D&to=Y-M-D` — módulo Contabilidad (solo ADMIN/SUPERADMIN): ingresos + gastos por quincena + balance mensual
+- `PATCH /api/accounting/payments/:id/verified` — marcar/desmarcar pago de estudiante como verificado (conciliado)
+- `GET /api/accounting/export?from&to` — Excel de 3 hojas (Ingresos, Gastos, Balance)
 - `GET /api/semesters` — lista semestres
 - `GET /api/semesters/active` — semestre activo
 - `POST /api/semesters` — crear semestre (ADMIN)
@@ -380,6 +383,7 @@ Si un test revela un bug real de la lógica de negocio, reportarlo antes de corr
 | `/admin` | AdminDashboard | ADMIN |
 | `/admin/students` | StudentsPage | ADMIN |
 | `/admin/payroll` | PayrollPage | ADMIN |
+| `/admin/accounting` | AccountingPage | ADMIN (SUPERADMIN por superset) |
 | `/admin/config` | ConfigPage | ADMIN |
 | `/admin/enrollment` | EnrollmentRequestsPage | ADMIN |
 | `/my-payroll` | MyPayrollPage | TEACHER, ASSISTANT — quincena propia + descarga Excel |
@@ -534,6 +538,8 @@ cd client && npm run build
 35. **Autoservicio profesor/asistente:** en **Reporte** (`/reporte`, `ReportePage`) al tocar una clase se abre un modal con el detalle P/A/J por estudiante de esa sesión (`GET /reports/class/:sessionId`); el listado ya venía filtrado a los grupos del profesor. **Mi Quincena** (`MyPayrollPage`, TEACHER/ASSISTANT) muestra las clases separadas en pendientes por pago / ya pagadas / retenidas, navega quincenas y añade una fila de KPIs del **acumulado del semestre** (`GET /payroll/my-semester`: suma los `CostRecord` propios cuya sesión cae dentro del semestre activo, separando pagado/pendiente/retenido).
 
 36. **Registro de pagos del estudiante:** modelo `StudentPayment` (`studentId`, `paymentDate`, `method` enum `PaymentMethod` TRANSFERENCIA/EFECTIVO/WOMPI/BOLD, `amount`, `receivedById/receivedByName` = usuario logueado que registra, `note?`). Un estudiante tiene 0..N pagos. **Historial independiente** del estado Inscrito/Matriculado (no lo modifica). Endpoints en `students.js`: `GET/POST /students/:id/payments` (ADMIN/SUPERADMIN/RECEPTION), `DELETE /students/:id/payments/:paymentId` (solo ADMIN/SUPERADMIN). UI: sección "Registro de pagos" en la ficha del estudiante (`StudentsPage`), visible solo a Recepción/Admin/Superadmin. Migración `20260712050000_student_payments` (defensiva).
+
+40. **Módulo de Contabilidad (`/admin/accounting`, solo ADMIN/SUPERADMIN):** tres pestañas sobre datos que el sistema ya produce. **Ingresos** = `StudentPayment` del rango, con KPI de total/verificado/sin verificar, desglose por medio de pago (conciliación bancaria y arqueo de efectivo) y checkbox **"Verificado"** por pago (`StudentPayment.verifiedAt/verifiedById/verifiedByName`, `PATCH /accounting/payments/:id/verified`, con auditoría de quién/cuándo). **Gastos** = `CostRecord` agrupado por quincena: causado (PAYABLE), pagado (`paidAt`), pendiente de pago, retenido (SUSPENDED_LATE/PENDING_MATCH) y estado del cierre. **Balance** = ingresos vs gastos por mes calendario con resultado neto acumulado y margen. **Criterio contable:** gastos por *causación* (todo PAYABLE es compromiso, pagado o no); los retenidos NO entran al balance; el flujo de caja (pagado) se muestra aparte. Lógica pura en `services/accounting.js` (unit-testeada); ruta `routes/accounting.js` con `requireRole('ADMIN')` a nivel de router. Export Excel de 3 hojas (`GET /accounting/export`). Rango por defecto: el semestre activo (presets Este mes / Mes anterior / Semestre + fechas libres). Migración `20260714010000_payment_verification` (defensiva).
 
 38. **Validación de datos + aceptación de políticas (flujo público):** reemplaza el módulo "Inscripciones". Página pública `/validar` (`ValidationPage`, sin shell): el acudiente entra con el **documento del estudiante** (`POST /validation/lookup`, sin auth, rate-limit), ve al estudiante **y sus hermanos** (mismo acudiente o teléfono), corrige **solo contacto** (email/WhatsApp/acudiente/fecha nac.; nombre y documento bloqueados) y acepta las políticas (`POST /validation/submit`). El submit re-deriva la familia en el servidor y solo actualiza esos ids; estampa `Student.validatedAt` + `policiesAcceptedAt`. Control para la Escuela: `/admin/enrollment` ahora es `ValidationAdminPage` (ADMIN/Coordinador/Recepción) con el enlace para compartir, KPIs y lista validados/pendientes (`GET /validation/status`). Migración `20260712060000_student_validation` (defensiva). Nota: sin segundo factor (solo el documento) por decisión del usuario. `routes/validation.js` va montado **sin** `authMiddleware` global (público); `/status` aplica auth inline.
 
