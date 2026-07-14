@@ -462,8 +462,10 @@ router.get('/strategy', requireRole('ADMIN'), async (req, res, next) => {
         where: { session: { kind: 'REGULAR', date: dateRange } },
         select: { status: true, session: { select: { groupId: true } } },
       }),
+      // Ingresos: TODOS los pagos registrados en el sistema, sin filtrar por
+      // fecha. Los pagos pertenecen al semestre en curso aunque se hayan
+      // recibido antes de su fecha de inicio (matrículas anticipadas).
       prisma.studentPayment.findMany({
-        where: { paymentDate: dateRange },
         select: { amount: true },
       }),
       // Gastos atribuidos por fecha de clase (consistente con /payroll/my-semester).
