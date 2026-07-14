@@ -3,6 +3,9 @@ const prisma = require('../lib/prisma');
 const { requireRole } = require('../middleware/auth');
 const { getCurrentPeriod } = require('../services/costEngine');
 const { isSeenRecord } = require('../services/attendanceStats');
+const { computeAttendanceDeviations } = require('../services/attendanceAlerts');
+const { byGroupCode } = require('../lib/sort');
+const { bogotaToday } = require('../lib/dates');
 
 const router = express.Router();
 
@@ -418,6 +421,164 @@ router.get('/dashboard', async (req, res, next) => {
         todayPresent: counts.PRESENTE || 0,
         todayAbsent: counts.AUSENTE || 0,
         todayJustified: counts.JUSTIFICADA || 0,
+      },
+    });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// Visión Estratégica (gerencia): KPIs fundamentales del semestre activo +
+// contadores por grupo (ocupación, asistencia, clases). Incluye finanzas,
+// así que es solo ADMIN (SUPERADMIN pasa por superset).
+router.get('/strategy', requireRole('ADMIN'), async (req, res, next) => {
+  try {
+    const semester = await prisma.semester.findFirst({ where: { active: true } });
+    // Ventana de análisis: el semestre activo; sin semestre, los últimos 90 días.
+    const now = new Date();
+    const from = semester ? new Date(semester.startDate) : new Date(now.getTime() - 90 * 24 * 3600 * 1000);
+    const to = semester ? new Date(semester.endDate) : now;
+    const dateRange = { gte: from, lte: to };
+
+    const [studentRows, groups, sessions, attRows, payments, costRows] = await Promise.all([
+      prisma.student.findMany({
+        where: { active: true },
+        select: { paymentComplete: true, isTrial: true, suspendedFrom: true, suspendedUntil: true, createdAt: true },
+      }),
+      prisma.group.findMany({
+        where: { active: true },
+        select: {
+          id: true, code: true, ballLevel: true, subLevel: true, capacity: true,
+          professor: { select: { name: true } },
+          _count: { select: { enrollments: true } },
+        },
+      }),
+      // Solo clases regulares ya resueltas (realizadas/canceladas) dentro del rango.
+      prisma.classSession.findMany({
+        where: { kind: 'REGULAR', date: dateRange, status: { not: 'PROGRAMADA' } },
+        select: { groupId: true, status: true, cancellationCategory: true },
+      }),
+      prisma.attendanceRecord.findMany({
+        where: { session: { kind: 'REGULAR', date: dateRange } },
+        select: { status: true, session: { select: { groupId: true } } },
+      }),
+      prisma.studentPayment.findMany({
+        where: { paymentDate: dateRange },
+        select: { amount: true },
+      }),
+      // Gastos atribuidos por fecha de clase (consistente con /payroll/my-semester).
+      prisma.costRecord.findMany({
+        where: { session: { date: dateRange } },
+        select: { payStatus: true, total: true, paidAt: true },
+      }),
+    ]);
+
+    // ---- Estudiantes ----
+    const today = bogotaToday();
+    let matriculados = 0, inscritos = 0, suspendidos = 0, trial = 0, newThisPeriod = 0;
+    for (const s of studentRows) {
+      if (s.isTrial) { trial += 1; continue; }
+      const suspended = s.suspendedFrom && s.suspendedUntil &&
+        today >= new Date(s.suspendedFrom) && today <= new Date(s.suspendedUntil);
+      if (suspended) suspendidos += 1;
+      if (s.paymentComplete) matriculados += 1; else inscritos += 1;
+      if (new Date(s.createdAt) >= from) newThisPeriod += 1;
+    }
+    const activeStudents = matriculados + inscritos;
+
+    // ---- Contadores por grupo ----
+    const byGroup = {};
+    for (const g of groups) {
+      byGroup[g.id] = { realized: 0, cancelled: 0, cancelledRain: 0, present: 0, absent: 0 };
+    }
+    let realized = 0, cancelled = 0, cancelledRain = 0;
+    for (const s of sessions) {
+      const acc = byGroup[s.groupId];
+      if (['REALIZADA', 'CANCELADA_MITAD'].includes(s.status)) {
+        realized += 1;
+        if (acc) acc.realized += 1;
+      } else if (s.status === 'CANCELADA') {
+        cancelled += 1;
+        if (acc) acc.cancelled += 1;
+        if (s.cancellationCategory === 'LLUVIA') {
+          cancelledRain += 1;
+          if (acc) acc.cancelledRain += 1;
+        }
+      }
+    }
+    let presentAll = 0, absentAll = 0;
+    for (const r of attRows) {
+      const acc = byGroup[r.session?.groupId];
+      if (r.status === 'PRESENTE') { presentAll += 1; if (acc) acc.present += 1; }
+      else if (r.status === 'AUSENTE') { absentAll += 1; if (acc) acc.absent += 1; }
+    }
+    const rate = (p, a) => (p + a > 0 ? Math.round((p / (p + a)) * 100) : null);
+
+    const groupRows = groups.sort(byGroupCode).map((g) => {
+      const acc = byGroup[g.id];
+      const enrolled = g._count.enrollments;
+      return {
+        id: g.id, code: g.code, ballLevel: g.ballLevel, subLevel: g.subLevel,
+        professor: g.professor?.name || '—',
+        students: enrolled, capacity: g.capacity,
+        occupancyPct: g.capacity ? Math.round((enrolled / g.capacity) * 100) : null,
+        attendanceRate: rate(acc.present, acc.absent),
+        realized: acc.realized, cancelled: acc.cancelled, cancelledRain: acc.cancelledRain,
+      };
+    });
+    const totalEnrolled = groupRows.reduce((s, g) => s + g.students, 0);
+    const totalCapacity = groupRows.reduce((s, g) => s + (g.capacity || 0), 0);
+
+    // ---- Alertas de deserción (desviación de asistencia) ----
+    const deviations = await computeAttendanceDeviations().catch(() => []);
+    const alertRed = deviations.filter((d) => d.level === 'ROJA').length;
+    const alertYellow = deviations.filter((d) => d.level === 'AMARILLA').length;
+
+    // ---- Finanzas (criterio del módulo de Contabilidad) ----
+    const income = payments.reduce((s, p) => s + parseFloat(p.amount), 0);
+    let expensesAccrued = 0, expensesPaid = 0, expensesRetained = 0;
+    for (const c of costRows) {
+      const amount = parseFloat(c.total);
+      if (['SUSPENDED_LATE', 'PENDING_MATCH'].includes(c.payStatus)) expensesRetained += amount;
+      else {
+        expensesAccrued += amount;
+        if (c.paidAt) expensesPaid += amount;
+      }
+    }
+    const net = income - expensesAccrued;
+
+    res.json({
+      success: true,
+      data: {
+        semester: semester
+          ? { name: semester.name, startDate: semester.startDate, endDate: semester.endDate }
+          : null,
+        students: {
+          active: activeStudents, matriculados, inscritos, suspendidos, trial,
+          newThisPeriod,
+          conversionPct: activeStudents > 0 ? Math.round((matriculados / activeStudents) * 100) : null,
+        },
+        groups: {
+          rows: groupRows,
+          count: groupRows.length,
+          totalEnrolled,
+          totalCapacity,
+          occupancyPct: totalCapacity > 0 ? Math.round((totalEnrolled / totalCapacity) * 100) : null,
+          freeSpots: Math.max(0, totalCapacity - totalEnrolled),
+        },
+        operations: {
+          realized, cancelled, cancelledRain,
+          compliancePct: realized + cancelled > 0 ? Math.round((realized / (realized + cancelled)) * 100) : null,
+          avgAttendance: rate(presentAll, absentAll),
+        },
+        alerts: { red: alertRed, yellow: alertYellow },
+        finance: {
+          income,
+          paymentsCount: payments.length,
+          expensesAccrued, expensesPaid, expensesRetained,
+          net,
+          marginPct: income > 0 ? Math.round((net / income) * 100) : null,
+        },
       },
     });
   } catch (err) {
