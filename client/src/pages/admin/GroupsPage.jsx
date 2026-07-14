@@ -387,15 +387,23 @@ export default function GroupsPage() {
                   <select className="form-input form-select" value={form.ballLevel}
                     onChange={(e) => setForm((f) => ({ ...f, ballLevel: e.target.value, subLevel: '' }))}>
                     <option value="">Sin especificar</option>
+                    {/* Valor histórico que ya no está en el catálogo: se muestra para no perderlo */}
+                    {form.ballLevel && !LEVELS[form.ballLevel] && (
+                      <option value={form.ballLevel}>{form.ballLevel} (anterior)</option>
+                    )}
                     {Object.keys(LEVELS).map((b) => <option key={b} value={b}>{b}</option>)}
                   </select>
                 </div>
                 <div className="form-group">
                   <label className="form-label">Subnivel</label>
                   <select className="form-input form-select" value={form.subLevel}
-                    disabled={!subOptions}
+                    disabled={!subOptions && !form.subLevel}
                     onChange={(e) => setField('subLevel', e.target.value)}>
                     <option value="">{subOptions ? 'Sin subnivel' : 'Elige un nivel primero'}</option>
+                    {/* Subnivel histórico inválido para el nivel actual: visible, y al guardar sin cambiarlo se conserva */}
+                    {form.subLevel && !(subOptions || []).includes(form.subLevel) && (
+                      <option value={form.subLevel}>{form.subLevel} (anterior)</option>
+                    )}
                     {(subOptions || []).map((s) => <option key={s} value={s}>{s}</option>)}
                   </select>
                 </div>
