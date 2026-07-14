@@ -105,5 +105,9 @@ describe('GET /reports/strategy — Visión Estratégica', () => {
       income: 500000, expensesAccrued: 150000, expensesPaid: 100000,
       expensesRetained: 45000, net: 350000, marginPct: 70,
     });
+
+    // Ingresos = TODOS los pagos del sistema (sin filtro de fecha): los pagos
+    // pertenecen al semestre aunque se hayan recibido antes de su inicio.
+    expect(prismaMock.studentPayment.findMany).toHaveBeenCalledWith({ select: { amount: true } });
   });
 });

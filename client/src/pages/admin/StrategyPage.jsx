@@ -125,7 +125,7 @@ export default function StrategyPage() {
                   onClick={() => navigate('/admin/accounting')}>Ver Contabilidad →</button>
               </div>
               <div className="stats-row">
-                <div className="stat-box"><div className="num" style={{ color: 'var(--green)', fontSize: '1rem' }}>{fmt(d.finance.income)}</div><div className="lbl">Ingresos · {d.finance.paymentsCount} pagos</div></div>
+                <div className="stat-box"><div className="num" style={{ color: 'var(--green)', fontSize: '1rem' }}>{fmt(d.finance.income)}</div><div className="lbl">Ingresos · {d.finance.paymentsCount} pagos (todos)</div></div>
                 <div className="stat-box"><div className="num" style={{ color: 'var(--red)', fontSize: '1rem' }}>{fmt(d.finance.expensesAccrued)}</div><div className="lbl">Gasto causado</div></div>
                 <div className="stat-box"><div className="num" style={{ fontSize: '1rem' }}>{fmt(d.finance.expensesPaid)}</div><div className="lbl">Ya pagado</div></div>
                 <div className="stat-box"><div className="num" style={{ color: d.finance.expensesRetained > 0 ? 'var(--yellow)' : 'inherit', fontSize: '1rem' }}>{fmt(d.finance.expensesRetained)}</div><div className="lbl">Retenido</div></div>
@@ -187,7 +187,7 @@ export default function StrategyPage() {
 
             <p className="text-xs text-gray mt-3">
               Ocupación baja = cupos por vender · Asistencia = presentes vs ausentes (las justificadas no penalizan) ·
-              Resultado = ingresos del período − gastos causados (los retenidos no cuentan hasta habilitarse).
+              Resultado = todos los pagos registrados − gastos causados del período (los retenidos no cuentan hasta habilitarse).
             </p>
           </>
         )}
