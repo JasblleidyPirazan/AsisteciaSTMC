@@ -9,6 +9,10 @@ import { api } from '../api/client';
 const NAV = [
   { section: 'Principal' },
   { label: 'Inicio', path: '/', icon: '🏠', roles: ['ADMIN', 'TEACHER', 'PHYSICAL_TRAINER', 'ASSISTANT'] },
+  // Panel de bienvenida (/admin). El ADMIN llega solo (su Inicio redirige),
+  // pero Coordinador y Superadmin entran a "Grupos del día", así que
+  // necesitan este acceso directo.
+  { label: 'Panel de gestión', path: '/admin', icon: '🧭', roles: ['ADMIN', 'PHYSICAL_TRAINER'] },
   { label: 'Mi quincena', path: '/my-payroll', icon: '💵', roles: ['TEACHER', 'ASSISTANT'] },
   { label: 'Clases dadas', path: '/reporte', icon: '📋', roles: ['TEACHER', 'ADMIN', 'PHYSICAL_TRAINER'] },
   { label: 'Horarios', path: '/horarios', icon: '🗓️', roles: ['ADMIN', 'TEACHER', 'PHYSICAL_TRAINER', 'ASSISTANT', 'RECEPTION', 'PARENT'] },
@@ -41,6 +45,9 @@ const NAV = [
 
 function isActive(itemPath, pathname) {
   if (itemPath === '/') return pathname === '/';
+  // '/admin' es el panel de bienvenida; sin coincidencia exacta quedaría
+  // resaltado en todas las subpáginas /admin/*.
+  if (itemPath === '/admin') return pathname === '/admin';
   return pathname === itemPath || pathname.startsWith(itemPath + '/');
 }
 
