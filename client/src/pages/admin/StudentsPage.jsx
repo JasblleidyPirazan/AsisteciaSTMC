@@ -787,17 +787,15 @@ export default function StudentsPage() {
                 <input type="email" className="form-input" value={form.email}
                   onChange={(e) => setForm({ ...form, email: e.target.value })} />
               </div>
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
-                <div className="form-group">
-                  <label className="form-label">Documento</label>
-                  <input type="text" className="form-input" value={form.document} maxLength={40}
-                    onChange={(e) => setForm({ ...form, document: e.target.value })} />
-                </div>
-                <div className="form-group">
-                  <label className="form-label">WhatsApp</label>
-                  <input type="text" className="form-input" value={form.phone} maxLength={40}
-                    onChange={(e) => setForm({ ...form, phone: e.target.value })} />
-                </div>
+              <div className="form-group">
+                <label className="form-label">Documento</label>
+                <input type="text" className="form-input" value={form.document} maxLength={40}
+                  onChange={(e) => setForm({ ...form, document: e.target.value })} />
+              </div>
+              <div className="form-group">
+                <label className="form-label">WhatsApp</label>
+                <input type="text" className="form-input" value={form.phone} maxLength={40}
+                  onChange={(e) => setForm({ ...form, phone: e.target.value })} />
               </div>
               <div className="form-group">
                 <label className="form-label">Acudiente</label>
