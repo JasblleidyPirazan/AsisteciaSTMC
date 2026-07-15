@@ -176,12 +176,27 @@ export default function PayrollPage() {
     }
   }
 
+  // Motivo por el que un pago de asistente sigue PENDING_MATCH (retenido), para
+  // que el coordinador sepa qué falta. Refleja la regla del motor de costos.
+  function pendingReason(r) {
+    if (r.payeeType !== 'ASSISTANT' || r.payStatus !== 'PENDING_MATCH') return null;
+    const s = r.session || {};
+    const confirmed = s.assistantId && s.assistantConfirmedId && s.assistantConfirmedId === s.assistantId;
+    const coordinatorOk = !!s.coordinatorValidatedAt ||
+      (s.kind === 'REGULAR' && s.consolidationStatus === 'MATCHED');
+    if (!s.assistantId) return 'El profesor no reportó asistente en esta clase.';
+    if (!confirmed) return 'Falta que el asistente confirme su acompañamiento (Inicio → clases del día).';
+    if (!coordinatorOk) return 'Falta la coincidencia/validación del coordinador.';
+    return 'Pendiente de la triple coincidencia.';
+  }
+
   function DetailRows({ detail, payeeId }) {
     return (
       <>
         {detail.records?.map((r) => {
           const badge = PAY_STATUS_BADGE[r.payStatus];
           const payable = !badge; // PAYABLE = sin badge de retención
+          const reason = pendingReason(r);
           return (
             <div key={r.id} style={{ padding: '4px 0' }}>
               <div className="cost-row text-sm">
@@ -195,6 +210,11 @@ export default function PayrollPage() {
                 </span>
                 <span>{fmt(r.total)}</span>
               </div>
+              {reason && (
+                <div className="text-xs" style={{ color: 'var(--text-soft)', paddingLeft: 2, marginTop: 2 }}>
+                  ⓘ {reason}
+                </div>
+              )}
               {/* Pago realizado (solo habilitados) */}
               {payable && !locked && (
                 <button className="btn btn-ghost" style={{ minHeight: 26, padding: '0 8px', fontSize: '0.72rem', color: r.paidAt ? 'var(--red)' : 'var(--green)' }}
