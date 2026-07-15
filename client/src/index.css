@@ -712,6 +712,11 @@ input.form-input, select.form-select, textarea.form-input {
 .topbar-search ~ .topbar-role { margin-left: 12px; }
 @media (max-width: 520px) { .topbar-search-hint { display: none; } }
 .app-shell-content { flex: 1 1 auto; padding: 18px; }
+/* Panel lateral (ficha rápida): drawer a la derecha sobre la vista actual */
+.quick-drawer-overlay { position: fixed; inset: 0; background: rgba(15,18,30,0.35); z-index: 150;
+  display: flex; justify-content: flex-end; }
+.quick-drawer { width: 100%; max-width: 400px; background: #fff; height: 100%; overflow-y: auto;
+  box-shadow: -8px 0 30px rgba(0,0,0,0.15); padding: 18px; }
 /* Volver contextual (breadcrumb): "‹ Horarios" en vez de la flecha suelta */
 .nav-back-ctx { width: auto; padding: 0 12px; gap: 4px; font-size: 0.85rem; font-weight: 600;
   color: var(--brand-indigo, var(--blue)); white-space: nowrap; }
