@@ -57,8 +57,8 @@ export default function ValidationPage() {
 
       <div className="page-content">
         <p className="text-sm text-gray mb-3">
-          El pago del asistente se habilita únicamente cuando coinciden el reporte del
-          profesor, la confirmación del asistente y tu validación.
+          El pago del asistente se habilita únicamente cuando coincide la información
+          del asistente, el profesor y el coordinador.
         </p>
 
         <div className="form-group mb-3">
