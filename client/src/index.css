@@ -510,6 +510,11 @@ html { scroll-behavior: smooth; }
 .btn:active:not(:disabled) { transform: scale(0.97); }
 .card-tap { transition: transform 0.1s ease, box-shadow 0.15s ease; }
 .card-tap:active { transform: scale(0.985); }
+/* Señal consistente de "tocar = detalle": la tarjeta se eleva al pasar el mouse
+   (solo en dispositivos con hover real, para no dejarlo pegado en móvil). */
+@media (hover: hover) {
+  .card-tap:hover { box-shadow: 0 6px 20px rgba(0,0,0,0.10); transform: translateY(-1px); }
+}
 input.form-input, select.form-select, textarea.form-input {
   transition: border-color 0.15s ease, box-shadow 0.15s ease;
 }
