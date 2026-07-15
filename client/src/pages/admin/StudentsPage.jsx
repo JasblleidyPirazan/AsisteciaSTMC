@@ -184,9 +184,12 @@ export default function StudentsPage() {
     }).finally(() => setLoading(false));
   }, []);
 
+  // Un estudiante "sin grupo" = activo (no inactivo) y sin ninguna matrícula a grupo.
+  const hasNoGroup = (s) => s.studentStatus !== 'INACTIVO' && !s.enrollments?.some((e) => e.group);
+
   // Resumen por estado (tarjeta superior)
   const summary = useMemo(() => {
-    const c = { total: students.length, activos: 0, matriculados: 0, suspendidos: 0, inactivos: 0 };
+    const c = { total: students.length, activos: 0, matriculados: 0, suspendidos: 0, inactivos: 0, sinGrupo: 0 };
     for (const s of students) {
       if (s.studentStatus === 'INACTIVO') c.inactivos++;
       else {
@@ -194,6 +197,7 @@ export default function StudentsPage() {
         if (s.studentStatus === 'MATRICULADO') c.matriculados++;
         else if (s.studentStatus === 'SUSPENDIDO') c.suspendidos++;
       }
+      if (hasNoGroup(s)) c.sinGrupo++;
     }
     return c;
   }, [students]);
@@ -203,6 +207,7 @@ export default function StudentsPage() {
     let arr = students.filter((s) => {
       // "PRUEBA" filtra los estudiantes de clase de prueba (isTrial), sin importar su estado.
       if (statusFilter === 'PRUEBA') { if (!s.isTrial) return false; }
+      else if (statusFilter === 'SIN_GRUPO') { if (!hasNoGroup(s)) return false; }
       else if (statusFilter === 'ACTIVOS' && s.studentStatus === 'INACTIVO') return false;
       else if (statusFilter !== 'ACTIVOS' && statusFilter !== 'TODOS' && s.studentStatus !== statusFilter) return false;
       if (groupFilter && !s.enrollments?.some((e) => e.group?.id === groupFilter)) return false;
@@ -293,6 +298,7 @@ export default function StudentsPage() {
                 <span className={`badge ${STATUS_BADGE[s.studentStatus].cls}`}>{STATUS_BADGE[s.studentStatus].label}</span>
               )}
               {s.isTrial && <span className="badge badge-yellow">🧪 Prueba</span>}
+              {hasNoGroup(s) && !s.isTrial && <span className="badge badge-red">Sin grupo</span>}
             </div>
             <div className="text-xs text-gray" style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
               {g?.code || 'Sin grupo'}{secondaries > 0 ? ` +${secondaries}` : ''}{g?.professor?.name ? ` · ${g.professor.name}` : ''}
@@ -758,7 +764,20 @@ export default function StudentsPage() {
           <div className="stat-box"><div className="num" style={{ color: 'var(--green)' }}>{summary.matriculados}</div><div className="lbl">Matriculados</div></div>
           <div className="stat-box"><div className="num" style={{ color: 'var(--yellow)' }}>{summary.suspendidos}</div><div className="lbl">Suspendidos</div></div>
           <div className="stat-box"><div className="num" style={{ color: 'var(--gray-400)' }}>{summary.inactivos}</div><div className="lbl">Inactivos</div></div>
+          <div className="stat-box" style={{ cursor: summary.sinGrupo > 0 ? 'pointer' : 'default' }}
+            onClick={() => summary.sinGrupo > 0 && setStatusFilter('SIN_GRUPO')}>
+            <div className="num" style={{ color: summary.sinGrupo > 0 ? 'var(--red)' : 'var(--gray-400)' }}>{summary.sinGrupo}</div>
+            <div className="lbl">Sin grupo</div>
+          </div>
         </div>
+
+        {/* Alerta: estudiantes activos sin grupo asignado */}
+        {summary.sinGrupo > 0 && statusFilter !== 'SIN_GRUPO' && (
+          <div className="alert alert-info mb-3" style={{ borderLeft: '4px solid var(--red)', cursor: 'pointer' }}
+            onClick={() => setStatusFilter('SIN_GRUPO')}>
+            ⚠️ {summary.sinGrupo} estudiante{summary.sinGrupo !== 1 ? 's' : ''} activo{summary.sinGrupo !== 1 ? 's' : ''} sin grupo asignado. Toca para verlos y asignarles grupo.
+          </div>
+        )}
 
         <div className="students-layout">
         <div className="students-list">
@@ -775,6 +794,7 @@ export default function StudentsPage() {
             <option value="INSCRITO">Inscritos</option>
             <option value="SUSPENDIDO">Suspendidos</option>
             <option value="INACTIVO">Inactivos</option>
+            <option value="SIN_GRUPO">⚠️ Sin grupo</option>
             <option value="PRUEBA">🧪 Clases de prueba</option>
           </select>
           <select className="form-input form-select" value={groupFilter} onChange={(e) => setGroupFilter(e.target.value)}>

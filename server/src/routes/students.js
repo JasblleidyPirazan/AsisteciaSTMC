@@ -242,7 +242,9 @@ router.post('/', requireRole('ADMIN', 'SUPERADMIN', 'PHYSICAL_TRAINER', 'RECEPTI
         classesStartDate: classesStartDate ? new Date(classesStartDate) : bogotaToday(),
         paymentComplete: !!paymentComplete,
         parentUserId: parentUserId || null,
-        classesAcquired: Number.isFinite(+classesAcquired) ? Math.max(0, parseInt(classesAcquired)) : 0,
+        // Parsear primero: "" y valores no numéricos → 0 (antes daban NaN, que
+        // Prisma rechazaba con un 500 genérico al dejar el campo en blanco).
+        classesAcquired: (() => { const n = parseInt(classesAcquired, 10); return Number.isFinite(n) ? Math.max(0, n) : 0; })(),
         enrollments: {
           create: [
             ...(primaryGroupId ? [{ groupId: primaryGroupId, enrollmentType: 'PRIMARY' }] : []),
