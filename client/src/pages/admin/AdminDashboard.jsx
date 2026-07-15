@@ -118,7 +118,7 @@ export default function AdminDashboard() {
           <div className="alert alert-info">No se pudo cargar el panel.</div>
         ) : (
           <>
-            <div className="home-kpis kpis-5">
+            <div className="home-kpis kpis-6">
               <StatCard icon="👥" tint={{ bg: 'rgba(63,82,168,0.12)', fg: '#3F52A8' }}
                 label="Estudiantes activos" value={d.students.active}
                 sub={d.students.newThisSemester != null ? `+${d.students.newThisSemester} este semestre` : null} />
@@ -132,8 +132,12 @@ export default function AdminDashboard() {
                 label="Asistencia promedio" value={`${d.attendanceAvg}%`}
                 sub="del semestre" subColor="var(--text-soft)" />
               <StatCard icon="🎟️" tint={{ bg: 'rgba(232,162,59,0.16)', fg: '#E8A23B' }}
-                label="Clases adquiridas" value={(d.students.classesAcquired ?? 0).toLocaleString('es-CO')}
-                sub="total compradas por estudiantes" subColor="var(--text-soft)" />
+                label="Asistencias adquiridas" value={(d.students.classesAcquired ?? 0).toLocaleString('es-CO')}
+                sub="clases pagadas por estudiantes" subColor="var(--text-soft)" />
+              <StatCard icon="🎾" tint={{ bg: 'rgba(31,169,113,0.14)', fg: '#1FA971' }}
+                label="Asistencias efectivas" value={(d.students.effectiveAttendances ?? 0).toLocaleString('es-CO')}
+                sub={d.students.attendanceProgress != null ? `${d.students.attendanceProgress}% de avance` : 'clases realizadas'}
+                subColor={d.students.attendanceProgress != null ? 'var(--success)' : 'var(--text-soft)'} />
             </div>
 
             <div className="home-2col">
