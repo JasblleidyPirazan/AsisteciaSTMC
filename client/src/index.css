@@ -702,7 +702,33 @@ input.form-input, select.form-select, textarea.form-input {
 }
 .topbar-brand { font-weight: 700; color: var(--brand-navy); font-size: 1rem; }
 .topbar-role { margin-left: auto; font-size: 0.78rem; color: var(--text-soft); }
+.topbar-search {
+  margin-left: auto; display: inline-flex; align-items: center; gap: 6px;
+  padding: 7px 12px; border: 1px solid var(--border); background: #fff;
+  border-radius: var(--r-md); cursor: pointer; color: var(--text-soft);
+  font-size: 0.85rem; box-shadow: var(--shadow-xs);
+}
+.topbar-search:hover { color: var(--brand-navy); border-color: var(--brand-indigo, var(--blue)); }
+.topbar-search ~ .topbar-role { margin-left: 12px; }
+@media (max-width: 520px) { .topbar-search-hint { display: none; } }
 .app-shell-content { flex: 1 1 auto; padding: 18px; }
+
+/* ===== Buscador global (command palette ⌘K) ===== */
+.cmdk-overlay { position: fixed; inset: 0; background: rgba(15,18,30,0.45); z-index: 200;
+  display: flex; align-items: flex-start; justify-content: center; padding: 12vh 16px 16px; }
+.cmdk-panel { width: 100%; max-width: 560px; background: #fff; border-radius: 14px;
+  box-shadow: 0 20px 60px rgba(0,0,0,0.30); overflow: hidden; display: flex; flex-direction: column; max-height: 70vh; }
+.cmdk-input { border: none; border-bottom: 1px solid var(--border); padding: 16px 18px; font-size: 1rem; outline: none; width: 100%; }
+.cmdk-results { overflow-y: auto; padding: 6px; }
+.cmdk-section { font-size: 0.7rem; text-transform: uppercase; letter-spacing: 0.05em; color: var(--text-muted); padding: 8px 10px 4px; }
+.cmdk-row { display: flex; align-items: center; gap: 10px; width: 100%; text-align: left; border: none; background: none;
+  padding: 9px 10px; border-radius: 8px; cursor: pointer; font: inherit; color: var(--text); }
+.cmdk-row.active { background: rgba(63,82,168,0.10); }
+.cmdk-ico { font-size: 1rem; flex-shrink: 0; }
+.cmdk-label { font-weight: 600; }
+.cmdk-sub { margin-left: auto; font-size: 0.78rem; color: var(--text-muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 55%; }
+.cmdk-empty { padding: 20px; text-align: center; color: var(--text-muted); font-size: 0.9rem; }
+.cmdk-foot { border-top: 1px solid var(--border); padding: 8px 14px; font-size: 0.72rem; color: var(--text-muted); }
 
 /* Página dentro del shell: pierde la columna blanca/centro; el shell manda */
 .app-shell-content .page {

@@ -3,6 +3,10 @@ import { useNavigate, useLocation } from 'react-router-dom';
 import { useAuth } from '../hooks/useAuth';
 import { roleLabel } from '../utils/roles';
 import { api } from '../api/client';
+import CommandPalette from './CommandPalette';
+
+// Roles que pueden usar el buscador global (acceso a Estudiantes/Grupos).
+const SEARCH_ROLES = ['ADMIN', 'SUPERADMIN', 'PHYSICAL_TRAINER', 'RECEPTION'];
 
 // Navegación de la barra lateral. Cada item declara los roles que lo ven.
 // `section` agrupa visualmente (encabezado gris dentro del sidebar).
@@ -57,6 +61,21 @@ export default function AppShell({ children }) {
   const location = useLocation();
   const [open, setOpen] = useState(false);
   const role = user?.role;
+  const canSearch = role === 'SUPERADMIN' || SEARCH_ROLES.includes(role);
+
+  // Buscador global ⌘K / Ctrl+K.
+  const [cmdOpen, setCmdOpen] = useState(false);
+  useEffect(() => {
+    if (!canSearch) return undefined;
+    function onKey(e) {
+      if ((e.metaKey || e.ctrlKey) && (e.key === 'k' || e.key === 'K')) {
+        e.preventDefault();
+        setCmdOpen((v) => !v);
+      }
+    }
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [canSearch]);
 
   // Cambio de contraseña (disponible para cualquier usuario).
   const [pwOpen, setPwOpen] = useState(false);
@@ -192,10 +211,17 @@ export default function AppShell({ children }) {
             ☰
           </button>
           <span className="topbar-brand">🎾 STMC</span>
+          {canSearch && (
+            <button className="topbar-search" onClick={() => setCmdOpen(true)} title="Buscar (⌘K)">
+              🔎 <span className="topbar-search-hint">Buscar…</span>
+            </button>
+          )}
           <span className="topbar-role">{roleLabel(role)}</span>
         </div>
         <div className="app-shell-content">{children}</div>
       </div>
+
+      {canSearch && <CommandPalette open={cmdOpen} onClose={() => setCmdOpen(false)} />}
     </div>
   );
 }

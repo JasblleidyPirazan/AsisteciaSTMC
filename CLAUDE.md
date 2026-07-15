@@ -260,6 +260,7 @@ Desde la base de datos o el seed, crear un `User` con `role: 'PHYSICAL_TRAINER'`
 - `POST /api/enrollment/requests/:id/approve`
 - `GET /api/payroll?period=2025-06-1`
 - `GET /api/payroll/summary?period=2025-06-1`
+- `GET /api/search?q=` — buscador global ⌘K (ADMIN/SUPERADMIN/Coordinador/Recepción): estudiantes + grupos activos que coinciden
 - `GET /api/reports/dashboard`
 - `GET /api/reports/strategy` — Visión Estratégica (solo ADMIN/SUPERADMIN): KPIs del semestre + contadores por grupo
 - `GET /api/reports/group/:id`
