@@ -1,5 +1,5 @@
 import { useState, useEffect, useMemo } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useLocation } from 'react-router-dom';
 import { api } from '../../api/client';
 import { useAuth } from '../../hooks/useAuth';
 import { bogotaTodayStr } from '../../utils/dates';
@@ -161,13 +161,24 @@ export default function StudentsPage() {
   const [groupSaving, setGroupSaving] = useState(false);
   const [groupError, setGroupError] = useState('');
 
+  const location = useLocation();
+
   useEffect(() => {
     Promise.all([
       api.get('/students', { active: 'false' }),          // todos (activos e inactivos)
       api.get('/groups', { active: 'true' }),
       api.get('/students/attendance-summary').catch(() => ({})),
       api.get('/semesters/active').catch(() => null),
-    ]).then(([s, g, att, sem]) => { setStudents(s); setGroups(g); setAttendance(att || {}); setSemester(sem); }).finally(() => setLoading(false));
+    ]).then(([s, g, att, sem]) => {
+      setStudents(s); setGroups(g); setAttendance(att || {}); setSemester(sem);
+      // Enlace profundo desde otra vista (Alertas, Contabilidad…): abre la
+      // ficha del estudiante indicado en location.state.focusStudentId.
+      const fid = location.state?.focusStudentId;
+      if (fid) {
+        const target = s.find((x) => x.id === fid);
+        if (target) openDetail(target);
+      }
+    }).finally(() => setLoading(false));
   }, []);
 
   // Resumen por estado (tarjeta superior)
