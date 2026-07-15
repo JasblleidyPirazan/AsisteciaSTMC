@@ -2,7 +2,7 @@ const express = require('express');
 const prisma = require('../lib/prisma');
 const { requireRole } = require('../middleware/auth');
 const { getCurrentPeriod } = require('../services/costEngine');
-const { isSeenRecord } = require('../services/attendanceStats');
+const { isSeenRecord, seenAttendanceFilter } = require('../services/attendanceStats');
 const { computeAttendanceDeviations } = require('../services/attendanceAlerts');
 const { byGroupCode } = require('../lib/sort');
 const { bogotaToday, bogotaDateStr, bogotaMinutesOfDay } = require('../lib/dates');
@@ -608,10 +608,20 @@ router.get('/home', requireRole('ADMIN', 'SUPERADMIN', 'PHYSICAL_TRAINER'), asyn
       prisma.group.count({ where: { active: false } }),
       prisma.professor.count({ where: { active: true } }),
       prisma.assistant.count({ where: { active: true } }),
-      // Total de clases adquiridas (compradas) por los estudiantes activos.
+      // Total de asistencias adquiridas (clases pagadas) por estudiantes activos.
       prisma.student.aggregate({ where: { active: true }, _sum: { classesAcquired: true } }),
     ]);
     const classesAcquired = classesAcquiredAgg._sum.classesAcquired || 0;
+
+    // Asistencias efectivas: "clases vistas" del semestre (PRESENTE en cualquier
+    // sesión + AUSENTE en festivales; las justificadas no cuentan). Sin semestre,
+    // el histórico total. Avance = efectivas / adquiridas.
+    const effectiveWhere = { AND: [seenAttendanceFilter()] };
+    if (semester) effectiveWhere.AND.push({ session: { date: { gte: semester.startDate, lte: semester.endDate } } });
+    const effectiveAttendances = await prisma.attendanceRecord.count({ where: effectiveWhere });
+    const attendanceProgress = classesAcquired > 0
+      ? Math.round((effectiveAttendances / classesAcquired) * 100)
+      : null;
     const newThisSemester = semester
       ? await prisma.student.count({ where: { active: true, createdAt: { gte: semester.startDate } } })
       : null;
@@ -708,7 +718,10 @@ router.get('/home', requireRole('ADMIN', 'SUPERADMIN', 'PHYSICAL_TRAINER'), asyn
     res.json({
       success: true,
       data: {
-        students: { active: studentsActive, newThisSemester, classesAcquired },
+        students: {
+          active: studentsActive, newThisSemester, classesAcquired,
+          effectiveAttendances, attendanceProgress,
+        },
         groups: { active: groupsActive, inactive: groupsInactive },
         staff: { professors, assistants },
         attendanceAvg: distribution.presente,

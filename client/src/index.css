@@ -742,7 +742,8 @@ input.form-input, select.form-select, textarea.form-input {
 .home-kpis { display: grid; grid-template-columns: 1fr; gap: 16px; margin-bottom: 16px; }
 @media (min-width: 640px) { .home-kpis { grid-template-columns: repeat(2, 1fr); } }
 @media (min-width: 1024px) { .home-kpis { grid-template-columns: repeat(4, 1fr); } }
-@media (min-width: 1024px) { .home-kpis.kpis-5 { grid-template-columns: repeat(5, 1fr); } }
+@media (min-width: 1024px) { .home-kpis.kpis-6 { grid-template-columns: repeat(3, 1fr); } }
+@media (min-width: 1280px) { .home-kpis.kpis-6 { grid-template-columns: repeat(6, 1fr); } }
 .home-2col { display: grid; grid-template-columns: 1fr; gap: 16px; margin-bottom: 16px; }
 @media (min-width: 1024px) { .home-2col { grid-template-columns: 1.7fr 1fr; } }
 .home-side { display: flex; flex-direction: column; gap: 16px; }
