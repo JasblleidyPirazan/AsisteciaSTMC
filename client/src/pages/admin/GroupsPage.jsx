@@ -3,6 +3,7 @@ import { useNavigate, useLocation } from 'react-router-dom';
 import { api } from '../../api/client';
 import { useAuth } from '../../hooks/useAuth';
 import PageBack from '../../components/PageBack';
+import EmptyState from '../../components/EmptyState';
 import { toast } from '../../utils/toast';
 
 const DAYS = [
@@ -424,7 +425,15 @@ export default function GroupsPage() {
         )}
 
         {visible.length === 0 ? (
-          <div className="alert alert-info">No hay grupos que coincidan.</div>
+          (showInactive ? inactive.length : active.length) === 0 && !search && !filterLevel && !filterProfessor && !filterDay && !filterTime ? (
+            <EmptyState icon="🎾" title={showInactive ? 'No hay grupos inactivos' : 'Aún no hay grupos'}
+              hint={!showInactive && canEdit ? 'Crea el primer grupo con su horario, días y cancha.' : undefined}
+              action={!showInactive && canEdit ? { label: '+ Crear grupo', onClick: startCreate } : undefined} />
+          ) : (
+            <EmptyState icon="🔎" title="Ningún grupo coincide"
+              hint="Ajusta la búsqueda o los filtros."
+              action={{ label: 'Limpiar filtros', onClick: () => { setSearch(''); setFilterLevel(''); setFilterProfessor(''); setFilterDay(''); setFilterTime(''); } }} />
+          )
         ) : showInactive ? (
           <div className="table-wrap">
             <table className="data-table">
