@@ -4,6 +4,7 @@ import { api } from '../api/client';
 import { useAuth } from '../hooks/useAuth';
 import { fmtDate } from '../utils/dates';
 import { buildPeriodOptions, getCurrentPeriod, periodLabel } from '../utils/periods';
+import { toast } from '../utils/toast';
 
 function fmt(n) {
   return new Intl.NumberFormat('es-CO', { style: 'currency', currency: 'COP', maximumFractionDigits: 0 }).format(n || 0);
@@ -104,7 +105,7 @@ export default function MyPayrollPage() {
       a.click();
       URL.revokeObjectURL(url);
     } catch (err) {
-      alert(err.message);
+      toast.error(err.message);
     } finally {
       setExporting(false);
     }

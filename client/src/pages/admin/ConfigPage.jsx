@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { api } from '../../api/client';
 import { fmtDate } from '../../utils/dates';
 import { useAuth } from '../../hooks/useAuth';
+import { toast } from '../../utils/toast';
 
 const EMPTY_CONFIG = {
   rate_2_students: '',
@@ -38,10 +39,10 @@ export default function ConfigPage() {
     setWiping(true);
     try {
       const r = await api.post('/system/wipe-classes', { confirm: 'BORRAR CLASES' });
-      alert(`Listo. Se borraron ${r.total} registros de clases. Estudiantes, grupos y config quedaron intactos.`);
+      toast.success(`Listo. Se borraron ${r.total} registros de clases. Estudiantes, grupos y config quedaron intactos.`);
       setWipeText('');
     } catch (err) {
-      alert(err.message);
+      toast.error(err.message);
     } finally {
       setWiping(false);
     }
@@ -104,7 +105,7 @@ export default function ConfigPage() {
       const updated = await api.put(`/semesters/${id}`, { active: true });
       setSemesters(semesters.map((s) => ({ ...s, active: s.id === id })));
     } catch (err) {
-      alert(err.message);
+      toast.error(err.message);
     }
   }
 
@@ -114,7 +115,7 @@ export default function ConfigPage() {
       await api.delete(`/semesters/${id}`);
       setSemesters(semesters.filter((s) => s.id !== id));
     } catch (err) {
-      alert(err.message);
+      toast.error(err.message);
     }
   }
 
@@ -128,7 +129,7 @@ export default function ConfigPage() {
       setExclDate('');
       setExclReason('');
     } catch (err) {
-      alert(err.message);
+      toast.error(err.message);
     }
   }
 
@@ -139,7 +140,7 @@ export default function ConfigPage() {
         s.id === semId ? { ...s, exclusions: s.exclusions.filter((e) => e.id !== exclId) } : s
       ));
     } catch (err) {
-      alert(err.message);
+      toast.error(err.message);
     }
   }
 

@@ -712,6 +712,22 @@ input.form-input, select.form-select, textarea.form-input {
 .topbar-search ~ .topbar-role { margin-left: 12px; }
 @media (max-width: 520px) { .topbar-search-hint { display: none; } }
 .app-shell-content { flex: 1 1 auto; padding: 18px; }
+/* Toasts (avisos no bloqueantes, arriba a la derecha) */
+.toaster { position: fixed; top: 16px; right: 16px; z-index: 300; display: flex; flex-direction: column;
+  gap: 8px; max-width: min(360px, calc(100vw - 32px)); }
+.toast { display: flex; align-items: flex-start; gap: 8px; padding: 11px 14px; border-radius: 10px;
+  background: #fff; box-shadow: 0 8px 24px rgba(0,0,0,0.16); cursor: pointer; font-size: 0.88rem;
+  border-left: 4px solid var(--gray-400); animation: toast-in 0.18s ease-out; }
+@keyframes toast-in { from { opacity: 0; transform: translateX(12px); } to { opacity: 1; transform: none; } }
+.toast-ico { flex-shrink: 0; font-weight: 700; }
+.toast-msg { flex: 1; min-width: 0; }
+.toast-success { border-left-color: var(--green, #1FA971); }
+.toast-success .toast-ico { color: var(--green, #1FA971); }
+.toast-error { border-left-color: var(--red, #E8526A); }
+.toast-error .toast-ico { color: var(--red, #E8526A); }
+.toast-info { border-left-color: var(--brand-indigo, var(--blue)); }
+.toast-info .toast-ico { color: var(--brand-indigo, var(--blue)); }
+
 /* Panel lateral (ficha rápida): drawer a la derecha sobre la vista actual */
 .quick-drawer-overlay { position: fixed; inset: 0; background: rgba(15,18,30,0.35); z-index: 150;
   display: flex; justify-content: flex-end; }

@@ -2,6 +2,7 @@ import { useState, useEffect, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { api } from '../../api/client';
 import { fmtDate, bogotaTodayStr } from '../../utils/dates';
+import { toast } from '../../utils/toast';
 
 function todayStr() {
   return bogotaTodayStr();
@@ -106,7 +107,7 @@ export default function MakeupsPage() {
       await api.delete(`/makeups/${id}`);
       setMakeups((m) => m.filter((x) => x.id !== id));
     } catch (err) {
-      alert(err.message);
+      toast.error(err.message);
     }
   }
 
