@@ -16,6 +16,15 @@ function errorHandler(err, req, res, next) {
   if (err.code === 'P2003') {
     return res.status(400).json({ success: false, error: 'Referencia a un registro que no existe' });
   }
+  // Prisma column missing (BD desactualizada respecto del schema)
+  if (err.code === 'P2022') {
+    return res.status(400).json({ success: false, error: 'La base de datos no está actualizada (falta una columna). Reintenta el despliegue de migraciones.' });
+  }
+  // Datos inválidos para el modelo (p. ej. un número mal formado). No se
+  // enmascara con el 500 genérico: es un error del cliente y conviene verlo.
+  if (err.name === 'PrismaClientValidationError' || err.code === 'P2000') {
+    return res.status(400).json({ success: false, error: 'Datos inválidos: revisa los campos del formulario (valores numéricos o fechas mal formados).' });
+  }
   // JSON parse errors
   if (err.type === 'entity.parse.failed') {
     return res.status(400).json({ success: false, error: 'JSON inválido en el cuerpo de la solicitud' });
