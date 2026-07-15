@@ -1,33 +1,39 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { api } from '../../api/client';
 import { fmtDate } from '../../utils/dates';
-
-function todayStr() {
-  return new Date().toLocaleDateString('en-CA');
-}
+import { buildPeriodOptions, getCurrentPeriod, periodLabel, periodRange } from '../../utils/periods';
 
 /**
- * Cola de validación del coordinador: sesiones realizadas con asistente.
- * Una clase queda "en verde" (pago del asistente habilitado) solo cuando
- * coinciden el reporte del profesor, la confirmación del asistente y la
- * validación del coordinador.
+ * Cola de validación del coordinador: sesiones realizadas con asistente, por
+ * QUINCENA (no por día). Una clase queda "en verde" (pago del asistente
+ * habilitado) solo cuando coinciden el reporte del profesor, la confirmación
+ * del asistente y la validación del coordinador. El filtro "Solo pendientes"
+ * deja a la vista lo que falta por resolver de la quincena.
  */
 export default function ValidationPage() {
   const navigate = useNavigate();
-  const [date, setDate] = useState(todayStr());
+  const [period, setPeriod] = useState(getCurrentPeriod());
+  const [semester, setSemester] = useState(null);
   const [sessions, setSessions] = useState([]);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState({});
   const [error, setError] = useState('');
+  const [onlyPending, setOnlyPending] = useState(true);
 
-  useEffect(() => { load(); }, [date]);
+  // Semestre activo → numeración correlativa de quincenas en las etiquetas.
+  useEffect(() => {
+    api.get('/semesters/active').then(setSemester).catch(() => setSemester(null));
+  }, []);
+
+  useEffect(() => { load(); }, [period]);
 
   async function load() {
     setLoading(true);
     setError('');
     try {
-      const data = await api.get('/sessions/validation-queue', { date });
+      const { from, to } = periodRange(period);
+      const data = await api.get('/sessions/validation-queue', { from, to });
       setSessions(data);
     } catch (err) {
       setError(err.message);
@@ -35,6 +41,14 @@ export default function ValidationPage() {
       setLoading(false);
     }
   }
+
+  // Una clase está "resuelta" cuando ya no requiere acción: el pago quedó
+  // habilitado (complete). Lo demás sigue pendiente por resolver.
+  const pendingCount = useMemo(() => sessions.filter((s) => !s.complete).length, [sessions]);
+  const visible = useMemo(
+    () => (onlyPending ? sessions.filter((s) => !s.complete) : sessions),
+    [sessions, onlyPending]
+  );
 
   async function toggleValidation(s) {
     setSaving((m) => ({ ...m, [s.id]: true }));
@@ -58,20 +72,46 @@ export default function ValidationPage() {
       <div className="page-content">
         <p className="text-sm text-gray mb-3">
           El pago del asistente se habilita únicamente cuando coincide la información
-          del asistente, el profesor y el coordinador.
+          del asistente, el profesor y el coordinador. La validación es por quincena:
+          lo pendiente queda a la vista hasta resolverlo.
         </p>
 
-        <div className="form-group mb-3">
-          <label className="form-label">Fecha</label>
-          <input type="date" className="form-input" value={date}
-            onChange={(e) => setDate(e.target.value)} />
+        {/* Selector de quincena + filtro de pendientes */}
+        <div className="flex items-center justify-between mb-3" style={{ gap: 12, flexWrap: 'wrap' }}>
+          <div className="form-group" style={{ marginBottom: 0 }}>
+            <label className="form-label">Quincena</label>
+            <select className="form-input form-select" style={{ minHeight: 40, width: 'auto' }}
+              value={period} onChange={(e) => setPeriod(e.target.value)}>
+              {buildPeriodOptions(semester, period).map((p) => (
+                <option key={p} value={p}>{periodLabel(p, semester)}</option>
+              ))}
+            </select>
+          </div>
+          <label className="flex items-center gap-2" style={{ cursor: 'pointer' }}>
+            <input type="checkbox" checked={onlyPending} onChange={(e) => setOnlyPending(e.target.checked)} />
+            <span className="text-sm">Solo pendientes</span>
+          </label>
         </div>
 
+        {/* Resumen de pendientes de la quincena */}
+        {!loading && (
+          <div className={`alert ${pendingCount > 0 ? 'alert-info' : 'alert-success'} mb-3`}
+            style={{ borderLeft: `4px solid ${pendingCount > 0 ? 'var(--yellow)' : 'var(--green)'}` }}>
+            {pendingCount > 0
+              ? `⏳ ${pendingCount} clase${pendingCount !== 1 ? 's' : ''} pendiente${pendingCount !== 1 ? 's' : ''} por resolver en esta quincena.`
+              : '✅ No queda nada pendiente en esta quincena.'}
+          </div>
+        )}
+
         {error && <div className="alert alert-error mb-3">{error}</div>}
-        {loading ? <div className="spinner" /> : sessions.length === 0 ? (
-          <div className="alert alert-info">No hay clases con asistente para esta fecha.</div>
+        {loading ? <div className="spinner" /> : visible.length === 0 ? (
+          <div className="alert alert-info">
+            {onlyPending && sessions.length > 0
+              ? 'No hay pendientes en esta quincena. Desmarca "Solo pendientes" para ver las ya resueltas.'
+              : 'No hay clases con asistente en esta quincena.'}
+          </div>
         ) : (
-          sessions.map((s) => {
+          visible.map((s) => {
             const stateColor = s.complete ? 'var(--green)' : s.matches ? 'var(--yellow)' : 'var(--red)';
             return (
               <div key={s.id} className="card mb-3" style={{ borderLeft: `4px solid ${stateColor}` }}>
