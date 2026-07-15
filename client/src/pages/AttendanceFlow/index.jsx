@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react';
 import { useParams, useLocation, useNavigate } from 'react-router-dom';
 import { api } from '../../api/client';
 import { useAuth } from '../../hooks/useAuth';
+import { bogotaTodayStr } from '../../utils/dates';
 import { savePendingSession } from '../../hooks/useOffline';
 import OfflineBanner from '../../components/OfflineBanner';
 import Step1ClassStatus from './Step1ClassStatus';
@@ -16,7 +17,7 @@ export default function AttendanceFlow() {
   const { user } = useAuth();
 
   const group = state?.group;
-  const date = state?.date || new Date().toISOString().slice(0, 10);
+  const date = state?.date || bogotaTodayStr();
 
   const [step, setStep] = useState(1);
   const [session, setSession] = useState(null);

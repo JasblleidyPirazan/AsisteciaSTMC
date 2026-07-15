@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, afterEach } from 'vitest';
-import { bogotaDateStr, dbDateStr, bogotaToday } from '../../src/lib/dates.js';
+import { bogotaDateStr, dbDateStr, bogotaToday, bogotaDayOfWeek, bogotaMinutesOfDay } from '../../src/lib/dates.js';
 
 describe('dbDateStr — YYYY-MM-DD de una columna @db.Date (UTC midnight)', () => {
   it('extrae la fecha del instante UTC', () => {
@@ -32,5 +32,28 @@ describe('bogotaToday — Date a UTC midnight del "hoy" de Bogotá', () => {
     // 2025-06-11 03:00 UTC → 2025-06-10 22:00 Bogotá → hoy = 2025-06-10
     vi.setSystemTime(new Date('2025-06-11T03:00:00.000Z'));
     expect(bogotaToday().toISOString()).toBe('2025-06-10T00:00:00.000Z');
+  });
+});
+
+describe('bogotaDayOfWeek — día de la semana del "hoy" de Bogotá', () => {
+  afterEach(() => vi.useRealTimers());
+
+  it('tras las 7 p. m. de Bogotá, UTC ya va en mañana pero el día sigue siendo el de Bogotá', () => {
+    vi.useFakeTimers();
+    // 2025-06-11 (miércoles) 01:00 UTC = martes 10 de junio, 20:00 en Bogotá
+    vi.setSystemTime(new Date('2025-06-11T01:00:00.000Z'));
+    expect(bogotaDayOfWeek()).toBe(2); // martes
+  });
+});
+
+describe('bogotaMinutesOfDay — minutos del día en hora de Bogotá', () => {
+  it('convierte el instante a la hora local de Bogotá (UTC-5)', () => {
+    // 20:45 UTC = 15:45 Bogotá → 15*60+45
+    expect(bogotaMinutesOfDay(new Date('2025-06-10T20:45:00.000Z'))).toBe(15 * 60 + 45);
+  });
+
+  it('cruza la medianoche UTC sin cambiar de día local', () => {
+    // 00:30 UTC del día 11 = 19:30 Bogotá del día 10
+    expect(bogotaMinutesOfDay(new Date('2025-06-11T00:30:00.000Z'))).toBe(19 * 60 + 30);
   });
 });

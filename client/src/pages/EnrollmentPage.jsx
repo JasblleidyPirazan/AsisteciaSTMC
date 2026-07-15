@@ -1,6 +1,7 @@
 import { useState, useEffect, useMemo } from 'react';
 import { api } from '../api/client';
 import { POLICIES_TEXT } from '../utils/policies';
+import { bogotaTodayStr } from '../utils/dates';
 
 const DAYS = [
   { key: 'lunes', label: 'Lun' },
@@ -260,7 +261,7 @@ export default function EnrollmentPage() {
             <label className="form-label" htmlFor="birthDate">Fecha de nacimiento</label>
             <input id="birthDate" type="date" className="form-input"
               value={form.birthDate} onChange={(e) => update('birthDate', e.target.value)}
-              max={new Date().toISOString().slice(0, 10)} />
+              max={bogotaTodayStr()} />
             {age !== null && (
               <span className="text-xs" style={{ color: age < 18 ? 'var(--blue)' : 'var(--green)' }}>
                 {age} años · {age < 18 ? 'Menor de edad — acudiente requerido' : 'Mayor de edad'}
@@ -471,7 +472,7 @@ export default function EnrollmentPage() {
             <label className="form-label" htmlFor="paymentDate">Fecha de pago</label>
             <input id="paymentDate" type="date" className="form-input"
               value={form.paymentDate} onChange={(e) => update('paymentDate', e.target.value)}
-              max={new Date().toISOString().slice(0, 10)} />
+              max={bogotaTodayStr()} />
           </div>
 
           <div className="form-group">

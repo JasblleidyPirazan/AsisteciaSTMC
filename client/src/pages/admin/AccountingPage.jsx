@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { api } from '../../api/client';
-import { fmtDate } from '../../utils/dates';
+import { fmtDate, bogotaTodayStr } from '../../utils/dates';
 import { periodLabel } from '../../utils/periods';
 
 // Módulo de Contabilidad (solo Admin/Superadmin):
@@ -16,10 +16,7 @@ function fmt(n) {
 const METHOD_LABEL = { TRANSFERENCIA: 'Transferencia', EFECTIVO: 'Efectivo', WOMPI: 'Wompi', BOLD: 'Bold' };
 const METHOD_BADGE = { TRANSFERENCIA: 'badge-blue', EFECTIVO: 'badge-green', WOMPI: 'badge-yellow', BOLD: 'badge-gray' };
 
-// "Hoy" y límites de mes en hora de Bogotá.
-function bogotaTodayStr() {
-  return new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Bogota' }).format(new Date());
-}
+// Límites de mes anclados al día de Bogotá (bogotaTodayStr de utils/dates).
 function monthRange(offset = 0) {
   const [y, m] = bogotaTodayStr().split('-').map(Number);
   const d = new Date(Date.UTC(y, m - 1 + offset, 1));

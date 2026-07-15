@@ -10,3 +10,12 @@ export function fmtDate(d, options = { day: '2-digit', month: 'short', year: 'nu
   if (isNaN(parsed)) return '';
   return parsed.toLocaleDateString('es-CO', options);
 }
+
+/**
+ * "Hoy" (YYYY-MM-DD) en hora de Bogotá, independiente de la zona horaria del
+ * dispositivo. OJO: `new Date().toISOString().slice(0,10)` da la fecha UTC,
+ * que después de las 7 p. m. de Bogotá ya es "mañana" — no usarla para hoy.
+ */
+export function bogotaTodayStr() {
+  return new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Bogota' }).format(new Date());
+}

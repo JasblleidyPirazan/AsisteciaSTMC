@@ -4,6 +4,7 @@ const prisma = require('../lib/prisma');
 const { requireRole } = require('../middleware/auth');
 const { notSuspended } = require('../lib/filters');
 const { byGroupCode } = require('../lib/sort');
+const { bogotaDayOfWeek } = require('../lib/dates');
 const { seenAttendanceFilter } = require('../services/attendanceStats');
 
 const router = express.Router();
@@ -47,7 +48,8 @@ router.get('/', async (req, res, next) => {
     const where = active === 'all' ? {} : { active: active !== 'false' };
 
     if (today === 'true') {
-      const dayField = DAY_MAP[new Date().getDay()];
+      // Día en hora de Bogotá: el servidor (UTC) ya va en "mañana" tras las 7 p. m.
+      const dayField = DAY_MAP[bogotaDayOfWeek()];
       where[dayField] = true;
     }
 
