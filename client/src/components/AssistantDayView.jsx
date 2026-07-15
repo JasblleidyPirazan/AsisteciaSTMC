@@ -103,11 +103,16 @@ export default function AssistantDayView({ groups, loading, date }) {
   function assistState(session) {
     if (!session || session.assistantConfirmedId !== myAssistantId) return null;
     const reportedMe = session.assistantId === myAssistantId;
-    if (reportedMe && session.coordinatorValidatedAt) {
-      return { color: 'var(--green)', label: '✓ Validada — habilitada para pago' };
+    // Todo lo que coincide se valida automáticamente: en una clase regular
+    // consolidada (profesor y coordinador coincidieron), no hace falta que el
+    // coordinador valide a mano — igual que en el motor de costos.
+    const coordinatorOk = !!session.coordinatorValidatedAt ||
+      (session.kind === 'REGULAR' && session.consolidationStatus === 'MATCHED');
+    if (reportedMe && coordinatorOk) {
+      return { color: 'var(--green)', label: '✓ Habilitada para pago' };
     }
     if (reportedMe) {
-      return { color: 'var(--yellow)', label: 'Pendiente de validación del coordinador' };
+      return { color: 'var(--yellow)', label: 'Pendiente: falta que coincidan profesor y coordinador' };
     }
     return { color: 'var(--blue)', label: 'Registrada · falta el reporte del profesor' };
   }

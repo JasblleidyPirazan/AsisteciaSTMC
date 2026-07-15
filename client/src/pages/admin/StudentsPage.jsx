@@ -626,7 +626,8 @@ export default function StudentsPage() {
               <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
                 <div className="form-group" style={{ marginBottom: 8 }}>
                   <label className="form-label">Valor</label>
-                  <input type="number" className="form-input" min={0} step={1000} required placeholder="Ej: 120000"
+                  {/* step="any": acepta cualquier monto (no solo múltiplos de 1000) */}
+                  <input type="number" className="form-input" min={0} step="any" required placeholder="Ej: 120000"
                     value={payForm.amount} onChange={(e) => setPayForm({ ...payForm, amount: e.target.value })} />
                 </div>
                 <div className="form-group" style={{ marginBottom: 8 }}>
