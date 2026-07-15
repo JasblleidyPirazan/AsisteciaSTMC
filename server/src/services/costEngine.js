@@ -159,15 +159,21 @@ async function calculateCosts(sessionId) {
 
   if (session.assistant) {
     // Triple coincidence rule: the assistant's pay turns "green" (PAYABLE) only
-    // when the professor's report, the assistant's confirmation and the
-    // coordinator's validation all point to the SAME assistant. Sessions dated
-    // before the deployment cutoff stay PAYABLE so editing old sessions never
-    // retains pay that was already settled.
+    // when the information of the professor, the assistant and the coordinator
+    // all point to the SAME assistant. Everything that matches is validated
+    // AUTOMATICALLY: in a REGULAR class consolidated by the dual-report flow,
+    // MATCHED already proves professor and coordinator agreed on the assistant,
+    // so no extra manual click is needed — only the assistant's confirmation.
+    // coordinatorValidatedAt remains as the manual path (makeups reported by a
+    // teacher, legacy sessions, overrides). Sessions dated before the cutoff
+    // stay PAYABLE so editing old sessions never retains pay already settled.
     const matchStart = cfg.assistant_match_start_date || null;
     const beforeCutoff = matchStart && dbDateStr(session.date) < matchStart;
+    const coordinatorAgrees =
+      !!session.coordinatorValidatedAt ||
+      (session.kind === 'REGULAR' && session.consolidationStatus === 'MATCHED');
     const tripleMatch =
-      session.assistantConfirmedId === session.assistantId &&
-      !!session.coordinatorValidatedAt;
+      session.assistantConfirmedId === session.assistantId && coordinatorAgrees;
     const assistantPayStatus = beforeCutoff || tripleMatch ? 'PAYABLE' : 'PENDING_MATCH';
 
     const assistantTotal = assistantFixedRate * effectiveUnits;
