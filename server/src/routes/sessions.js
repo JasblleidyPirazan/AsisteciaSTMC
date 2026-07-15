@@ -547,12 +547,23 @@ router.get('/validation-queue', async (req, res, next) => {
     });
 
     const data = sessions.map((s) => {
-      const matches = !!s.assistantId && s.assistantId === s.assistantConfirmedId;
+      const professorReported = !!s.assistantId;      // el profesor registró un asistente
+      const assistantConfirmed = !!s.assistantConfirmedId; // el asistente marcó su acompañamiento
+      const matches = professorReported && s.assistantId === s.assistantConfirmedId;
       // Todo lo que coincide se valida automáticamente: en una clase regular
       // consolidada (MATCHED), profesor y coordinador ya coincidieron en el
       // asistente vía doble reporte — no se exige clic manual.
       const coordinatorOk = !!s.coordinatorValidatedAt ||
         (s.kind === 'REGULAR' && s.consolidationStatus === 'MATCHED');
+
+      // Qué falta de la triple coincidencia (para el aviso). Códigos que el
+      // frontend traduce a texto legible.
+      const missing = [];
+      if (!professorReported) missing.push('professor');
+      if (!assistantConfirmed) missing.push('assistant');
+      else if (!matches) missing.push('assistant_mismatch');
+      if (!coordinatorOk) missing.push('coordinator');
+
       return {
         id: s.id,
         date: s.date,
@@ -568,6 +579,7 @@ router.get('/validation-queue', async (req, res, next) => {
         matches,
         autoValidated: matches && coordinatorOk && !s.coordinatorValidatedAt,
         complete: matches && coordinatorOk,
+        missing,
       };
     });
 

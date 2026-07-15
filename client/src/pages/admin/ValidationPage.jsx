@@ -5,6 +5,14 @@ import { fmtDate } from '../../utils/dates';
 import { buildPeriodOptions, getCurrentPeriod, periodLabel, periodRange } from '../../utils/periods';
 import { toast } from '../../utils/toast';
 
+// Traducción de los códigos de "falta" (triple coincidencia) a texto legible.
+const MISSING_LABEL = {
+  professor: 'Falta el reporte del profesor (no registró al asistente)',
+  assistant: 'Falta la confirmación del asistente',
+  assistant_mismatch: 'El asistente confirmado no coincide con el que reportó el profesor',
+  coordinator: 'Falta la validación/coincidencia del coordinador',
+};
+
 /**
  * Cola de validación del coordinador: sesiones realizadas con asistente, por
  * QUINCENA (no por día). Una clase queda "en verde" (pago del asistente
@@ -137,7 +145,23 @@ export default function ValidationPage() {
                     <span className="text-gray">Asistente confirmó:</span>
                     <span>{s.assistantConfirmed?.name || '— sin confirmar —'}</span>
                   </div>
+                  <div className="cost-row" style={{ padding: '2px 0' }}>
+                    <span className="text-gray">Coordinador validó:</span>
+                    <span>{s.complete && !s.missing?.includes('coordinator') ? '✓ Sí' : '— pendiente —'}</span>
+                  </div>
                 </div>
+
+                {/* Qué falta para completar la triple coincidencia */}
+                {!s.complete && s.missing?.length > 0 && (
+                  <div className="alert alert-info mt-2 mb-0" style={{ marginBottom: 0, padding: '8px 12px', borderLeft: '4px solid var(--yellow)' }}>
+                    <div className="text-xs font-medium mb-1">Falta para habilitar el pago:</div>
+                    <ul style={{ margin: 0, paddingLeft: 18 }}>
+                      {s.missing.map((m) => (
+                        <li key={m} className="text-xs">{MISSING_LABEL[m] || m}</li>
+                      ))}
+                    </ul>
+                  </div>
+                )}
 
                 {s.dictatedByOwner === false && (
                   <div className="alert alert-info mt-2 mb-0" style={{ marginBottom: 0, padding: '8px 12px' }}>
