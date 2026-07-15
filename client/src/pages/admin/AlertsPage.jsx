@@ -76,7 +76,7 @@ export default function AlertsPage() {
                 return (
                   <div key={s.studentId} className="card card-tap mb-2"
                     style={badge ? { borderLeft: `4px solid ${s.level === 'ROJA' ? 'var(--red)' : 'var(--yellow)'}` } : undefined}
-                    onClick={() => navigate('/admin/students', { state: { focusStudentId: s.studentId } })}
+                    onClick={() => navigate('/admin/students', { state: { focusStudentId: s.studentId, from: { label: 'Alertas', to: '/admin/alerts' } } })}
                     title="Ver ficha del estudiante">
                     <div className="flex items-center justify-between">
                       <div style={{ flex: 1, minWidth: 0 }}>
@@ -106,7 +106,7 @@ export default function AlertsPage() {
               rainGroups.map((g) => (
                 <div key={g.groupId} className="card card-tap mb-2"
                   style={g.alert ? { borderLeft: '4px solid var(--red)' } : undefined}
-                  onClick={() => navigate('/admin/groups', { state: { focusCode: g.code } })}
+                  onClick={() => navigate('/admin/groups', { state: { focusCode: g.code, from: { label: 'Alertas', to: '/admin/alerts' } } })}
                   title="Ver grupo">
                   <div className="flex items-center justify-between">
                     <div>

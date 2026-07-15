@@ -143,7 +143,7 @@ export default function HorariosPage() {
                   {gs.map((g) => (
                     <div key={g.id} className={`card${canOpenGroup ? ' card-tap' : ''}`}
                       style={{ borderLeft: `4px solid ${LEVEL_COLOR[g.ballLevel] || 'var(--gray-300)'}` }}
-                      onClick={canOpenGroup ? () => navigate('/admin/groups', { state: { focusCode: g.code } }) : undefined}
+                      onClick={canOpenGroup ? () => navigate('/admin/groups', { state: { focusCode: g.code, from: { label: 'Horarios', to: '/horarios' } } }) : undefined}
                       title={canOpenGroup ? 'Ver este grupo en Grupos' : undefined}>
                       <div className="flex items-center justify-between mb-1">
                         <span className="font-medium">{g.code}{canOpenGroup && <span className="text-xs text-gray" style={{ fontWeight: 400 }}> ›</span>}</span>
