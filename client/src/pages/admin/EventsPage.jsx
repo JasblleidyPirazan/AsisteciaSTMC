@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { api } from '../../api/client';
+import EmptyState from '../../components/EmptyState';
 import { fmtDate } from '../../utils/dates';
 
 const EMPTY_FORM = { name: '', date: '', professorId: '', fixedRate: '', description: '' };
@@ -116,7 +117,9 @@ export default function EventsPage() {
         )}
 
         {events.length === 0 ? (
-          <div className="alert alert-info">No hay eventos registrados.</div>
+          <EmptyState icon="🏆" title="No hay eventos"
+            hint="Registra un torneo o clínica con su pago fijo."
+            action={{ label: '+ Nuevo evento', onClick: () => setShowForm(true) }} />
         ) : (
           events.map((ev) => (
             <div key={ev.id} className="card mb-2">

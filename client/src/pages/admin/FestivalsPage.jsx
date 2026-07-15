@@ -1,6 +1,7 @@
 import { useState, useEffect, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { api } from '../../api/client';
+import EmptyState from '../../components/EmptyState';
 import { fmtDate, bogotaTodayStr } from '../../utils/dates';
 import { toast } from '../../utils/toast';
 
@@ -212,7 +213,9 @@ export default function FestivalsPage() {
 
         <h2 className="mb-3">Festivales</h2>
         {festivals.length === 0 ? (
-          <div className="alert alert-info">No hay festivales registrados.</div>
+          <EmptyState icon="🎉" title="No hay festivales"
+            hint="Programa un festival con sus profesores participantes."
+            action={{ label: '+ Crear festival', onClick: () => setCreating(true) }} />
         ) : (
           festivals.map((f) => {
             const badge = STATUS_BADGE[f.status] || STATUS_BADGE.PROGRAMADA;

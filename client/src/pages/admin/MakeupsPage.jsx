@@ -1,6 +1,7 @@
 import { useState, useEffect, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { api } from '../../api/client';
+import EmptyState from '../../components/EmptyState';
 import { fmtDate, bogotaTodayStr } from '../../utils/dates';
 import { toast } from '../../utils/toast';
 
@@ -219,7 +220,9 @@ export default function MakeupsPage() {
 
         <h2 className="mb-3">Reposiciones</h2>
         {makeups.length === 0 ? (
-          <div className="alert alert-info">No hay reposiciones registradas.</div>
+          <EmptyState icon="🔁" title="No hay reposiciones"
+            hint="Crea una reposición grupal para recuperar clases perdidas."
+            action={{ label: '+ Crear reposición', onClick: () => setCreating(true) }} />
         ) : (
           makeups.map((m) => {
             const badge = STATUS_BADGE[m.status] || STATUS_BADGE.PROGRAMADA;

@@ -4,6 +4,7 @@ import { api } from '../../api/client';
 import { useAuth } from '../../hooks/useAuth';
 import { bogotaTodayStr } from '../../utils/dates';
 import PageBack from '../../components/PageBack';
+import EmptyState from '../../components/EmptyState';
 import { toast } from '../../utils/toast';
 
 const STATUS_BADGE = {
@@ -878,7 +879,15 @@ export default function StudentsPage() {
         )}
 
         {visible.length === 0 ? (
-          <div className="alert alert-info">No hay estudiantes que coincidan.</div>
+          students.length === 0 ? (
+            <EmptyState icon="🎓" title="Aún no hay estudiantes"
+              hint={canEdit ? 'Crea el primero o importa la matrícula desde Excel.' : undefined}
+              action={canEdit ? { label: '+ Nuevo estudiante', onClick: () => setShowForm(true) } : undefined} />
+          ) : (
+            <EmptyState icon="🔎" title="Ningún estudiante coincide"
+              hint="Ajusta la búsqueda o los filtros."
+              action={{ label: 'Limpiar filtros', onClick: () => { setSearch(''); setStatusFilter('ACTIVOS'); setGroupFilter(''); } }} />
+          )
         ) : sortBy === 'group' ? (
           Object.entries(groupedByCode(visible)).map(([code, list]) => (
             <div key={code} className="mb-3">
