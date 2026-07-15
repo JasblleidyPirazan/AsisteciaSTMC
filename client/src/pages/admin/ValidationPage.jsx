@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { api } from '../../api/client';
 import { fmtDate } from '../../utils/dates';
 import { buildPeriodOptions, getCurrentPeriod, periodLabel, periodRange } from '../../utils/periods';
+import { toast } from '../../utils/toast';
 
 /**
  * Cola de validación del coordinador: sesiones realizadas con asistente, por
@@ -56,7 +57,7 @@ export default function ValidationPage() {
       await api.post(`/sessions/${s.id}/validate-assistant`, { confirm: !s.coordinatorValidatedAt });
       await load();
     } catch (err) {
-      alert(err.message);
+      toast.error(err.message);
     } finally {
       setSaving((m) => ({ ...m, [s.id]: false }));
     }

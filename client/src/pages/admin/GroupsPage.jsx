@@ -3,6 +3,7 @@ import { useNavigate, useLocation } from 'react-router-dom';
 import { api } from '../../api/client';
 import { useAuth } from '../../hooks/useAuth';
 import PageBack from '../../components/PageBack';
+import { toast } from '../../utils/toast';
 
 const DAYS = [
   { key: 'lunes', label: 'Lun' },
@@ -87,7 +88,7 @@ export default function GroupsPage() {
       setGroups(groups.filter((g) => g.id !== hardDelTarget.id));
       setHardDelTarget(null);
     } catch (err) {
-      alert(err.message);
+      toast.error(err.message);
     } finally {
       setHardDeleting(false);
     }
@@ -194,7 +195,7 @@ export default function GroupsPage() {
     try {
       const updated = await api.put(`/groups/${g.id}`, { active: true });
       setGroups(groups.map((x) => (x.id === g.id ? updated : x)));
-    } catch (err) { alert(err.message); }
+    } catch (err) { toast.error(err.message); }
   }
 
   async function confirmDeactivate() {
@@ -204,7 +205,7 @@ export default function GroupsPage() {
       await api.delete(`/groups/${deactivateTarget.id}`, { reason: deactivateReason.trim() });
       setGroups(groups.map((g) => (g.id === deactivateTarget.id ? { ...g, active: false } : g)));
       setDeactivateTarget(null);
-    } catch (err) { alert(err.message); } finally { setDeactivating(false); }
+    } catch (err) { toast.error(err.message); } finally { setDeactivating(false); }
   }
 
   async function handleExport() {
@@ -219,7 +220,7 @@ export default function GroupsPage() {
       const a = document.createElement('a');
       a.href = url; a.download = 'grupos.xlsx'; a.click();
       URL.revokeObjectURL(url);
-    } catch (err) { alert(err.message); } finally { setExporting(false); }
+    } catch (err) { toast.error(err.message); } finally { setExporting(false); }
   }
 
   if (loading) return <div className="page"><div className="spinner" /></div>;

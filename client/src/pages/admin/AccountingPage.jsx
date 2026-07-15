@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { api } from '../../api/client';
 import { fmtDate, bogotaTodayStr } from '../../utils/dates';
 import { periodLabel } from '../../utils/periods';
+import { toast } from '../../utils/toast';
 
 // Módulo de Contabilidad (solo Admin/Superadmin):
 //   Ingresos = pagos de estudiantes, con verificación (conciliación) por pago.
@@ -95,7 +96,7 @@ export default function AccountingPage() {
         return { ...prev, income: { ...prev.income, payments, verifiedTotal, verifiedCount, unverifiedTotal, unverifiedCount } };
       });
     } catch (err) {
-      alert(err.message);
+      toast.error(err.message);
     }
   }
 
@@ -115,7 +116,7 @@ export default function AccountingPage() {
       a.click();
       URL.revokeObjectURL(url);
     } catch (err) {
-      alert(err.message);
+      toast.error(err.message);
     } finally {
       setExporting(false);
     }

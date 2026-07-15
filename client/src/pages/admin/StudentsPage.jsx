@@ -4,6 +4,7 @@ import { api } from '../../api/client';
 import { useAuth } from '../../hooks/useAuth';
 import { bogotaTodayStr } from '../../utils/dates';
 import PageBack from '../../components/PageBack';
+import { toast } from '../../utils/toast';
 
 const STATUS_BADGE = {
   MATRICULADO: { cls: 'badge-green', label: 'Matriculado' },
@@ -244,6 +245,7 @@ export default function StudentsPage() {
       });
       const data = await api.get(`/students/${detailTarget.id}/payments`);
       setPayments(data); setPayForm(emptyPayForm);
+      toast.success('Pago registrado');
     } catch (err) {
       setPayError(err.message);
     } finally {
@@ -258,7 +260,7 @@ export default function StudentsPage() {
       const data = await api.get(`/students/${detailTarget.id}/payments`);
       setPayments(data);
     } catch (err) {
-      alert(err.message);
+      toast.error(err.message);
     }
   }
 
@@ -271,7 +273,7 @@ export default function StudentsPage() {
       setStudents(students.map((s) => (s.id === updated.id ? { ...s, ...updated } : s)));
       const rep = await api.get(`/students/${detailTarget.id}/report`);
       setDetail(rep); setPrevAmount('');
-    } catch (err) { alert(err.message); } finally { setPrevSaving(false); }
+    } catch (err) { toast.error(err.message); } finally { setPrevSaving(false); }
   }
 
   function StudentRow({ s }) {
@@ -321,7 +323,7 @@ export default function StudentsPage() {
       a.click();
       URL.revokeObjectURL(url);
     } catch (err) {
-      alert(err.message);
+      toast.error(err.message);
     } finally {
       setExporting(false);
     }
@@ -457,7 +459,7 @@ export default function StudentsPage() {
       const updated = await api.post(`/students/${student.id}/unsuspend`, {});
       setStudents(students.map((s) => (s.id === student.id ? { ...s, ...updated } : s)));
     } catch (err) {
-      alert(err.message);
+      toast.error(err.message);
     }
   }
 
@@ -474,7 +476,7 @@ export default function StudentsPage() {
       setStudents(students.map((s) => (s.id === deactivateTarget.id ? { ...s, active: false, studentStatus: 'INACTIVO' } : s)));
       setDeactivateTarget(null);
     } catch (err) {
-      alert(err.message);
+      toast.error(err.message);
     } finally {
       setDeactivating(false);
     }
@@ -489,7 +491,7 @@ export default function StudentsPage() {
       setHardDelTarget(null);
       setDetailTarget(null);
     } catch (err) {
-      alert(err.message);
+      toast.error(err.message);
     } finally {
       setHardDeleting(false);
     }
@@ -542,7 +544,7 @@ export default function StudentsPage() {
           : s
       ));
     } catch (err) {
-      alert(err.message);
+      toast.error(err.message);
     }
   }
 

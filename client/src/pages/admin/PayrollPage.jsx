@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { api } from '../../api/client';
 import { fmtDate } from '../../utils/dates';
 import { buildPeriodOptions, getCurrentPeriod, periodLabel } from '../../utils/periods';
+import { toast } from '../../utils/toast';
 
 function fmt(n) {
   return new Intl.NumberFormat('es-CO', { style: 'currency', currency: 'COP', maximumFractionDigits: 0 }).format(n || 0);
@@ -105,7 +106,7 @@ export default function PayrollPage() {
       a.click();
       URL.revokeObjectURL(url);
     } catch (err) {
-      alert(err.message);
+      toast.error(err.message);
     } finally {
       setExporting(false);
     }
@@ -122,7 +123,7 @@ export default function PayrollPage() {
       await api.patch(`/payroll/records/${record.id}/paid`, { paid: !record.paidAt });
       await refreshDetail(payeeId);
     } catch (err) {
-      alert(err.message);
+      toast.error(err.message);
     }
   }
 
@@ -132,9 +133,9 @@ export default function PayrollPage() {
     try {
       const r = await api.post('/payroll/close', { period });
       await load();
-      if (r?.carried > 0) alert(`Quincena cerrada. ${r.carried} clase(s) suspendida(s) se arrastraron a ${r.nextPeriod}.`);
+      if (r?.carried > 0) toast.success(`Quincena cerrada. ${r.carried} clase(s) suspendida(s) se arrastraron a ${r.nextPeriod}.`);
     } catch (err) {
-      alert(err.message);
+      toast.error(err.message);
     } finally {
       setApproving(false);
     }
@@ -147,7 +148,7 @@ export default function PayrollPage() {
       await api.post('/payroll/reopen', { period });
       await load();
     } catch (err) {
-      alert(err.message);
+      toast.error(err.message);
     } finally {
       setApproving(false);
     }
@@ -172,7 +173,7 @@ export default function PayrollPage() {
       setDetailMap((prev) => ({ ...prev, [payeeId]: entry }));
       await load();
     } catch (err) {
-      alert(err.message);
+      toast.error(err.message);
     }
   }
 

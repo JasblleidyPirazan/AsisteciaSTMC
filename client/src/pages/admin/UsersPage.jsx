@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { api } from '../../api/client';
 import { useAuth } from '../../hooks/useAuth';
 import { roleLabel } from '../../utils/roles';
+import { toast } from '../../utils/toast';
 
 const EMPTY_FORM = { email: '', password: '', role: 'PHYSICAL_TRAINER' };
 
@@ -85,7 +86,7 @@ export default function UsersPage() {
       await api.put(`/users/${u.id}`, { active: !u.active });
       await loadUsers();
     } catch (err) {
-      alert(err.message);
+      toast.error(err.message);
     }
   }
 

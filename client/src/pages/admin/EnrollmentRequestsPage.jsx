@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { api } from '../../api/client';
 import { fmtDate as fmtDateUtil } from '../../utils/dates';
+import { toast } from '../../utils/toast';
 
 function fmtDate(d) {
   if (!d) return '—';
@@ -35,7 +36,7 @@ export default function EnrollmentRequestsPage() {
   }, []);
 
   async function handleApprove(req) {
-    if (!form.parentPassword) { alert('Ingresa una contraseña inicial para el padre'); return; }
+    if (!form.parentPassword) { toast.error('Ingresa una contraseña inicial para el padre'); return; }
     try {
       await api.post(`/enrollment/requests/${req.id}/approve`, {
         groupId: form.groupId || undefined,
@@ -45,7 +46,7 @@ export default function EnrollmentRequestsPage() {
       setApproving(null);
       setForm({ groupId: '', parentPassword: '' });
     } catch (err) {
-      alert(err.message);
+      toast.error(err.message);
     }
   }
 

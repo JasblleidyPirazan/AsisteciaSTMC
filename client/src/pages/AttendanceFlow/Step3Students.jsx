@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import { api } from '../../api/client';
 import { cacheGet, cacheSet, CACHE_KEYS } from '../../utils/offlineCache';
+import { toast } from '../../utils/toast';
 
 const STATUS_LABELS = { PRESENTE: 'P', AUSENTE: 'A', JUSTIFICADA: 'J' };
 const STATUS_CLASS = { PRESENTE: 'present', AUSENTE: 'absent', JUSTIFICADA: 'justified' };
@@ -91,7 +92,7 @@ export default function Step3Students({ groupId, records, onChange, onNext }) {
       setTrialName('');
       setSearch('');
     } catch (err) {
-      alert(err.message || 'No se pudo crear la clase de prueba (¿sin conexión?)');
+      toast.error(err.message || 'No se pudo crear la clase de prueba (¿sin conexión?)');
     } finally {
       setTrialSaving(false);
     }
