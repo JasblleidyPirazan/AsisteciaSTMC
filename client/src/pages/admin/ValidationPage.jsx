@@ -78,7 +78,7 @@ export default function ValidationPage() {
                 <div className="flex items-center justify-between mb-1">
                   <span className="font-medium">{s.groupCode}</span>
                   {s.complete ? (
-                    <span className="badge badge-green">✓ Validada</span>
+                    <span className="badge badge-green">{s.autoValidated ? '✓ Validada automáticamente' : '✓ Validada'}</span>
                   ) : s.matches ? (
                     <span className="badge badge-yellow">Coincide — falta validar</span>
                   ) : (
@@ -106,17 +106,24 @@ export default function ValidationPage() {
                   </div>
                 )}
 
-                <button
-                  className={`btn btn-full mt-3 ${s.coordinatorValidatedAt ? 'btn-outline' : 'btn-primary'}`}
-                  style={{ minHeight: 40, fontSize: '0.875rem' }}
-                  disabled={saving[s.id] || (!s.matches && !s.coordinatorValidatedAt)}
-                  onClick={() => toggleValidation(s)}
-                >
-                  {saving[s.id] ? 'Guardando...'
-                    : s.coordinatorValidatedAt ? 'Quitar validación'
-                    : s.matches ? '✓ Validar'
-                    : 'Los reportes no coinciden'}
-                </button>
+                {s.autoValidated ? (
+                  <div className="text-xs text-gray mt-3">
+                    La información del asistente, el profesor y el coordinador coincide:
+                    se validó automáticamente, sin acción manual.
+                  </div>
+                ) : (
+                  <button
+                    className={`btn btn-full mt-3 ${s.coordinatorValidatedAt ? 'btn-outline' : 'btn-primary'}`}
+                    style={{ minHeight: 40, fontSize: '0.875rem' }}
+                    disabled={saving[s.id] || (!s.matches && !s.coordinatorValidatedAt)}
+                    onClick={() => toggleValidation(s)}
+                  >
+                    {saving[s.id] ? 'Guardando...'
+                      : s.coordinatorValidatedAt ? 'Quitar validación'
+                      : s.matches ? '✓ Validar'
+                      : 'Los reportes no coinciden'}
+                  </button>
+                )}
               </div>
             );
           })

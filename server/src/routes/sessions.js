@@ -546,21 +546,30 @@ router.get('/validation-queue', async (req, res, next) => {
       orderBy: { date: 'desc' },
     });
 
-    const data = sessions.map((s) => ({
-      id: s.id,
-      date: s.date,
-      kind: s.kind,
-      title: s.title,
-      groupCode: s.group?.code || s.title,
-      professor: s.substituteProfessor || s.group?.professor || s.makeupProfessor,
-      dictatedByOwner: s.dictatedByOwner,
-      notDictatedNote: s.notDictatedNote,
-      assistantReported: s.assistant,        // lo que reportó el profesor
-      assistantConfirmed: s.assistantConfirmed, // lo que confirmó el asistente
-      coordinatorValidatedAt: s.coordinatorValidatedAt,
-      matches: !!s.assistantId && s.assistantId === s.assistantConfirmedId,
-      complete: !!s.assistantId && s.assistantId === s.assistantConfirmedId && !!s.coordinatorValidatedAt,
-    }));
+    const data = sessions.map((s) => {
+      const matches = !!s.assistantId && s.assistantId === s.assistantConfirmedId;
+      // Todo lo que coincide se valida automáticamente: en una clase regular
+      // consolidada (MATCHED), profesor y coordinador ya coincidieron en el
+      // asistente vía doble reporte — no se exige clic manual.
+      const coordinatorOk = !!s.coordinatorValidatedAt ||
+        (s.kind === 'REGULAR' && s.consolidationStatus === 'MATCHED');
+      return {
+        id: s.id,
+        date: s.date,
+        kind: s.kind,
+        title: s.title,
+        groupCode: s.group?.code || s.title,
+        professor: s.substituteProfessor || s.group?.professor || s.makeupProfessor,
+        dictatedByOwner: s.dictatedByOwner,
+        notDictatedNote: s.notDictatedNote,
+        assistantReported: s.assistant,        // lo que reportó el profesor
+        assistantConfirmed: s.assistantConfirmed, // lo que confirmó el asistente
+        coordinatorValidatedAt: s.coordinatorValidatedAt,
+        matches,
+        autoValidated: matches && coordinatorOk && !s.coordinatorValidatedAt,
+        complete: matches && coordinatorOk,
+      };
+    });
 
     res.json({ success: true, data });
   } catch (err) {

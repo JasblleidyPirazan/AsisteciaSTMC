@@ -260,6 +260,17 @@ router.post('/:id/finalize', async (req, res, next) => {
     if (assistantId !== undefined) sessionData.assistantId = assistantId || null;
     // Only the first report stamps firstReportedAt (late-report pay suspension)
     if (!session.firstReportedAt) sessionData.firstReportedAt = new Date();
+    // Auto-validación: si quien reporta la reposición es el coordinador/admin,
+    // su reporte ES la información del coordinador sobre el asistente — lo que
+    // coincide se valida solo, sin clic extra en la cola. Si reporta el
+    // profesor y CAMBIA el asistente, la validación previa deja de aplicar.
+    if (['ADMIN', 'SUPERADMIN', 'PHYSICAL_TRAINER'].includes(req.user.role)) {
+      sessionData.coordinatorValidatedById = req.user.id;
+      sessionData.coordinatorValidatedAt = new Date();
+    } else if (assistantId !== undefined && (assistantId || null) !== (session.assistantId || null)) {
+      sessionData.coordinatorValidatedById = null;
+      sessionData.coordinatorValidatedAt = null;
+    }
 
     await prisma.classSession.update({ where: { id: req.params.id }, data: sessionData });
 
