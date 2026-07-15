@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { api } from '../../api/client';
+import StudentQuickPanel from '../../components/StudentQuickPanel';
 
 const LEVEL_BADGE = {
   ROJA: { cls: 'badge-red', label: 'Roja' },
@@ -15,6 +16,7 @@ export default function AlertsPage() {
   const [loading, setLoading] = useState(true);
   const [onlyAlerts, setOnlyAlerts] = useState(true);
   const [error, setError] = useState('');
+  const [panelStudentId, setPanelStudentId] = useState(null);
 
   useEffect(() => {
     setLoading(true);
@@ -76,8 +78,8 @@ export default function AlertsPage() {
                 return (
                   <div key={s.studentId} className="card card-tap mb-2"
                     style={badge ? { borderLeft: `4px solid ${s.level === 'ROJA' ? 'var(--red)' : 'var(--yellow)'}` } : undefined}
-                    onClick={() => navigate('/admin/students', { state: { focusStudentId: s.studentId, from: { label: 'Alertas', to: '/admin/alerts' } } })}
-                    title="Ver ficha del estudiante">
+                    onClick={() => setPanelStudentId(s.studentId)}
+                    title="Ver ficha rápida">
                     <div className="flex items-center justify-between">
                       <div style={{ flex: 1, minWidth: 0 }}>
                         <div className="font-medium">{s.name} <span className="text-xs text-gray" style={{ fontWeight: 400 }}>›</span></div>
@@ -125,6 +127,14 @@ export default function AlertsPage() {
           </>
         )}
       </div>
+
+      {panelStudentId && (
+        <StudentQuickPanel
+          studentId={panelStudentId}
+          onClose={() => setPanelStudentId(null)}
+          from={{ label: 'Alertas', to: '/admin/alerts' }}
+        />
+      )}
     </div>
   );
 }
