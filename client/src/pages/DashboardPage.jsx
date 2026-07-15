@@ -5,11 +5,11 @@ import { useAuth } from '../hooks/useAuth';
 import GroupCard from '../components/GroupCard';
 import OfflineBanner from '../components/OfflineBanner';
 import AssistantDayView from '../components/AssistantDayView';
-import { fmtDate } from '../utils/dates';
+import { fmtDate, bogotaTodayStr } from '../utils/dates';
 import { cacheGet, cacheSet, CACHE_KEYS } from '../utils/offlineCache';
 
 function todayStr() {
-  return new Date().toISOString().slice(0, 10);
+  return bogotaTodayStr();
 }
 
 function formatDate(d) {

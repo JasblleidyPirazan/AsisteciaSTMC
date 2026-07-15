@@ -5,7 +5,7 @@ const { getCurrentPeriod } = require('../services/costEngine');
 const { isSeenRecord } = require('../services/attendanceStats');
 const { computeAttendanceDeviations } = require('../services/attendanceAlerts');
 const { byGroupCode } = require('../lib/sort');
-const { bogotaToday } = require('../lib/dates');
+const { bogotaToday, bogotaDateStr, bogotaMinutesOfDay } = require('../lib/dates');
 
 const router = express.Router();
 
@@ -375,8 +375,8 @@ router.get('/class/:sessionId', requireRole('ADMIN', 'PHYSICAL_TRAINER', 'TEACHE
 
 router.get('/dashboard', async (req, res, next) => {
   try {
-    const now = new Date();
-    const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1);
+    // Mes y día calculados en hora de Bogotá (el servidor corre en UTC).
+    const startOfMonth = new Date(`${bogotaDateStr().slice(0, 7)}-01T00:00:00.000Z`);
     const isAdmin = ['ADMIN', 'SUPERADMIN'].includes(req.user.role);
     const currentPeriod = getCurrentPeriod();
 
@@ -402,7 +402,7 @@ router.get('/dashboard', async (req, res, next) => {
 
     const todayAttendance = await prisma.attendanceRecord.groupBy({
       by: ['status'],
-      where: { session: { date: new Date(now.toDateString()) } },
+      where: { session: { date: bogotaToday() } },
       _count: { status: true },
     });
 
@@ -434,10 +434,11 @@ router.get('/dashboard', async (req, res, next) => {
 router.get('/strategy', requireRole('ADMIN'), async (req, res, next) => {
   try {
     const semester = await prisma.semester.findFirst({ where: { active: true } });
-    // Ventana de análisis: el semestre activo; sin semestre, los últimos 90 días.
-    const now = new Date();
-    const from = semester ? new Date(semester.startDate) : new Date(now.getTime() - 90 * 24 * 3600 * 1000);
-    const to = semester ? new Date(semester.endDate) : now;
+    // Ventana de análisis: el semestre activo; sin semestre, los últimos 90
+    // días contados desde el día de Bogotá.
+    const todayBogota = bogotaToday();
+    const from = semester ? new Date(semester.startDate) : new Date(todayBogota.getTime() - 90 * 24 * 3600 * 1000);
+    const to = semester ? new Date(semester.endDate) : todayBogota;
     const dateRange = { gte: from, lte: to };
 
     const [studentRows, groups, sessions, attRows, payments, costRows] = await Promise.all([
@@ -592,11 +593,12 @@ router.get('/strategy', requireRole('ADMIN'), async (req, res, next) => {
 // today's classes, professor load and pending assistant reviews.
 router.get('/home', requireRole('ADMIN', 'SUPERADMIN', 'PHYSICAL_TRAINER'), async (req, res, next) => {
   try {
-    const now = new Date();
-    const today = new Date(now.toDateString());
-    const day = now.getDay(); // 0=Dom
-    const monday = new Date(now.getFullYear(), now.getMonth(), now.getDate() + (day === 0 ? -6 : 1 - day));
-    const weekEnd = new Date(monday); weekEnd.setDate(monday.getDate() + 6);
+    // Todo el calendario del panel se ancla al día de Bogotá (server = UTC).
+    const today = bogotaToday(); // medianoche UTC del día en Bogotá (@db.Date)
+    const day = today.getUTCDay(); // 0=Dom
+    const monday = new Date(today);
+    monday.setUTCDate(today.getUTCDate() + (day === 0 ? -6 : 1 - day));
+    const weekEnd = new Date(monday); weekEnd.setUTCDate(monday.getUTCDate() + 6);
 
     const semester = await prisma.semester.findFirst({ where: { active: true } });
 
@@ -640,7 +642,7 @@ router.get('/home', requireRole('ADMIN', 'SUPERADMIN', 'PHYSICAL_TRAINER'), asyn
 
     const dowFields = ['domingo', 'lunes', 'martes', 'miercoles', 'jueves', 'viernes', 'sabado'];
     const todayGroups = await prisma.group.findMany({
-      where: { active: true, [dowFields[now.getDay()]]: true },
+      where: { active: true, [dowFields[day]]: true },
       select: {
         id: true, code: true, ballLevel: true, court: true, startTime: true, endTime: true,
         professor: { select: { name: true } }, _count: { select: { enrollments: true } },
@@ -654,7 +656,8 @@ router.get('/home', requireRole('ADMIN', 'SUPERADMIN', 'PHYSICAL_TRAINER'), asyn
         })
       : [];
     const sessByGroup = Object.fromEntries(todaySessions.map((s) => [s.groupId, s]));
-    const nowHM = now.getHours() * 60 + now.getMinutes();
+    // Hora de Bogotá, no la del servidor (UTC-5): decide "En curso" / "Próxima".
+    const nowHM = bogotaMinutesOfDay();
     const toMin = (t) => { const [h, m] = String(t || '0:0').split(':').map(Number); return h * 60 + (m || 0); };
     const todayClasses = todayGroups.map((g) => {
       const s = sessByGroup[g.id];

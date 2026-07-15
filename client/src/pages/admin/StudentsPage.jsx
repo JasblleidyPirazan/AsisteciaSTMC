@@ -2,6 +2,7 @@ import { useState, useEffect, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { api } from '../../api/client';
 import { useAuth } from '../../hooks/useAuth';
+import { bogotaTodayStr } from '../../utils/dates';
 
 const STATUS_BADGE = {
   MATRICULADO: { cls: 'badge-green', label: 'Matriculado' },
@@ -24,10 +25,6 @@ function colorFor(str) {
 }
 function primaryEnrollment(s) {
   return s.enrollments?.find((e) => e.enrollmentType === 'PRIMARY') || s.enrollments?.[0] || null;
-}
-// "Hoy" en hora de Bogotá (YYYY-MM-DD) — default de la fecha de inicio de clases.
-function bogotaTodayStr() {
-  return new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Bogota' }).format(new Date());
 }
 function groupedByCode(list) {
   const out = {};
@@ -140,7 +137,7 @@ export default function StudentsPage() {
 
   // Registro de pagos (dentro de la ficha)
   const [payments, setPayments] = useState(null);
-  const emptyPayForm = { paymentDate: new Date().toISOString().slice(0, 10), method: 'TRANSFERENCIA', amount: '', note: '' };
+  const emptyPayForm = { paymentDate: bogotaTodayStr(), method: 'TRANSFERENCIA', amount: '', note: '' };
   const [payForm, setPayForm] = useState(emptyPayForm);
   const [paySaving, setPaySaving] = useState(false);
   const [payError, setPayError] = useState('');

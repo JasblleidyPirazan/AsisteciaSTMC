@@ -1,10 +1,10 @@
 import { useState, useEffect, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { api } from '../../api/client';
-import { fmtDate } from '../../utils/dates';
+import { fmtDate, bogotaTodayStr } from '../../utils/dates';
 
 function todayStr() {
-  return new Date().toISOString().slice(0, 10);
+  return bogotaTodayStr();
 }
 
 function fmt(n) {
