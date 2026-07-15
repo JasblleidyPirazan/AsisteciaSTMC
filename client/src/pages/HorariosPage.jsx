@@ -1,5 +1,7 @@
 import { useState, useEffect, useMemo } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { api } from '../api/client';
+import { useAuth } from '../hooks/useAuth';
 
 // Malla semanal organizada SOLO por horarios (las canchas ya no estructuran la
 // vista; se muestran como dato dentro de cada grupo). Los estudiantes van
@@ -32,6 +34,10 @@ function byCode(a, b) {
 }
 
 export default function HorariosPage() {
+  const navigate = useNavigate();
+  const { user } = useAuth();
+  // Roles que pueden abrir la página de Grupos (para navegar al tocar una clase).
+  const canOpenGroup = ['ADMIN', 'SUPERADMIN', 'PHYSICAL_TRAINER', 'RECEPTION'].includes(user?.role);
   const [groups, setGroups] = useState([]);
   const [loading, setLoading] = useState(true);
   const [tab, setTab] = useState(null);
@@ -135,10 +141,12 @@ export default function HorariosPage() {
                 <div className="time-slot-header">🕐 {time}</div>
                 <div className="card-grid">
                   {gs.map((g) => (
-                    <div key={g.id} className="card"
-                      style={{ borderLeft: `4px solid ${LEVEL_COLOR[g.ballLevel] || 'var(--gray-300)'}` }}>
+                    <div key={g.id} className={`card${canOpenGroup ? ' card-tap' : ''}`}
+                      style={{ borderLeft: `4px solid ${LEVEL_COLOR[g.ballLevel] || 'var(--gray-300)'}` }}
+                      onClick={canOpenGroup ? () => navigate('/admin/groups', { state: { focusCode: g.code } }) : undefined}
+                      title={canOpenGroup ? 'Ver este grupo en Grupos' : undefined}>
                       <div className="flex items-center justify-between mb-1">
-                        <span className="font-medium">{g.code}</span>
+                        <span className="font-medium">{g.code}{canOpenGroup && <span className="text-xs text-gray" style={{ fontWeight: 400 }}> ›</span>}</span>
                         <span className="text-xs text-gray">
                           {g.ballLevel && (
                             <span className="legend-dot" style={{ background: LEVEL_COLOR[g.ballLevel], marginRight: 4 }} />
