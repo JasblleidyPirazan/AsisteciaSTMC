@@ -108,3 +108,14 @@ export function quincenaShort(period, semester) {
   const n = quincenaNumber(period, semester?.startDate);
   return n ? `Quincena ${n}` : calendarLabel(period);
 }
+
+// Rango de fechas [from, to] (YYYY-MM-DD) que cubre una quincena "YYYY-MM-h":
+// h=1 → días 1–15, h=2 → 16 al último día del mes.
+export function periodRange(period) {
+  const [y, m, h] = String(period).split('-').map(Number);
+  const mm = String(m).padStart(2, '0');
+  const from = `${y}-${mm}-${h === 1 ? '01' : '16'}`;
+  const lastDay = h === 1 ? 15 : new Date(Date.UTC(y, m, 0)).getUTCDate();
+  const to = `${y}-${mm}-${String(lastDay).padStart(2, '0')}`;
+  return { from, to };
+}
