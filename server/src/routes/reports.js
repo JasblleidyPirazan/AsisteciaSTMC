@@ -602,13 +602,16 @@ router.get('/home', requireRole('ADMIN', 'SUPERADMIN', 'PHYSICAL_TRAINER'), asyn
 
     const semester = await prisma.semester.findFirst({ where: { active: true } });
 
-    const [studentsActive, groupsActive, groupsInactive, professors, assistants] = await Promise.all([
+    const [studentsActive, groupsActive, groupsInactive, professors, assistants, classesAcquiredAgg] = await Promise.all([
       prisma.student.count({ where: { active: true } }),
       prisma.group.count({ where: { active: true } }),
       prisma.group.count({ where: { active: false } }),
       prisma.professor.count({ where: { active: true } }),
       prisma.assistant.count({ where: { active: true } }),
+      // Total de clases adquiridas (compradas) por los estudiantes activos.
+      prisma.student.aggregate({ where: { active: true }, _sum: { classesAcquired: true } }),
     ]);
+    const classesAcquired = classesAcquiredAgg._sum.classesAcquired || 0;
     const newThisSemester = semester
       ? await prisma.student.count({ where: { active: true, createdAt: { gte: semester.startDate } } })
       : null;
@@ -705,7 +708,7 @@ router.get('/home', requireRole('ADMIN', 'SUPERADMIN', 'PHYSICAL_TRAINER'), asyn
     res.json({
       success: true,
       data: {
-        students: { active: studentsActive, newThisSemester },
+        students: { active: studentsActive, newThisSemester, classesAcquired },
         groups: { active: groupsActive, inactive: groupsInactive },
         staff: { professors, assistants },
         attendanceAvg: distribution.presente,
