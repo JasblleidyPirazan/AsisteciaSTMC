@@ -712,6 +712,9 @@ input.form-input, select.form-select, textarea.form-input {
 .topbar-search ~ .topbar-role { margin-left: 12px; }
 @media (max-width: 520px) { .topbar-search-hint { display: none; } }
 .app-shell-content { flex: 1 1 auto; padding: 18px; }
+/* Volver contextual (breadcrumb): "‹ Horarios" en vez de la flecha suelta */
+.nav-back-ctx { width: auto; padding: 0 12px; gap: 4px; font-size: 0.85rem; font-weight: 600;
+  color: var(--brand-indigo, var(--blue)); white-space: nowrap; }
 
 /* ===== Buscador global (command palette ⌘K) ===== */
 .cmdk-overlay { position: fixed; inset: 0; background: rgba(15,18,30,0.45); z-index: 200;

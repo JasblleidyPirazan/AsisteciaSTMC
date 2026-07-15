@@ -2,6 +2,7 @@ import { useState, useEffect, useMemo } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { api } from '../../api/client';
 import { useAuth } from '../../hooks/useAuth';
+import PageBack from '../../components/PageBack';
 
 const DAYS = [
   { key: 'lunes', label: 'Lun' },
@@ -242,7 +243,7 @@ export default function GroupsPage() {
   return (
     <div className="page page-wide">
       <div className="page-header">
-        <button className="nav-back" onClick={() => navigate('/admin')}>←</button>
+        <PageBack fallback="/admin" />
         <div style={{ flex: 1 }}>
           <h1>Grupos</h1>
           <p className="text-xs text-gray">{summary.activos} grupos activos en {summary.canchas} canchas</p>

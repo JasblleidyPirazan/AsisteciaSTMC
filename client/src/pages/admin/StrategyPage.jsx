@@ -156,7 +156,7 @@ export default function StrategyPage() {
                           <div className="font-medium">
                             {g.ballLevel && <span className="legend-dot" style={{ background: BALL_COLOR[g.ballLevel] || 'var(--gray-400)', marginRight: 6 }} />}
                             <button className="link-name font-medium"
-                              onClick={() => navigate('/admin/groups', { state: { focusCode: g.code } })}
+                              onClick={() => navigate('/admin/groups', { state: { focusCode: g.code, from: { label: 'Visión Estratégica', to: '/admin/strategy' } } })}
                               title="Ver grupo">{g.code} ›</button>
                           </div>
                           <div className="text-xs text-gray">{g.ballLevel || ''}{g.subLevel ? ` ${g.subLevel}` : ''}</div>

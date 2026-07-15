@@ -248,7 +248,7 @@ export default function AccountingPage() {
                             <td>
                               {p.student?.id ? (
                                 <button className="link-name font-medium"
-                                  onClick={() => navigate('/admin/students', { state: { focusStudentId: p.student.id } })}
+                                  onClick={() => navigate('/admin/students', { state: { focusStudentId: p.student.id, from: { label: 'Contabilidad', to: '/admin/accounting' } } })}
                                   title="Ver ficha del estudiante">
                                   {p.student.name} ›
                                 </button>
