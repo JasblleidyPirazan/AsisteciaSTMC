@@ -21,6 +21,15 @@ const PAY_STATUS_BADGE = {
   PENDING_MATCH: { cls: 'badge-yellow', label: 'Pendiente' },
 };
 
+// Traducción de los códigos de "falta" de la triple coincidencia (igual que en
+// la página de Validación) para decir qué reporte hace falta.
+const MISSING_LABEL = {
+  professor: 'Falta el reporte del profesor (no registró al asistente)',
+  assistant: 'Falta la confirmación del asistente',
+  assistant_mismatch: 'El asistente confirmado no coincide con el que reportó el profesor',
+  coordinator: 'Falta la validación/coincidencia del coordinador',
+};
+
 const AVATAR_COLORS = ['#3F52A8', '#4F9FB2', '#7A5AF8', '#E8A23B', '#1FA971', '#E8526A', '#6F7BA6'];
 function initials(name) {
   const p = String(name || '').trim().split(/\s+/);
@@ -177,18 +186,18 @@ export default function PayrollPage() {
     }
   }
 
-  // Motivo por el que un pago de asistente sigue PENDING_MATCH (retenido), para
-  // que el coordinador sepa qué falta. Refleja la regla del motor de costos.
+  // Motivo por el que un pago de asistente sigue PENDING_MATCH (retenido): qué
+  // reporte falta de la triple coincidencia. El servidor calcula `assistantMissing`
+  // (misma fuente que la cola de validación); aquí solo traducimos a texto.
   function pendingReason(r) {
     if (r.payeeType !== 'ASSISTANT' || r.payStatus !== 'PENDING_MATCH') return null;
-    const s = r.session || {};
-    const confirmed = s.assistantId && s.assistantConfirmedId && s.assistantConfirmedId === s.assistantId;
-    const coordinatorOk = !!s.coordinatorValidatedAt ||
-      (s.kind === 'REGULAR' && s.consolidationStatus === 'MATCHED');
-    if (!s.assistantId) return 'El profesor no reportó asistente en esta clase.';
-    if (!confirmed) return 'Falta que el asistente confirme su acompañamiento (Inicio → clases del día).';
-    if (!coordinatorOk) return 'Falta la coincidencia/validación del coordinador.';
-    return 'Pendiente de la triple coincidencia.';
+    const missing = r.assistantMissing || [];
+    if (missing.length === 0) {
+      // Coincide todo por estado actual pero el costo aún está retenido:
+      // suele faltar la validación del coordinador (o recalcular). Guiamos allí.
+      return ['Falta la validación del coordinador (revísala en Validación).'];
+    }
+    return missing.map((m) => MISSING_LABEL[m] || m);
   }
 
   function DetailRows({ detail, payeeId }) {
@@ -211,11 +220,11 @@ export default function PayrollPage() {
                 </span>
                 <span>{fmt(r.total)}</span>
               </div>
-              {reason && (
-                <div className="text-xs" style={{ color: 'var(--text-soft)', paddingLeft: 2, marginTop: 2 }}>
-                  ⓘ {reason}
+              {reason && reason.map((line, i) => (
+                <div key={i} className="text-xs" style={{ color: 'var(--text-soft)', paddingLeft: 2, marginTop: 2 }}>
+                  ⓘ {line}
                 </div>
-              )}
+              ))}
               {/* Pago realizado (solo habilitados) */}
               {payable && !locked && (
                 <button className="btn btn-ghost" style={{ minHeight: 26, padding: '0 8px', fontSize: '0.72rem', color: r.paidAt ? 'var(--red)' : 'var(--green)' }}

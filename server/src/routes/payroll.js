@@ -2,6 +2,7 @@ const express = require('express');
 const prisma = require('../lib/prisma');
 const { requireRole } = require('../middleware/auth');
 const { getNextPeriod } = require('../services/costEngine');
+const { assistantMissing } = require('../lib/assistantMatch');
 const XLSX = require('xlsx');
 
 const router = express.Router();
@@ -61,6 +62,11 @@ router.get('/', async (req, res, next) => {
       if (r.payStatus === 'SUSPENDED_LATE') byPayee[id].suspendedTotal += amount;
       else if (r.payStatus === 'PENDING_MATCH') byPayee[id].pendingTotal += amount;
       else byPayee[id].payableTotal += amount;
+      // Para un pago de asistente retenido (PENDING_MATCH), qué reporte falta de
+      // la triple coincidencia — mismo cálculo que la cola de validación.
+      if (r.payeeType === 'ASSISTANT' && r.payStatus === 'PENDING_MATCH') {
+        r.assistantMissing = assistantMissing(r.session);
+      }
       byPayee[id].records.push(r);
     }
 
