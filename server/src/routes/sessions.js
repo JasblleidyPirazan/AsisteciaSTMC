@@ -3,6 +3,7 @@ const prisma = require('../lib/prisma');
 const { calculateCosts } = require('../services/costEngine');
 const { consolidateSession } = require('../services/consolidation');
 const { isSessionPeriodLocked } = require('../lib/payrollLock');
+const { assistantMissing } = require('../lib/assistantMatch');
 
 const router = express.Router();
 
@@ -547,22 +548,15 @@ router.get('/validation-queue', async (req, res, next) => {
     });
 
     const data = sessions.map((s) => {
-      const professorReported = !!s.assistantId;      // el profesor registró un asistente
-      const assistantConfirmed = !!s.assistantConfirmedId; // el asistente marcó su acompañamiento
-      const matches = professorReported && s.assistantId === s.assistantConfirmedId;
+      const matches = !!s.assistantId && s.assistantId === s.assistantConfirmedId;
       // Todo lo que coincide se valida automáticamente: en una clase regular
       // consolidada (MATCHED), profesor y coordinador ya coincidieron en el
       // asistente vía doble reporte — no se exige clic manual.
       const coordinatorOk = !!s.coordinatorValidatedAt ||
         (s.kind === 'REGULAR' && s.consolidationStatus === 'MATCHED');
 
-      // Qué falta de la triple coincidencia (para el aviso). Códigos que el
-      // frontend traduce a texto legible.
-      const missing = [];
-      if (!professorReported) missing.push('professor');
-      if (!assistantConfirmed) missing.push('assistant');
-      else if (!matches) missing.push('assistant_mismatch');
-      if (!coordinatorOk) missing.push('coordinator');
+      // Qué falta de la triple coincidencia (fuente compartida con liquidación).
+      const missing = assistantMissing(s);
 
       return {
         id: s.id,
