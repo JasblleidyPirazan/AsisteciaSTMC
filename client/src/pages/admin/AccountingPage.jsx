@@ -246,7 +246,15 @@ export default function AccountingPage() {
                           <tr key={p.id}>
                             <td style={{ whiteSpace: 'nowrap' }}>{fmtDate(p.paymentDate, { day: 'numeric', month: 'short', year: 'numeric' })}</td>
                             <td>
-                              <div className="font-medium">{p.student?.name}</div>
+                              {p.student?.id ? (
+                                <button className="link-name font-medium"
+                                  onClick={() => navigate('/admin/students', { state: { focusStudentId: p.student.id } })}
+                                  title="Ver ficha del estudiante">
+                                  {p.student.name} ›
+                                </button>
+                              ) : (
+                                <div className="font-medium">{p.student?.name}</div>
+                              )}
                               {p.note && <div className="text-xs text-gray">{p.note}</div>}
                             </td>
                             <td><span className={`badge ${METHOD_BADGE[p.method] || 'badge-gray'}`}>{METHOD_LABEL[p.method] || p.method}</span></td>

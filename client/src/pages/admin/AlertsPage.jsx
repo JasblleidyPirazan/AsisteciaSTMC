@@ -74,11 +74,13 @@ export default function AlertsPage() {
               students.map((s) => {
                 const badge = LEVEL_BADGE[s.level];
                 return (
-                  <div key={s.studentId} className="card mb-2"
-                    style={badge ? { borderLeft: `4px solid ${s.level === 'ROJA' ? 'var(--red)' : 'var(--yellow)'}` } : undefined}>
+                  <div key={s.studentId} className="card card-tap mb-2"
+                    style={badge ? { borderLeft: `4px solid ${s.level === 'ROJA' ? 'var(--red)' : 'var(--yellow)'}` } : undefined}
+                    onClick={() => navigate('/admin/students', { state: { focusStudentId: s.studentId } })}
+                    title="Ver ficha del estudiante">
                     <div className="flex items-center justify-between">
                       <div style={{ flex: 1, minWidth: 0 }}>
-                        <div className="font-medium">{s.name}</div>
+                        <div className="font-medium">{s.name} <span className="text-xs text-gray" style={{ fontWeight: 400 }}>›</span></div>
                         <div className="text-xs text-gray">{s.groups.join(' · ') || 'Sin grupo'}</div>
                         <div className="text-xs text-gray">
                           Vistas {s.seen} / esperadas {s.expected} · desviación {s.deviation}
@@ -102,11 +104,13 @@ export default function AlertsPage() {
               <div className="alert alert-success">🌤️ Ningún grupo con clases perdidas por lluvia.</div>
             ) : (
               rainGroups.map((g) => (
-                <div key={g.groupId} className="card mb-2"
-                  style={g.alert ? { borderLeft: '4px solid var(--red)' } : undefined}>
+                <div key={g.groupId} className="card card-tap mb-2"
+                  style={g.alert ? { borderLeft: '4px solid var(--red)' } : undefined}
+                  onClick={() => navigate('/admin/groups', { state: { focusCode: g.code } })}
+                  title="Ver grupo">
                   <div className="flex items-center justify-between">
                     <div>
-                      <div className="font-medium">{g.code}</div>
+                      <div className="font-medium">{g.code} <span className="text-xs text-gray" style={{ fontWeight: 400 }}>›</span></div>
                       <div className="text-xs text-gray">{g.professor?.name}</div>
                     </div>
                     <div style={{ textAlign: 'right' }}>
