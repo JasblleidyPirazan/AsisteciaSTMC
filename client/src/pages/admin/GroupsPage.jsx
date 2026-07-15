@@ -1,5 +1,5 @@
 import { useState, useEffect, useMemo } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useLocation } from 'react-router-dom';
 import { api } from '../../api/client';
 import { useAuth } from '../../hooks/useAuth';
 
@@ -45,6 +45,7 @@ function fmtDeactivated(v) {
 
 export default function GroupsPage() {
   const navigate = useNavigate();
+  const location = useLocation();
   const { user } = useAuth();
   // CRUD de grupos: ADMIN / SUPERADMIN / Coordinador (PHYSICAL_TRAINER)
   const canEdit = ['ADMIN', 'SUPERADMIN', 'PHYSICAL_TRAINER'].includes(user?.role);
@@ -58,7 +59,9 @@ export default function GroupsPage() {
   const [editingId, setEditingId] = useState(null);
   const [error, setError] = useState('');
   const [saving, setSaving] = useState(false);
-  const [search, setSearch] = useState('');
+  // Al llegar desde Horarios (tocar un grupo) precargamos la búsqueda con su
+  // código para que la lista quede filtrada justo a ese grupo.
+  const [search, setSearch] = useState(location.state?.focusCode || '');
   const [showInactive, setShowInactive] = useState(false);
   const [filterLevel, setFilterLevel] = useState('');
   const [filterProfessor, setFilterProfessor] = useState('');

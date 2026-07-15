@@ -187,8 +187,10 @@ export default function StudentsPage() {
   const visible = useMemo(() => {
     const q = search.trim().toLowerCase();
     let arr = students.filter((s) => {
-      if (statusFilter === 'ACTIVOS' && s.studentStatus === 'INACTIVO') return false;
-      if (statusFilter !== 'ACTIVOS' && statusFilter !== 'TODOS' && s.studentStatus !== statusFilter) return false;
+      // "PRUEBA" filtra los estudiantes de clase de prueba (isTrial), sin importar su estado.
+      if (statusFilter === 'PRUEBA') { if (!s.isTrial) return false; }
+      else if (statusFilter === 'ACTIVOS' && s.studentStatus === 'INACTIVO') return false;
+      else if (statusFilter !== 'ACTIVOS' && statusFilter !== 'TODOS' && s.studentStatus !== statusFilter) return false;
       if (groupFilter && !s.enrollments?.some((e) => e.group?.id === groupFilter)) return false;
       if (q && !s.name.toLowerCase().includes(q)) return false;
       return true;
@@ -758,6 +760,7 @@ export default function StudentsPage() {
             <option value="INSCRITO">Inscritos</option>
             <option value="SUSPENDIDO">Suspendidos</option>
             <option value="INACTIVO">Inactivos</option>
+            <option value="PRUEBA">🧪 Clases de prueba</option>
           </select>
           <select className="form-input form-select" value={groupFilter} onChange={(e) => setGroupFilter(e.target.value)}>
             <option value="">Todos los grupos</option>
