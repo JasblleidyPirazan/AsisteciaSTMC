@@ -142,6 +142,9 @@ router.get('/summary', requireRole('ADMIN'), async (req, res, next) => {
       },
     });
 
+    // Progreso de validación (barra superior): sobre el total de pagos del período.
+    const progress = { total: records.length, approved: 0, paid: 0, held: 0, conflict: 0, pending: 0 };
+
     const summary = {};
     for (const r of records) {
       const id = r.professorId || r.assistantId;
@@ -151,6 +154,7 @@ router.get('/summary', requireRole('ADMIN'), async (req, res, next) => {
         summary[key] = {
           payeeId: id, payeeType: r.payeeType, name,
           total: 0, payableTotal: 0, suspendedTotal: 0, pendingTotal: 0, classCount: 0,
+          approvedCount: 0, pendingApprovalCount: 0,
         };
       }
       const amount = parseFloat(r.total);
@@ -159,7 +163,22 @@ router.get('/summary', requireRole('ADMIN'), async (req, res, next) => {
       else if (r.payStatus === 'PENDING_MATCH') summary[key].pendingTotal += amount;
       else summary[key].payableTotal += amount;
       summary[key].classCount++;
+
+      // Estado de aprobación por registro.
+      const isConflict = r.payStatus === 'PENDING_MATCH' || r.payStatus === 'SUSPENDED_LATE';
+      if (r.paidAt) progress.paid++;
+      else if (r.approvedAt) progress.approved++;
+      else if (r.heldAt) progress.held++;
+      else if (isConflict) progress.conflict++;
+      else progress.pending++;
+
+      if (r.payStatus === 'PAYABLE') {
+        if (r.approvedAt) summary[key].approvedCount++;
+        else if (!r.heldAt) summary[key].pendingApprovalCount++;
+      }
     }
+    // "Validados" = aprobados + pagados (ya pasaron la aprobación).
+    progress.validated = progress.approved + progress.paid;
 
     // Sort: professors first, then assistants
     const sorted = Object.values(summary).sort((a, b) => {
@@ -188,6 +207,7 @@ router.get('/summary', requireRole('ADMIN'), async (req, res, next) => {
         grandTotal: totalProfessors + totalAssistants,
         suspendedGrandTotal,
         pendingGrandTotal,
+        progress,
         approval: approval
           ? {
               approvedByName: approval.approvedByName,
@@ -438,20 +458,126 @@ router.get('/closure', requireRole('ADMIN'), async (req, res, next) => {
   }
 });
 
+// Guard común: registro existente, quincena no cerrada, no PENDING/SUSPENDED.
+async function loadEditableRecord(id, res) {
+  const record = await prisma.costRecord.findUnique({ where: { id } });
+  if (!record) { res.status(404).json({ success: false, error: 'Registro no encontrado' }); return null; }
+  const closure = await prisma.payrollClosure.findUnique({ where: { period: record.period } });
+  if (closure?.locked) {
+    res.status(409).json({ success: false, error: 'La quincena está cerrada. Reábrela para editar pagos.' });
+    return null;
+  }
+  return record;
+}
+
+// "Validar" / "Aprobar": el ADMIN aprueba un pago para poder pagarlo. Solo sobre
+// PAYABLE (coincidencia total, sin conflicto). Aprobar limpia la retención (held).
+router.patch('/records/:id/approved', requireRole('ADMIN'), async (req, res, next) => {
+  try {
+    const approved = req.body.approved !== false;
+    const record = await loadEditableRecord(req.params.id, res);
+    if (!record) return;
+    if (approved && record.payStatus !== 'PAYABLE') {
+      return res.status(400).json({ success: false, error: 'Solo se puede aprobar un pago habilitado (sin conflicto). Resuelve la coincidencia primero.' });
+    }
+    if (!approved && record.paidAt) {
+      return res.status(400).json({ success: false, error: 'No puedes quitar la aprobación de un pago ya realizado. Deshaz el pago primero.' });
+    }
+    const updated = await prisma.costRecord.update({
+      where: { id: record.id },
+      data: approved
+        ? { approvedAt: new Date(), approvedById: req.user.id, heldAt: null, heldById: null }
+        : { approvedAt: null, approvedById: null },
+    });
+    await prisma.payrollLog.create({
+      data: { period: record.period, action: approved ? 'APPROVE' : 'UNAPPROVE', actorId: req.user.id, actorName: req.user.email,
+        detail: { costRecordId: record.id, total: parseFloat(record.total), payeeType: record.payeeType } },
+    });
+    res.json({ success: true, data: { id: updated.id, approvedAt: updated.approvedAt } });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// "Retener": el ADMIN excluye deliberadamente un pago (no se paga esta quincena).
+// Retener limpia la aprobación. No se puede retener un pago ya realizado.
+router.patch('/records/:id/held', requireRole('ADMIN'), async (req, res, next) => {
+  try {
+    const held = req.body.held !== false;
+    const record = await loadEditableRecord(req.params.id, res);
+    if (!record) return;
+    if (held && record.paidAt) {
+      return res.status(400).json({ success: false, error: 'No puedes retener un pago ya realizado. Deshaz el pago primero.' });
+    }
+    const updated = await prisma.costRecord.update({
+      where: { id: record.id },
+      data: held
+        ? { heldAt: new Date(), heldById: req.user.id, approvedAt: null, approvedById: null }
+        : { heldAt: null, heldById: null },
+    });
+    await prisma.payrollLog.create({
+      data: { period: record.period, action: held ? 'HOLD' : 'UNHOLD', actorId: req.user.id, actorName: req.user.email,
+        detail: { costRecordId: record.id, total: parseFloat(record.total), payeeType: record.payeeType } },
+    });
+    res.json({ success: true, data: { id: updated.id, heldAt: updated.heldAt } });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// Acción masiva: aprobar / quitar aprobación / retener sobre una lista de ids
+// (para "Validar todo" de un beneficiario y "Seleccionar pendientes").
+router.post('/records/bulk', requireRole('ADMIN'), async (req, res, next) => {
+  try {
+    const { ids, action } = req.body || {};
+    if (!Array.isArray(ids) || ids.length === 0) return res.status(400).json({ success: false, error: 'ids requerido' });
+    if (!['approve', 'unapprove', 'hold'].includes(action)) return res.status(400).json({ success: false, error: 'acción inválida' });
+
+    const records = await prisma.costRecord.findMany({ where: { id: { in: ids } } });
+    const periods = [...new Set(records.map((r) => r.period))];
+    const closures = await prisma.payrollClosure.findMany({ where: { period: { in: periods }, locked: true } });
+    const lockedPeriods = new Set(closures.map((c) => c.period));
+
+    // Solo actuamos sobre los elegibles; el resto se ignora (se reporta el conteo).
+    const eligible = records.filter((r) => {
+      if (lockedPeriods.has(r.period)) return false;
+      if (r.paidAt) return false;                         // no tocar pagos ya hechos
+      if (action === 'approve' && r.payStatus !== 'PAYABLE') return false; // no aprobar conflictos
+      return true;
+    });
+
+    const now = new Date();
+    const data = action === 'approve'
+      ? { approvedAt: now, approvedById: req.user.id, heldAt: null, heldById: null }
+      : action === 'hold'
+        ? { heldAt: now, heldById: req.user.id, approvedAt: null, approvedById: null }
+        : { approvedAt: null, approvedById: null };
+
+    if (eligible.length > 0) {
+      await prisma.costRecord.updateMany({ where: { id: { in: eligible.map((r) => r.id) } }, data });
+      await prisma.payrollLog.create({
+        data: { period: eligible[0].period, action: `BULK_${action.toUpperCase()}`, actorId: req.user.id, actorName: req.user.email,
+          detail: { count: eligible.length, ids: eligible.map((r) => r.id) } },
+      });
+    }
+    res.json({ success: true, data: { updated: eligible.length, skipped: ids.length - eligible.length } });
+  } catch (err) {
+    next(err);
+  }
+});
+
 // "Pago realizado": el ADMIN marca (o desmarca) que un costo se pagó. Solo sobre
-// registros PAYABLE y en quincenas no cerradas.
+// registros PAYABLE, YA APROBADOS (flujo secuencial) y en quincenas no cerradas.
 router.patch('/records/:id/paid', requireRole('ADMIN'), async (req, res, next) => {
   try {
     const paid = req.body.paid !== false;
-    const record = await prisma.costRecord.findUnique({ where: { id: req.params.id } });
-    if (!record) return res.status(404).json({ success: false, error: 'Registro no encontrado' });
-
-    const closure = await prisma.payrollClosure.findUnique({ where: { period: record.period } });
-    if (closure?.locked) {
-      return res.status(409).json({ success: false, error: 'La quincena está cerrada. Reábrela para editar pagos.' });
-    }
+    const record = await loadEditableRecord(req.params.id, res);
+    if (!record) return;
     if (paid && record.payStatus !== 'PAYABLE') {
       return res.status(400).json({ success: false, error: 'Solo se puede marcar pagado un registro habilitado (PAYABLE)' });
+    }
+    if (paid && !record.approvedAt) {
+      return res.status(400).json({ success: false, error: 'Debes aprobar el pago antes de marcarlo como realizado.' });
     }
 
     const updated = await prisma.costRecord.update({
@@ -501,6 +627,14 @@ router.post('/close', requireRole('ADMIN'), async (req, res, next) => {
       return res.status(400).json({
         success: false,
         error: `No se puede cerrar: ${pending.length} pago(s) pendiente(s) de validación. Valídalos o resuélvelos primero.`,
+      });
+    }
+    // Todo pago habilitado debe estar DECIDIDO (aprobado o retenido) antes de cerrar.
+    const undecided = records.filter((r) => r.payStatus === 'PAYABLE' && !r.approvedAt && !r.heldAt);
+    if (undecided.length > 0) {
+      return res.status(400).json({
+        success: false,
+        error: `No se puede cerrar: ${undecided.length} pago(s) sin aprobar ni retener. Decide cada uno primero.`,
       });
     }
 

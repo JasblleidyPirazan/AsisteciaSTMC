@@ -30,6 +30,20 @@ const MISSING_LABEL = {
   coordinator: 'Falta la validación/coincidencia del coordinador',
 };
 
+const rowBtn = { minHeight: 26, padding: '0 8px', fontSize: '0.72rem' };
+
+// Estado derivado de un CostRecord para el flujo Aprobado → Pagado.
+// Verde = coincidencia total (habilitado); rojo = conflicto/retención.
+function recordState(r) {
+  if (r.payStatus === 'PENDING_MATCH' || r.payStatus === 'SUSPENDED_LATE') {
+    return { key: 'CONFLICT', label: r.payStatus === 'SUSPENDED_LATE' ? 'Retenido (tardío)' : 'Conflicto', color: 'var(--red)', bg: 'rgba(232,82,106,0.12)' };
+  }
+  if (r.paidAt) return { key: 'PAID', label: '✓ Pagado', color: 'var(--green)', bg: 'rgba(31,169,113,0.16)' };
+  if (r.approvedAt) return { key: 'APPROVED', label: 'Aprobado', color: 'var(--green)', bg: 'rgba(31,169,113,0.14)' };
+  if (r.heldAt) return { key: 'HELD', label: 'Retenido', color: '#6F7BA6', bg: 'rgba(111,123,166,0.14)' };
+  return { key: 'PENDING', label: 'Por validar', color: '#B4780A', bg: 'rgba(232,162,59,0.16)' };
+}
+
 const AVATAR_COLORS = ['#3F52A8', '#4F9FB2', '#7A5AF8', '#E8A23B', '#1FA971', '#E8526A', '#6F7BA6'];
 function initials(name) {
   const p = String(name || '').trim().split(/\s+/);
@@ -131,6 +145,46 @@ export default function PayrollPage() {
     try {
       await api.patch(`/payroll/records/${record.id}/paid`, { paid: !record.paidAt });
       await refreshDetail(payeeId);
+      await load();
+    } catch (err) {
+      toast.error(err.message);
+    }
+  }
+
+  async function handleApprove(record, payeeId, approved) {
+    try {
+      await api.patch(`/payroll/records/${record.id}/approved`, { approved });
+      await refreshDetail(payeeId);
+      await load();
+    } catch (err) {
+      toast.error(err.message);
+    }
+  }
+
+  async function handleHold(record, payeeId, held) {
+    try {
+      await api.patch(`/payroll/records/${record.id}/held`, { held });
+      await refreshDetail(payeeId);
+      await load();
+    } catch (err) {
+      toast.error(err.message);
+    }
+  }
+
+  // "Validar todo" de un beneficiario: aprueba todas sus clases habilitadas y
+  // pendientes de aprobar. Necesita el detalle cargado; si no, lo trae.
+  async function handleValidateAll(payeeId) {
+    let detail = detailMap[payeeId];
+    if (!detail) { await refreshDetail(payeeId); detail = (await api.get('/payroll', { period, payeeId })).find?.((d) => d.payeeId === payeeId); }
+    const ids = (detail?.records || [])
+      .filter((r) => r.payStatus === 'PAYABLE' && !r.approvedAt && !r.paidAt && !r.heldAt)
+      .map((r) => r.id);
+    if (ids.length === 0) { toast.info('No hay pagos pendientes por aprobar de este beneficiario.'); return; }
+    try {
+      const r = await api.post('/payroll/records/bulk', { ids, action: 'approve' });
+      await refreshDetail(payeeId);
+      await load();
+      toast.success(`${r.updated} pago(s) aprobado(s).`);
     } catch (err) {
       toast.error(err.message);
     }
@@ -204,19 +258,17 @@ export default function PayrollPage() {
     return (
       <>
         {detail.records?.map((r) => {
-          const badge = PAY_STATUS_BADGE[r.payStatus];
-          const payable = !badge; // PAYABLE = sin badge de retención
+          const st = recordState(r);
           const reason = pendingReason(r);
           return (
-            <div key={r.id} style={{ padding: '4px 0' }}>
+            <div key={r.id} style={{ padding: '6px 0 8px', borderLeft: `3px solid ${st.color}`, paddingLeft: 8, marginBottom: 4 }}>
               <div className="cost-row text-sm">
                 <span>
                   {fmtDate(r.session.date, { day: 'numeric', month: 'short' })}
                   {' · '}{r.session.group?.code || r.session.title}
                   {r.presentCount > 0 && <span className="text-gray"> · {r.presentCount} est.</span>}
-                  {badge && <span className={`badge ${badge.cls}`} style={{ marginLeft: 6 }}>{badge.label}</span>}
+                  <span className="badge" style={{ marginLeft: 6, background: st.bg, color: st.color }}>{st.label}</span>
                   {r.carriedFromPeriod && <span className="badge badge-gray" style={{ marginLeft: 6 }}>arrastrada de {r.carriedFromPeriod}</span>}
-                  {payable && r.paidAt && <span className="badge badge-green" style={{ marginLeft: 6 }}>✓ Pagado</span>}
                 </span>
                 <span>{fmt(r.total)}</span>
               </div>
@@ -225,18 +277,36 @@ export default function PayrollPage() {
                   ⓘ {line}
                 </div>
               ))}
-              {/* Pago realizado (solo habilitados) */}
-              {payable && !locked && (
-                <button className="btn btn-ghost" style={{ minHeight: 26, padding: '0 8px', fontSize: '0.72rem', color: r.paidAt ? 'var(--red)' : 'var(--green)' }}
-                  onClick={() => handleMarkPaid(r, payeeId)}>
-                  {r.paidAt ? 'Deshacer pago' : '💵 Marcar pago realizado'}
-                </button>
-              )}
-              {r.payStatus === 'SUSPENDED_LATE' && !locked && (
-                <button className="btn btn-ghost" style={{ minHeight: 26, padding: '0 8px', fontSize: '0.72rem' }}
-                  onClick={() => handleUnlock(r.sessionId, payeeId)}>
-                  🔓 Desbloquear pago
-                </button>
+              {!locked && (
+                <div className="flex gap-1 mt-1" style={{ flexWrap: 'wrap' }}>
+                  {/* Conflicto (no PAYABLE): solo desbloquear si es reporte tardío */}
+                  {st.key === 'CONFLICT' && r.payStatus === 'SUSPENDED_LATE' && (
+                    <button className="btn btn-ghost" style={rowBtn}
+                      onClick={() => handleUnlock(r.sessionId, payeeId)}>🔓 Desbloquear pago</button>
+                  )}
+                  {/* Por validar → Aprobar o Retener */}
+                  {st.key === 'PENDING' && (
+                    <>
+                      <button className="btn btn-success" style={rowBtn} onClick={() => handleApprove(r, payeeId, true)}>✓ Validar</button>
+                      <button className="btn btn-ghost" style={{ ...rowBtn, color: 'var(--red)' }} onClick={() => handleHold(r, payeeId, true)}>Retener</button>
+                    </>
+                  )}
+                  {/* Retenido → reactivar (aprobar) */}
+                  {st.key === 'HELD' && (
+                    <button className="btn btn-success" style={rowBtn} onClick={() => handleApprove(r, payeeId, true)}>✓ Validar</button>
+                  )}
+                  {/* Aprobado → Marcar pago o quitar aprobación */}
+                  {st.key === 'APPROVED' && (
+                    <>
+                      <button className="btn btn-ghost" style={{ ...rowBtn, color: 'var(--green)' }} onClick={() => handleMarkPaid(r, payeeId)}>💵 Marcar pago realizado</button>
+                      <button className="btn btn-ghost" style={{ ...rowBtn, color: 'var(--red)' }} onClick={() => handleApprove(r, payeeId, false)}>Quitar aprobación</button>
+                    </>
+                  )}
+                  {/* Pagado → deshacer */}
+                  {st.key === 'PAID' && (
+                    <button className="btn btn-ghost" style={{ ...rowBtn, color: 'var(--red)' }} onClick={() => handleMarkPaid(r, payeeId)}>Deshacer pago</button>
+                  )}
+                </div>
               )}
             </div>
           );
@@ -267,6 +337,13 @@ export default function PayrollPage() {
             <div className="text-xs text-gray">{isOpen ? '▲ ocultar' : '▼ detalle'}</div>
           </div>
         </div>
+        {(s.pendingApprovalCount || 0) > 0 && !locked && (
+          <div className="flex items-center justify-between mt-2" onClick={(e) => e.stopPropagation()}>
+            <span className="badge badge-yellow">{s.pendingApprovalCount} por validar</span>
+            <button className="btn btn-outline" style={{ minHeight: 30, fontSize: '0.75rem', padding: '0 10px' }}
+              onClick={() => handleValidateAll(s.payeeId)}>Validar todo</button>
+          </div>
+        )}
         {isOpen && detail && (
           <div style={{ marginTop: 12, borderTop: '1px solid var(--gray-200)', paddingTop: 12 }}>
             <DetailRows detail={detail} payeeId={s.payeeId} />
@@ -291,6 +368,7 @@ export default function PayrollPage() {
               <th className="num">Clases</th>
               <th className="num">Habilitado</th>
               <th className="num">Retenido</th>
+              <th style={{ textAlign: 'right' }}>Estado</th>
             </tr>
           </thead>
           <tbody>
@@ -298,6 +376,7 @@ export default function PayrollPage() {
               const detail = detailMap[s.payeeId];
               const retained = (s.suspendedTotal || 0) + (s.pendingTotal || 0);
               const isOpen = expanded === s.payeeId;
+              const pend = s.pendingApprovalCount || 0;
               return (
                 <Fragment key={s.payeeId}>
                   <tr className="clickable" onClick={() => loadDetail(s.payeeId)}>
@@ -313,11 +392,22 @@ export default function PayrollPage() {
                     <td className="num" style={{ color: retained > 0 ? 'var(--red)' : 'var(--gray-400)' }}>
                       {retained > 0 ? fmt(retained) : '—'}
                     </td>
+                    <td style={{ textAlign: 'right' }} onClick={(e) => e.stopPropagation()}>
+                      {pend > 0 ? (
+                        <div className="flex items-center gap-2" style={{ justifyContent: 'flex-end' }}>
+                          <span className="badge badge-yellow">{pend} por validar</span>
+                          {!locked && <button className="btn btn-outline" style={{ minHeight: 28, fontSize: '0.72rem', padding: '0 8px' }}
+                            onClick={() => handleValidateAll(s.payeeId)}>Validar todo</button>}
+                        </div>
+                      ) : (
+                        <span className="badge badge-green">✓ Todo validado</span>
+                      )}
+                    </td>
                   </tr>
                   {isOpen && detail && (
                     <tr>
                       <td></td>
-                      <td colSpan={4} style={{ background: 'var(--gray-50)' }}>
+                      <td colSpan={5} style={{ background: 'var(--gray-50)' }}>
                         <DetailRows detail={detail} payeeId={s.payeeId} />
                       </td>
                     </tr>
@@ -335,6 +425,7 @@ export default function PayrollPage() {
               <td className="num" style={{ color: totalRetained > 0 ? 'var(--red)' : 'inherit' }}>
                 {totalRetained > 0 ? fmt(totalRetained) : '—'}
               </td>
+              <td></td>
             </tr>
           </tfoot>
         </table>
@@ -375,6 +466,26 @@ export default function PayrollPage() {
 
         {loading ? <div className="spinner" /> : (
           <>
+            {/* Progreso de validación */}
+            {summaryData?.progress && summaryData.progress.total > 0 && (() => {
+              const p = summaryData.progress;
+              const pct = Math.round((p.validated / p.total) * 100);
+              return (
+                <div className="card mb-3">
+                  <div className="flex items-center justify-between mb-1" style={{ flexWrap: 'wrap', gap: 8 }}>
+                    <strong>Progreso de validación</strong>
+                    <span className="text-sm text-gray">
+                      <strong style={{ color: 'var(--green)' }}>{p.validated}</strong> de {p.total} pagos validados · {p.pending} pendientes
+                      {p.conflict > 0 && <> · <span style={{ color: 'var(--red)' }}>{p.conflict} en conflicto</span></>}
+                    </span>
+                  </div>
+                  <div className="load-bar" style={{ height: 10 }}>
+                    <span style={{ width: `${pct}%`, background: 'var(--green)' }} />
+                  </div>
+                </div>
+              );
+            })()}
+
             {/* KPIs */}
             {summaryData && (
               <div className="home-kpis">
@@ -423,12 +534,13 @@ export default function PayrollPage() {
                     <div style={{ flex: 1, minWidth: 180 }}>
                       <div className="font-medium">Cerrar quincena</div>
                       <div className="text-xs text-gray mt-1">
-                        Congela la liquidación, arrastra los pagos suspendidos a la siguiente quincena
-                        y bloquea la edición. Reversible.
+                        {(summaryData?.progress?.pending || 0) > 0
+                          ? `Faltan ${summaryData.progress.pending} pago(s) por validar o retener antes de cerrar.`
+                          : 'Congela la liquidación, arrastra los suspendidos a la siguiente quincena y bloquea la edición. Reversible.'}
                       </div>
                     </div>
                     <button className="btn btn-success" style={{ minHeight: 40 }}
-                      onClick={handleClose} disabled={approving}>
+                      onClick={handleClose} disabled={approving || (summaryData?.progress?.pending || 0) > 0}>
                       {approving ? 'Cerrando…' : '🔒 Cerrar quincena'}
                     </button>
                   </div>
