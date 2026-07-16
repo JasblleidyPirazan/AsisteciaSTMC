@@ -6,6 +6,7 @@ const { notSuspended } = require('../lib/filters');
 const { byGroupCode } = require('../lib/sort');
 const { bogotaDayOfWeek } = require('../lib/dates');
 const { seenAttendanceFilter } = require('../services/attendanceStats');
+const { attachStudentStatus, stripTuition } = require('../services/studentStatus');
 
 const router = express.Router();
 
@@ -133,8 +134,15 @@ router.get('/schedule', async (req, res, next) => {
       include: {
         professor: { select: { id: true, name: true } },
         enrollments: {
-          // paymentComplete distingue matriculado (true) de inscrito (false) en la malla
-          include: { student: { select: { id: true, name: true, active: true, paymentComplete: true } } },
+          // Campos mínimos para derivar el estado (matriculado/inscrito/…) en la malla
+          include: {
+            student: {
+              select: {
+                id: true, name: true, active: true, isTrial: true, birthDate: true,
+                classesAcquired: true, suspendedFrom: true, suspendedUntil: true,
+              },
+            },
+          },
           orderBy: { student: { name: 'asc' } },
         },
       },
@@ -142,10 +150,22 @@ router.get('/schedule', async (req, res, next) => {
     });
     groups.sort(byGroupCode);
 
+    // Estado derivado por estudiante (pagos + asistencia + tarifas), una sola vez
+    // para todos los estudiantes de la malla.
+    const uniqueStudents = new Map();
+    for (const g of groups) {
+      for (const e of g.enrollments) {
+        if (e.student?.active) uniqueStudents.set(e.student.id, e.student);
+      }
+    }
+    const decorated = await attachStudentStatus([...uniqueStudents.values()]);
+    const statusById = Object.fromEntries(decorated.map((s) => [s.id, s]));
+
     const toStudent = (e) => ({
       id: e.student.id,
       name: e.student.name,
-      paymentComplete: !!e.student.paymentComplete,
+      studentStatus: statusById[e.student.id]?.studentStatus || null,
+      missingBirthDate: !!statusById[e.student.id]?.missingBirthDate,
     });
     const data = groups.map((g) => {
       const activeEnr = g.enrollments.filter((e) => e.student?.active);
@@ -233,9 +253,13 @@ router.get('/:id/students', async (req, res, next) => {
       for (const r of present) seenById[r.studentId] = (seenById[r.studentId] || 0) + 1;
     }
 
+    // Estado derivado + error de fecha de nacimiento, visibles en el roster
+    // del flujo de asistencia (ícono al lado de cada estudiante). Los montos
+    // (tuition) solo van a roles con acceso económico.
+    const decorated = stripTuition(await attachStudentStatus(students), req.user.role);
     res.json({
       success: true,
-      data: students.map((s) => ({
+      data: decorated.map((s) => ({
         ...s,
         classesSeen: seenById[s.id] || 0,
         classesAcquired: s.classesAcquired,

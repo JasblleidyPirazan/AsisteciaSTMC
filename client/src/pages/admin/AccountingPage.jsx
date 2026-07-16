@@ -4,6 +4,7 @@ import { api } from '../../api/client';
 import { fmtDate, bogotaTodayStr } from '../../utils/dates';
 import { periodLabel } from '../../utils/periods';
 import { toast } from '../../utils/toast';
+import { StudentStatusBadge, StudentStatusIcon } from '../../utils/studentStatus';
 
 // Módulo de Contabilidad (solo Admin/Superadmin):
 //   Ingresos = pagos de estudiantes, con verificación (conciliación) por pago.
@@ -48,6 +49,7 @@ const TABS = [
   { key: 'income', label: '💵 Ingresos' },
   { key: 'expenses', label: '📤 Gastos' },
   { key: 'balance', label: '⚖️ Balance' },
+  { key: 'students', label: '🎓 Pagos Estudiantes' },
 ];
 
 export default function AccountingPage() {
@@ -125,6 +127,7 @@ export default function AccountingPage() {
   const income = data?.income;
   const expenses = data?.expenses;
   const balance = data?.balance;
+  const studentsTuition = data?.studentsTuition;
 
   return (
     <div className="page page-wide">
@@ -140,7 +143,7 @@ export default function AccountingPage() {
           </div>
           <button className="btn btn-outline" style={{ minHeight: 40 }} onClick={handleExport}
             disabled={exporting || !range}>
-            {exporting ? 'Exportando…' : '⬇ Excel (3 hojas)'}
+            {exporting ? 'Exportando…' : '⬇ Excel (4 hojas)'}
           </button>
         </div>
 
@@ -428,6 +431,83 @@ export default function AccountingPage() {
                             {fmt(balance.totals.net)}
                           </td>
                           <td></td>
+                        </tr>
+                      </tfoot>
+                    </table>
+                  </div>
+                )}
+              </>
+            )}
+            {/* ===== Hoja 4: Pagos Estudiantes (ingresos y deudas) ===== */}
+            {tab === 'students' && studentsTuition && (
+              <>
+                <div className="home-kpis">
+                  <StatCard icon="🎓" tint={{ bg: 'rgba(63,82,168,0.12)', fg: '#3F52A8' }}
+                    label="Valor esperado" value={fmt(studentsTuition.totals.expected)}
+                    sub={`${studentsTuition.totals.students} estudiantes activos`} />
+                  <StatCard icon="💵" tint={{ bg: 'rgba(31,169,113,0.14)', fg: '#1FA971' }}
+                    label="Recaudado" value={fmt(studentsTuition.totals.paid)}
+                    sub={`${studentsTuition.totals.matriculados} matriculados (pago completo)`} subColor="var(--success)" />
+                  <StatCard icon="⏳" tint={{ bg: 'rgba(232,82,106,0.12)', fg: '#E8526A' }}
+                    label="Deuda pendiente" value={fmt(studentsTuition.totals.debt)}
+                    sub={`${studentsTuition.totals.withDebt} estudiante${studentsTuition.totals.withDebt !== 1 ? 's' : ''} con saldo`}
+                    subColor={studentsTuition.totals.debt > 0 ? 'var(--red)' : 'var(--success)'} />
+                  <StatCard icon="⚠️" tint={{ bg: 'rgba(232,162,59,0.14)', fg: '#E8A23B' }}
+                    label="Sin fecha de nacimiento" value={studentsTuition.totals.missingBirthDate}
+                    sub={studentsTuition.totals.missingBirthDate > 0 ? 'no se puede calcular su tarifa' : 'todos categorizados'}
+                    subColor={studentsTuition.totals.missingBirthDate > 0 ? 'var(--red)' : 'var(--success)'} />
+                </div>
+
+                <div className="alert alert-info mb-3" style={{ fontSize: '0.85rem' }}>
+                  Deuda = valor esperado del plan (clases adquiridas × tarifa adulto/pequeño según fecha de
+                  nacimiento) − pagos registrados. No depende del rango de fechas: compara el plan completo.
+                </div>
+
+                {studentsTuition.rows.length === 0 ? (
+                  <div className="alert alert-info">No hay estudiantes activos.</div>
+                ) : (
+                  <div className="table-wrap">
+                    <table className="data-table">
+                      <thead>
+                        <tr>
+                          <th>Estudiante</th><th>Grupo</th><th>Estado</th><th>Categoría</th>
+                          <th className="num">Clases</th><th className="num">Esperado</th>
+                          <th className="num">Pagado</th><th className="num">Saldo</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {studentsTuition.rows.map((r) => (
+                          <tr key={r.id}>
+                            <td>
+                              <button className="link-name font-medium"
+                                onClick={() => navigate('/admin/students', { state: { focusStudentId: r.id, from: { label: 'Contabilidad', to: '/admin/accounting' } } })}
+                                title="Ver ficha del estudiante">
+                                <StudentStatusIcon status={r.studentStatus} missingBirthDate={r.missingBirthDate} />{r.name} ›
+                              </button>
+                            </td>
+                            <td className="text-sm">{r.groupCode || '—'}</td>
+                            <td><StudentStatusBadge status={r.studentStatus} /></td>
+                            <td className="text-sm">
+                              {r.category === 'ADULTO' ? 'Adulto' : r.category === 'PEQUENO' ? 'Pequeño'
+                                : <span className="badge badge-red">⚠️ Sin fecha</span>}
+                            </td>
+                            <td className="num">{r.classesAcquired}</td>
+                            <td className="num">{r.expectedTotal != null ? fmt(r.expectedTotal) : '—'}</td>
+                            <td className="num" style={{ color: 'var(--success)' }}>{fmt(r.totalPaid)}</td>
+                            <td className="num font-medium" style={{ color: r.balance > 0 ? 'var(--red)' : r.balance === 0 ? 'var(--success)' : 'inherit' }}>
+                              {r.balance != null ? (r.balance > 0 ? fmt(r.balance) : '✓ Al día') : '—'}
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                      <tfoot>
+                        <tr>
+                          <td colSpan={5}>Total · {studentsTuition.totals.students} estudiantes</td>
+                          <td className="num">{fmt(studentsTuition.totals.expected)}</td>
+                          <td className="num" style={{ color: 'var(--success)' }}>{fmt(studentsTuition.totals.paid)}</td>
+                          <td className="num" style={{ color: studentsTuition.totals.debt > 0 ? 'var(--red)' : 'var(--success)' }}>
+                            {fmt(studentsTuition.totals.debt)}
+                          </td>
                         </tr>
                       </tfoot>
                     </table>

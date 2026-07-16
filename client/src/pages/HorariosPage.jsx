@@ -17,8 +17,14 @@ const LEVEL_COLOR = {
   Intermedio: '#7A5AF8', Avanzado: '#3F52A8',
 };
 const LEVELS = ['Roja', 'Naranja', 'Amarilla', 'Verde'];
-const ENROLLED_COLOR = 'var(--green)'; // matriculado (pago completo)
-const REGISTERED_COLOR = '#E8A23B';    // inscrito (pago pendiente)
+// Color por estado derivado del estudiante (matriculado/inscrito/preinscrito/prueba)
+const STATUS_COLOR = {
+  MATRICULADO: 'var(--green)',
+  INSCRITO: '#E8A23B',
+  PREINSCRITO: '#9AA3B5',
+  PRUEBA: '#7A5AF8',
+  SUSPENDIDO: '#9AA3B5',
+};
 
 function signature(days) {
   return DAY_ORDER.filter((d) => days[d]);
@@ -123,8 +129,10 @@ export default function HorariosPage() {
 
         {/* Leyenda: estado de los estudiantes + niveles */}
         <div className="flex items-center gap-3 mb-3 text-xs text-gray" style={{ flexWrap: 'wrap' }}>
-          <span><span className="legend-dot" style={{ background: ENROLLED_COLOR }} /> Matriculado</span>
-          <span><span className="legend-dot" style={{ background: REGISTERED_COLOR }} /> Inscrito (pago pendiente)</span>
+          <span><span className="legend-dot" style={{ background: STATUS_COLOR.MATRICULADO }} /> Matriculado</span>
+          <span><span className="legend-dot" style={{ background: STATUS_COLOR.INSCRITO }} /> Inscrito</span>
+          <span><span className="legend-dot" style={{ background: STATUS_COLOR.PREINSCRITO }} /> Preinscrito</span>
+          <span>⚠️ Sin fecha de nacimiento</span>
           <span style={{ opacity: 0.5 }}>|</span>
           {LEVELS.map((l) => (
             <span key={l}><span className="legend-dot" style={{ background: LEVEL_COLOR[l] }} /> {l}</span>
@@ -184,10 +192,10 @@ function StudentList({ students, count }) {
       {students.map((s) => (
         <li key={s.id}>
           <span className="legend-dot" style={{
-            background: s.paymentComplete ? ENROLLED_COLOR : REGISTERED_COLOR,
+            background: STATUS_COLOR[s.studentStatus] || 'var(--gray-400)',
             width: 8, height: 8, marginRight: 5, flexShrink: 0,
           }} />
-          {s.name}
+          {s.name}{s.missingBirthDate && <span title="Falta fecha de nacimiento"> ⚠️</span>}
         </li>
       ))}
     </ul>

@@ -1,5 +1,5 @@
 // mockPrisma MUST be imported before the router (require.cache injection).
-import { prismaMock, resetPrisma } from '../helpers/mockPrisma.js';
+import { prismaMock, resetPrisma, mockStudentStatusDeps } from '../helpers/mockPrisma.js';
 import { describe, it, expect, beforeAll, beforeEach, vi } from 'vitest';
 import request from 'supertest';
 import { JWT_SECRET, tokenFor, buildApp } from '../helpers/testApp.js';
@@ -19,10 +19,11 @@ beforeAll(async () => {
   app = await buildApp('/api/search', router);
 });
 
-beforeEach(() => {
+beforeEach(async () => {
   resetPrisma();
   prismaMock.student = { findMany: vi.fn().mockResolvedValue([]) };
   prismaMock.group = { findMany: vi.fn().mockResolvedValue([]) };
+  await mockStudentStatusDeps();
 });
 
 describe('GET /search — buscador global', () => {
@@ -41,7 +42,8 @@ describe('GET /search — buscador global', () => {
   it('devuelve estudiantes (con grupo principal) y grupos ordenados', async () => {
     const token = authAs('RECEPTION');
     prismaMock.student.findMany.mockResolvedValue([
-      { id: 's1', name: 'Ana Ruiz', document: '123', isTrial: false,
+      { id: 's1', name: 'Ana Ruiz', document: '123', isTrial: false, active: true,
+        birthDate: new Date('2012-05-10'), classesAcquired: 40, suspendedFrom: null, suspendedUntil: null,
         enrollments: [{ enrollmentType: 'PRIMARY', group: { code: 'MJ1' } }] },
     ]);
     prismaMock.group.findMany.mockResolvedValue([
@@ -51,7 +53,10 @@ describe('GET /search — buscador global', () => {
 
     const res = await request(app).get('/api/search?q=ana').set('Authorization', `Bearer ${token}`);
     expect(res.status).toBe(200);
-    expect(res.body.data.students[0]).toMatchObject({ id: 's1', name: 'Ana Ruiz', groupCode: 'MJ1' });
+    // Sin pagos ni asistencia (mocks vacíos) → estado derivado PREINSCRITO
+    expect(res.body.data.students[0]).toMatchObject({
+      id: 's1', name: 'Ana Ruiz', groupCode: 'MJ1', studentStatus: 'PREINSCRITO', missingBirthDate: false,
+    });
     // Orden alfanumérico natural: MJ2 antes que MJ10
     expect(res.body.data.groups.map((g) => g.code)).toEqual(['MJ2', 'MJ10']);
   });

@@ -6,13 +6,7 @@ import { bogotaTodayStr } from '../../utils/dates';
 import PageBack from '../../components/PageBack';
 import EmptyState from '../../components/EmptyState';
 import { toast } from '../../utils/toast';
-
-const STATUS_BADGE = {
-  MATRICULADO: { cls: 'badge-green', label: 'Matriculado' },
-  INSCRITO: { cls: 'badge-blue', label: 'Inscrito' },
-  SUSPENDIDO: { cls: 'badge-yellow', label: 'Suspendido' },
-  INACTIVO: { cls: 'badge-gray', label: 'Inactivo' },
-};
+import { STUDENT_STATUS, StudentStatusBadge } from '../../utils/studentStatus';
 
 const BALL_COLOR = { Roja: '#E8526A', Naranja: '#EA8A2E', Verde: '#1FA971', Amarilla: '#E8A23B' };
 const AVATAR_COLORS = ['#3F52A8', '#4F9FB2', '#7A5AF8', '#E8A23B', '#1FA971', '#E8526A', '#6F7BA6'];
@@ -106,13 +100,13 @@ export default function StudentsPage() {
   const [groups, setGroups] = useState([]);
   const [loading, setLoading] = useState(true);
   const [showForm, setShowForm] = useState(false);
-  const [form, setForm] = useState({ name: '', email: '', document: '', phone: '', guardianName: '', birthDate: '', classesStartDate: bogotaTodayStr(), primaryGroupId: '', secondaryGroupId: '', classesAcquired: '', paymentComplete: false });
+  const [form, setForm] = useState({ name: '', email: '', document: '', phone: '', guardianName: '', birthDate: '', classesStartDate: bogotaTodayStr(), primaryGroupId: '', secondaryGroupId: '', classesAcquired: '' });
   const [error, setError] = useState('');
   const [saving, setSaving] = useState(false);
 
   // Edit modal
   const [editTarget, setEditTarget] = useState(null); // student object
-  const [editForm, setEditForm] = useState({ name: '', email: '', classesAcquired: '', paymentComplete: false });
+  const [editForm, setEditForm] = useState({ name: '', email: '', classesAcquired: '' });
   const [editError, setEditError] = useState('');
   const [editSaving, setEditSaving] = useState(false);
 
@@ -189,15 +183,19 @@ export default function StudentsPage() {
 
   // Resumen por estado (tarjeta superior)
   const summary = useMemo(() => {
-    const c = { total: students.length, activos: 0, matriculados: 0, suspendidos: 0, inactivos: 0, sinGrupo: 0 };
+    const c = { total: students.length, activos: 0, matriculados: 0, inscritos: 0, preinscritos: 0, prueba: 0, suspendidos: 0, inactivos: 0, sinGrupo: 0, sinNacimiento: 0 };
     for (const s of students) {
       if (s.studentStatus === 'INACTIVO') c.inactivos++;
       else {
         c.activos++;
         if (s.studentStatus === 'MATRICULADO') c.matriculados++;
+        else if (s.studentStatus === 'INSCRITO') c.inscritos++;
+        else if (s.studentStatus === 'PREINSCRITO') c.preinscritos++;
+        else if (s.studentStatus === 'PRUEBA') c.prueba++;
         else if (s.studentStatus === 'SUSPENDIDO') c.suspendidos++;
       }
       if (hasNoGroup(s)) c.sinGrupo++;
+      if (s.missingBirthDate) c.sinNacimiento++;
     }
     return c;
   }, [students]);
@@ -207,6 +205,7 @@ export default function StudentsPage() {
     let arr = students.filter((s) => {
       // "PRUEBA" filtra los estudiantes de clase de prueba (isTrial), sin importar su estado.
       if (statusFilter === 'PRUEBA') { if (!s.isTrial) return false; }
+      else if (statusFilter === 'SIN_NACIMIENTO') { if (!s.missingBirthDate) return false; }
       else if (statusFilter === 'SIN_GRUPO') { if (!hasNoGroup(s)) return false; }
       else if (statusFilter === 'ACTIVOS' && s.studentStatus === 'INACTIVO') return false;
       else if (statusFilter !== 'ACTIVOS' && statusFilter !== 'TODOS' && s.studentStatus !== statusFilter) return false;
@@ -252,11 +251,25 @@ export default function StudentsPage() {
       const data = await api.get(`/students/${detailTarget.id}/payments`);
       setPayments(data); setPayForm(emptyPayForm);
       toast.success('Pago registrado');
+      await refreshStudentStatus(detailTarget.id);
     } catch (err) {
       setPayError(err.message);
     } finally {
       setPaySaving(false);
     }
+  }
+
+  // El estado (Matriculado/Inscrito/…) se deriva de los pagos: al registrar o
+  // eliminar uno, se refresca el estudiante en la lista y en la ficha abierta.
+  async function refreshStudentStatus(studentId) {
+    try {
+      const [fresh, rep] = await Promise.all([
+        api.get(`/students/${studentId}`),
+        api.get(`/students/${studentId}/report`),
+      ]);
+      setStudents((prev) => prev.map((s) => (s.id === studentId ? { ...s, ...fresh } : s)));
+      setDetail(rep);
+    } catch { /* refresco best-effort */ }
   }
 
   async function deletePayment(paymentId) {
@@ -265,6 +278,7 @@ export default function StudentsPage() {
       await api.delete(`/students/${detailTarget.id}/payments/${paymentId}`);
       const data = await api.get(`/students/${detailTarget.id}/payments`);
       setPayments(data);
+      await refreshStudentStatus(detailTarget.id);
     } catch (err) {
       toast.error(err.message);
     }
@@ -294,10 +308,7 @@ export default function StudentsPage() {
           <div style={{ flex: 1, minWidth: 0 }}>
             <div className="flex items-center gap-2" style={{ flexWrap: 'wrap' }}>
               <span className="font-medium">{s.name}</span>
-              {STATUS_BADGE[s.studentStatus] && (
-                <span className={`badge ${STATUS_BADGE[s.studentStatus].cls}`}>{STATUS_BADGE[s.studentStatus].label}</span>
-              )}
-              {s.isTrial && <span className="badge badge-yellow">🧪 Prueba</span>}
+              <StudentStatusBadge status={s.studentStatus} missingBirthDate={s.missingBirthDate} />
               {hasNoGroup(s) && !s.isTrial && <span className="badge badge-red">Sin grupo</span>}
             </div>
             <div className="text-xs text-gray" style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
@@ -379,7 +390,7 @@ export default function StudentsPage() {
       const s = await api.post('/students', form);
       setStudents([...students, s]);
       setShowForm(false);
-      setForm({ name: '', email: '', document: '', phone: '', guardianName: '', birthDate: '', classesStartDate: bogotaTodayStr(), primaryGroupId: '', secondaryGroupId: '', classesAcquired: '', paymentComplete: false });
+      setForm({ name: '', email: '', document: '', phone: '', guardianName: '', birthDate: '', classesStartDate: bogotaTodayStr(), primaryGroupId: '', secondaryGroupId: '', classesAcquired: '' });
     } catch (err) {
       setError(err.message);
     } finally {
@@ -398,7 +409,6 @@ export default function StudentsPage() {
       birthDate: student.birthDate ? String(student.birthDate).slice(0, 10) : '',
       classesStartDate: student.classesStartDate ? String(student.classesStartDate).slice(0, 10) : '',
       classesAcquired: student.classesAcquired != null ? String(student.classesAcquired) : '',
-      paymentComplete: !!student.paymentComplete,
       isTrial: !!student.isTrial,
     });
     setEditError('');
@@ -422,12 +432,6 @@ export default function StudentsPage() {
           classesStartDate: editForm.classesStartDate || null,
           classesAcquired: parseInt(editForm.classesAcquired) || 0,
           isTrial: editForm.isTrial,
-        });
-      }
-      // Payment status (Admin y Recepción) via its dedicated endpoint
-      if (editForm.paymentComplete !== !!editTarget.paymentComplete && user?.role !== 'PHYSICAL_TRAINER') {
-        updated = await api.patch(`/students/${editTarget.id}/payment-status`, {
-          paymentComplete: editForm.paymentComplete,
         });
       }
       setStudents(students.map((s) => (s.id === editTarget.id ? { ...s, ...updated } : s)));
@@ -571,8 +575,7 @@ export default function StudentsPage() {
           <div style={{ flex: 1, minWidth: 0 }}>
             <div className="flex items-center gap-2" style={{ flexWrap: 'wrap' }}>
               <h3>{st.name}</h3>
-              {STATUS_BADGE[st.studentStatus] && <span className={`badge ${STATUS_BADGE[st.studentStatus].cls}`}>{STATUS_BADGE[st.studentStatus].label}</span>}
-              {st.isTrial && <span className="badge badge-yellow">🧪 Clase de prueba</span>}
+              <StudentStatusBadge status={st.studentStatus} missingBirthDate={st.missingBirthDate} />
             </div>
             <div className="flex items-center gap-2 mt-1" style={{ flexWrap: 'wrap' }}>
               {g?.ballLevel && <span className="chip"><span className="legend-dot" style={{ background: BALL_COLOR[g.ballLevel] || 'var(--gray-400)' }} /> {g.ballLevel}{g.subLevel || ''}</span>}
@@ -627,6 +630,37 @@ export default function StudentsPage() {
                 <span className="badge badge-green">{fmtCOP(payments.total)} · {payments.count} pago{payments.count !== 1 ? 's' : ''}</span>
               )}
             </div>
+
+            {/* Estado del plan: valor esperado vs pagado (deriva Matriculado/Inscrito) */}
+            {st.tuition && (
+              st.missingBirthDate ? (
+                <div className="alert alert-error mb-2" style={{ fontSize: '0.8rem' }}>
+                  ⚠️ Sin fecha de nacimiento no se puede calcular la tarifa (adulto/pequeño) ni el saldo.
+                  Edita al estudiante e ingrésala.
+                </div>
+              ) : (
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(108px, 1fr))', gap: 8 }} className="mb-3">
+                  <div className="stat-box">
+                    <div className="num" style={{ fontSize: '0.95rem' }}>{st.tuition.category === 'ADULTO' ? 'Adulto' : st.tuition.category === 'PEQUENO' ? 'Pequeño' : '—'}</div>
+                    <div className="lbl">Categoría</div>
+                  </div>
+                  <div className="stat-box">
+                    <div className="num" style={{ fontSize: '0.95rem' }}>{st.tuition.expectedTotal != null ? fmtCOP(st.tuition.expectedTotal) : '—'}</div>
+                    <div className="lbl">Valor plan · {st.classesAcquired || 0} clases</div>
+                  </div>
+                  <div className="stat-box">
+                    <div className="num" style={{ fontSize: '0.95rem', color: 'var(--green)' }}>{fmtCOP(st.tuition.totalPaid)}</div>
+                    <div className="lbl">Pagado</div>
+                  </div>
+                  <div className="stat-box">
+                    <div className="num" style={{ fontSize: '0.95rem', color: st.tuition.balance > 0 ? 'var(--red)' : 'var(--green)' }}>
+                      {st.tuition.balance != null ? fmtCOP(st.tuition.balance) : '—'}
+                    </div>
+                    <div className="lbl">{st.tuition.balance === 0 ? 'Sin deuda ✅' : 'Saldo pendiente'}</div>
+                  </div>
+                </div>
+              )
+            )}
 
             {payError && <div className="alert alert-error mb-2">{payError}</div>}
 
@@ -760,16 +794,41 @@ export default function StudentsPage() {
         {/* Resumen por estado */}
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(84px, 1fr))', gap: 8 }} className="mb-3">
           <div className="stat-box"><div className="num">{summary.total}</div><div className="lbl">Total</div></div>
-          <div className="stat-box"><div className="num" style={{ color: 'var(--blue)' }}>{summary.activos}</div><div className="lbl">Activos</div></div>
-          <div className="stat-box"><div className="num" style={{ color: 'var(--green)' }}>{summary.matriculados}</div><div className="lbl">Matriculados</div></div>
-          <div className="stat-box"><div className="num" style={{ color: 'var(--yellow)' }}>{summary.suspendidos}</div><div className="lbl">Suspendidos</div></div>
-          <div className="stat-box"><div className="num" style={{ color: 'var(--gray-400)' }}>{summary.inactivos}</div><div className="lbl">Inactivos</div></div>
+          <div className="stat-box" style={{ cursor: 'pointer' }} onClick={() => setStatusFilter('MATRICULADO')}>
+            <div className="num" style={{ color: 'var(--green)' }}>{summary.matriculados}</div><div className="lbl">✅ Matriculados</div>
+          </div>
+          <div className="stat-box" style={{ cursor: 'pointer' }} onClick={() => setStatusFilter('INSCRITO')}>
+            <div className="num" style={{ color: 'var(--blue)' }}>{summary.inscritos}</div><div className="lbl">🔵 Inscritos</div>
+          </div>
+          <div className="stat-box" style={{ cursor: 'pointer' }} onClick={() => setStatusFilter('PREINSCRITO')}>
+            <div className="num" style={{ color: 'var(--gray-600)' }}>{summary.preinscritos}</div><div className="lbl">📝 Preinscritos</div>
+          </div>
+          <div className="stat-box" style={{ cursor: 'pointer' }} onClick={() => setStatusFilter('PRUEBA')}>
+            <div className="num" style={{ color: 'var(--yellow)' }}>{summary.prueba}</div><div className="lbl">🧪 Prueba</div>
+          </div>
+          <div className="stat-box" style={{ cursor: 'pointer' }} onClick={() => setStatusFilter('SUSPENDIDO')}>
+            <div className="num" style={{ color: 'var(--yellow)' }}>{summary.suspendidos}</div><div className="lbl">⏸️ Suspendidos</div>
+          </div>
           <div className="stat-box" style={{ cursor: summary.sinGrupo > 0 ? 'pointer' : 'default' }}
             onClick={() => summary.sinGrupo > 0 && setStatusFilter('SIN_GRUPO')}>
             <div className="num" style={{ color: summary.sinGrupo > 0 ? 'var(--red)' : 'var(--gray-400)' }}>{summary.sinGrupo}</div>
             <div className="lbl">Sin grupo</div>
           </div>
+          <div className="stat-box" style={{ cursor: summary.sinNacimiento > 0 ? 'pointer' : 'default' }}
+            onClick={() => summary.sinNacimiento > 0 && setStatusFilter('SIN_NACIMIENTO')}>
+            <div className="num" style={{ color: summary.sinNacimiento > 0 ? 'var(--red)' : 'var(--gray-400)' }}>{summary.sinNacimiento}</div>
+            <div className="lbl">⚠️ Sin fecha nac.</div>
+          </div>
         </div>
+
+        {/* Alerta: estudiantes sin fecha de nacimiento (no se puede derivar su tarifa) */}
+        {summary.sinNacimiento > 0 && statusFilter !== 'SIN_NACIMIENTO' && (
+          <div className="alert alert-error mb-3" style={{ cursor: 'pointer' }}
+            onClick={() => setStatusFilter('SIN_NACIMIENTO')}>
+            ⚠️ {summary.sinNacimiento} estudiante{summary.sinNacimiento !== 1 ? 's' : ''} sin fecha de nacimiento:
+            no se puede calcular su tarifa (adulto/pequeño) ni su estado de pago. Toca para verlos e ingresarla.
+          </div>
+        )}
 
         {/* Alerta: estudiantes activos sin grupo asignado */}
         {summary.sinGrupo > 0 && statusFilter !== 'SIN_GRUPO' && (
@@ -790,12 +849,14 @@ export default function StudentsPage() {
           <select className="form-input form-select" value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)}>
             <option value="ACTIVOS">Activos</option>
             <option value="TODOS">Todos</option>
-            <option value="MATRICULADO">Matriculados</option>
-            <option value="INSCRITO">Inscritos</option>
-            <option value="SUSPENDIDO">Suspendidos</option>
-            <option value="INACTIVO">Inactivos</option>
-            <option value="SIN_GRUPO">⚠️ Sin grupo</option>
+            <option value="MATRICULADO">✅ Matriculados</option>
+            <option value="INSCRITO">🔵 Inscritos</option>
+            <option value="PREINSCRITO">📝 Preinscritos</option>
             <option value="PRUEBA">🧪 Clases de prueba</option>
+            <option value="SUSPENDIDO">⏸️ Suspendidos</option>
+            <option value="INACTIVO">⛔ Inactivos</option>
+            <option value="SIN_GRUPO">⚠️ Sin grupo</option>
+            <option value="SIN_NACIMIENTO">⚠️ Sin fecha de nacimiento</option>
           </select>
           <select className="form-input form-select" value={groupFilter} onChange={(e) => setGroupFilter(e.target.value)}>
             <option value="">Todos los grupos</option>
@@ -843,9 +904,10 @@ export default function StudentsPage() {
                   onChange={(e) => setForm({ ...form, guardianName: e.target.value })} />
               </div>
               <div className="form-group">
-                <label className="form-label">Fecha de nacimiento</label>
-                <input type="date" className="form-input" value={form.birthDate}
+                <label className="form-label">Fecha de nacimiento *</label>
+                <input type="date" className="form-input" required value={form.birthDate}
                   onChange={(e) => setForm({ ...form, birthDate: e.target.value })} />
+                <span className="text-xs text-gray">Obligatoria: define la tarifa (adulto/pequeño) y el estado de pago.</span>
               </div>
               <div className="form-group">
                 <label className="form-label">Fecha de inicio de clases *</label>
@@ -876,16 +938,11 @@ export default function StudentsPage() {
                   onChange={(e) => setForm({ ...form, classesAcquired: e.target.value })} />
                 <span className="text-xs text-gray">Total de clases que el estudiante compró para el semestre.</span>
               </div>
-              <label style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 16, cursor: 'pointer' }}>
-                <input type="checkbox" checked={form.paymentComplete}
-                  onChange={(e) => setForm({ ...form, paymentComplete: e.target.checked })} />
-                <span className="text-sm">
-                  Pago completo — <strong>Matriculado</strong>
-                  <span className="text-xs text-gray" style={{ display: 'block' }}>
-                    Sin marcar, el estudiante figura como Inscrito (pagos pendientes).
-                  </span>
-                </span>
-              </label>
+              <div className="alert alert-info mb-3" style={{ fontSize: '0.8rem' }}>
+                El estado se calcula solo: 📝 Preinscrito al registrarse, 🔵 Inscrito con
+                alguna asistencia o pago, y ✅ Matriculado cuando los pagos registrados
+                cubren el valor de sus clases adquiridas.
+              </div>
               <div className="flex gap-2">
                 <button type="button" className="btn btn-outline" style={{ flex: 1 }} onClick={() => setShowForm(false)}>
                   Cancelar
@@ -973,11 +1030,16 @@ export default function StudentsPage() {
                   value={editForm.guardianName} onChange={(e) => setEditForm({ ...editForm, guardianName: e.target.value })} />
               </div>
               <div className="form-group">
-                <label className="form-label">Fecha de nacimiento</label>
+                <label className="form-label">Fecha de nacimiento {!editTarget.isTrial && '*'}</label>
                 <input type="date" className="form-input" disabled={!canEdit}
+                  style={!editForm.birthDate && !editTarget.isTrial ? { borderColor: 'var(--red)' } : undefined}
                   value={editForm.birthDate} onChange={(e) => setEditForm({ ...editForm, birthDate: e.target.value })} />
-                {editForm.birthDate && ageFrom(editForm.birthDate) != null && (
+                {editForm.birthDate && ageFrom(editForm.birthDate) != null ? (
                   <span className="text-xs text-gray">Edad: {ageFrom(editForm.birthDate)} años</span>
+                ) : !editTarget.isTrial && (
+                  <span className="text-xs" style={{ color: 'var(--red)' }}>
+                    ⚠️ Falta la fecha de nacimiento: sin ella no se puede calcular la tarifa (adulto/pequeño) ni el estado de pago.
+                  </span>
                 )}
               </div>
               <div className="form-group">
@@ -1005,18 +1067,10 @@ export default function StudentsPage() {
                   </span>
                 </label>
               )}
-              {user?.role !== 'PHYSICAL_TRAINER' && (
-                <label style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 16, cursor: 'pointer' }}>
-                  <input type="checkbox" checked={editForm.paymentComplete}
-                    onChange={(e) => setEditForm({ ...editForm, paymentComplete: e.target.checked })} />
-                  <span className="text-sm">
-                    Pago completo — <strong>Matriculado</strong>
-                    <span className="text-xs text-gray" style={{ display: 'block' }}>
-                      Sin marcar, el estudiante figura como Inscrito (pagos pendientes).
-                    </span>
-                  </span>
-                </label>
-              )}
+              <div className="alert alert-info mb-3" style={{ fontSize: '0.8rem' }}>
+                El estado (📝 Preinscrito / 🔵 Inscrito / ✅ Matriculado) se deriva de los
+                pagos registrados y la asistencia — se actualiza solo al registrar pagos.
+              </div>
               <div className="flex gap-2 mt-2">
                 <button type="button" className="btn btn-outline" style={{ flex: 1 }}
                   onClick={() => setEditTarget(null)}>

@@ -4,6 +4,7 @@ import { api } from '../../api/client';
 import { useAuth } from '../../hooks/useAuth';
 import { fmtDate } from '../../utils/dates';
 import PoliciesModal from '../../components/PoliciesModal';
+import { StudentStatusBadge, fmtCOP } from '../../utils/studentStatus';
 
 const STATUS_LABELS = { PRESENTE: 'Presente', AUSENTE: 'Ausente', JUSTIFICADA: 'Justificada' };
 const STATUS_BADGE = { PRESENTE: 'badge-green', AUSENTE: 'badge-red', JUSTIFICADA: 'badge-yellow' };
@@ -85,12 +86,21 @@ export default function ParentPortalPage() {
         {selected && attendance && (
           <>
             <div className="card mb-3">
-              <h2 className="mb-1">{selected.name}</h2>
+              <div className="flex items-center gap-2 mb-1" style={{ flexWrap: 'wrap' }}>
+                <h2>{selected.name}</h2>
+                <StudentStatusBadge status={selected.studentStatus} missingBirthDate={selected.missingBirthDate} />
+              </div>
               {selected.enrollments?.map((e) => (
                 <div key={e.groupId} className="text-sm text-gray">
                   {e.group.code} · {e.group.professor?.name}
                 </div>
               ))}
+              {selected.tuition?.balance > 0 && (
+                <div className="text-sm mt-2" style={{ color: 'var(--red)' }}>
+                  Saldo pendiente del plan: <strong>{fmtCOP(selected.tuition.balance)}</strong>
+                  <span className="text-xs text-gray"> · pagado {fmtCOP(selected.tuition.totalPaid)} de {fmtCOP(selected.tuition.expectedTotal)}</span>
+                </div>
+              )}
             </div>
 
             {selected.attendanceAlert?.level && (

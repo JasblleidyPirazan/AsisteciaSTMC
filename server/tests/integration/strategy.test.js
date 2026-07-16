@@ -1,5 +1,5 @@
 // mockPrisma MUST be imported before the router (require.cache injection).
-import { prismaMock, resetPrisma } from '../helpers/mockPrisma.js';
+import { prismaMock, resetPrisma, mockStudentStatusDeps } from '../helpers/mockPrisma.js';
 import { describe, it, expect, beforeAll, beforeEach, vi } from 'vitest';
 import request from 'supertest';
 import { JWT_SECRET, tokenFor, buildApp } from '../helpers/testApp.js';
@@ -19,7 +19,7 @@ beforeAll(async () => {
   app = await buildApp('/api/reports', reportsRouter);
 });
 
-beforeEach(() => {
+beforeEach(async () => {
   resetPrisma();
   prismaMock.semester = { findFirst: vi.fn().mockResolvedValue(null) };
   prismaMock.student = { findMany: vi.fn().mockResolvedValue([]) };
@@ -28,6 +28,8 @@ beforeEach(() => {
   prismaMock.attendanceRecord = { findMany: vi.fn().mockResolvedValue([]) };
   prismaMock.studentPayment = { findMany: vi.fn().mockResolvedValue([]) };
   prismaMock.costRecord = { findMany: vi.fn().mockResolvedValue([]) };
+  // Estado derivado de estudiantes (attachStudentStatus): config + agregados
+  await mockStudentStatusDeps();
 });
 
 describe('GET /reports/strategy — Visión Estratégica', () => {
@@ -54,10 +56,16 @@ describe('GET /reports/strategy — Visión Estratégica', () => {
 
   it('agrega correctamente estudiantes, grupos, operación y finanzas', async () => {
     const token = authAs('ADMIN');
+    // Estados derivados: s1 adulto con el plan de 40 clases pagado completo
+    // (2.789.000) → MATRICULADO; s2 pequeño sin pagos ni asistencia →
+    // PREINSCRITO; s3 clase de prueba → PRUEBA (no cuenta como activo).
     prismaMock.student.findMany.mockResolvedValue([
-      { paymentComplete: true, isTrial: false, suspendedFrom: null, suspendedUntil: null, createdAt: new Date() },
-      { paymentComplete: false, isTrial: false, suspendedFrom: null, suspendedUntil: null, createdAt: new Date('2020-01-01') },
-      { paymentComplete: false, isTrial: true, suspendedFrom: null, suspendedUntil: null, createdAt: new Date() },
+      { id: 's1', active: true, isTrial: false, birthDate: new Date('1990-01-01'), classesAcquired: 40, suspendedFrom: null, suspendedUntil: null, createdAt: new Date() },
+      { id: 's2', active: true, isTrial: false, birthDate: new Date('2015-01-01'), classesAcquired: 40, suspendedFrom: null, suspendedUntil: null, createdAt: new Date('2020-01-01') },
+      { id: 's3', active: true, isTrial: true, birthDate: null, classesAcquired: 0, suspendedFrom: null, suspendedUntil: null, createdAt: new Date() },
+    ]);
+    prismaMock.studentPayment.groupBy.mockResolvedValue([
+      { studentId: 's1', _sum: { amount: '2789000' } },
     ]);
     prismaMock.group.findMany.mockResolvedValue([
       { id: 'g1', code: 'G2', ballLevel: 'Verde', subLevel: 'A', capacity: 8, professor: { name: 'Ana' }, _count: { enrollments: 6 } },
@@ -88,7 +96,7 @@ describe('GET /reports/strategy — Visión Estratégica', () => {
     const d = res.body.data;
 
     // Estudiantes: el de prueba no cuenta como activo; conversión 1/2 = 50%
-    expect(d.students).toMatchObject({ active: 2, matriculados: 1, inscritos: 1, trial: 1, conversionPct: 50 });
+    expect(d.students).toMatchObject({ active: 2, matriculados: 1, inscritos: 0, preinscritos: 1, trial: 1, conversionPct: 50 });
 
     // Grupos: orden alfanumérico (G2 antes que G10), ocupación y asistencia
     expect(d.groups.rows.map((g) => g.code)).toEqual(['G2', 'G10']);
