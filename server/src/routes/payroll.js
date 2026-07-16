@@ -117,6 +117,57 @@ router.get('/', async (req, res, next) => {
   }
 });
 
+// Vista de calendario semanal de la liquidación (ADMIN): todas las clases del
+// rango [from, to] con su costo y estado, para pintarlas en una malla
+// semana × horario × día. El cliente agrupa; aquí solo devolvemos lo necesario.
+router.get('/calendar', requireRole('ADMIN'), async (req, res, next) => {
+  try {
+    const { from, to } = req.query;
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(from || '') || !/^\d{4}-\d{2}-\d{2}$/.test(to || '')) {
+      return res.status(400).json({ success: false, error: 'from y to requeridos (YYYY-MM-DD)' });
+    }
+
+    const sessions = await prisma.classSession.findMany({
+      where: { date: { gte: new Date(from), lte: new Date(to) }, status: { not: 'PROGRAMADA' } },
+      include: {
+        group: { select: { code: true, startTime: true, endTime: true, professor: { select: { name: true } } } },
+        substituteProfessor: { select: { name: true } },
+        makeupProfessor: { select: { name: true } },
+        attendanceRecords: { select: { status: true, attendanceType: true } },
+        costRecords: { select: { total: true, payeeType: true } },
+      },
+      orderBy: { date: 'asc' },
+    });
+
+    const data = sessions.map((s) => {
+      const present = s.attendanceRecords.filter((r) => r.status === 'PRESENTE').length;
+      const makeupCount = s.attendanceRecords.filter((r) => r.attendanceType === 'REPOSICION').length;
+      const professorCost = s.costRecords
+        .filter((c) => c.payeeType === 'PROFESSOR')
+        .reduce((sum, c) => sum + parseFloat(c.total), 0);
+      return {
+        id: s.id,
+        date: s.date,
+        kind: s.kind,
+        code: s.group?.code || s.title || (s.kind === 'MAKEUP' ? 'Reposición' : s.kind === 'FESTIVAL' ? 'Festival' : '—'),
+        startTime: s.group?.startTime || null,
+        endTime: s.group?.endTime || null,
+        professor: s.substituteProfessor?.name || s.group?.professor?.name || s.makeupProfessor?.name || '—',
+        present,
+        makeupCount,
+        cost: professorCost,
+        status: s.status,
+        cancellationCategory: s.cancellationCategory,
+        dictatedByOwner: s.dictatedByOwner,
+      };
+    });
+
+    res.json({ success: true, data });
+  } catch (err) {
+    next(err);
+  }
+});
+
 // Acumulado del semestre para el propio profesor/asistente. Suma sus CostRecords
 // cuya sesión cae dentro del semestre activo (por fecha de clase, no por período,
 // para que un arrastre no descuadre la atribución), separando pagado / pendiente
