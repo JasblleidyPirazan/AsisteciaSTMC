@@ -79,6 +79,12 @@ export default function Step3Students({ groupId, records, onChange, onNext }) {
     setSearch('');
   }
 
+  // Quitar un estudiante de reposición agregado por error (solo REPOSICION; los
+  // del grupo no se quitan). Al re-finalizar, el reporte queda sin ese registro.
+  function removeReposition(studentId) {
+    onChange(records.filter((r) => r.studentId !== studentId));
+  }
+
   // Crea el estudiante de clase de prueba (isTrial) y lo agrega a la lista.
   async function addTrialStudent() {
     const name = trialName.trim();
@@ -135,6 +141,15 @@ export default function Step3Students({ groupId, records, onChange, onNext }) {
               <span className="badge badge-yellow" style={{ marginLeft: 6, fontSize: '0.7rem' }}>🧪 prueba</span>
             ) : r.attendanceType === 'REPOSICION' && (
               <span className="badge badge-blue" style={{ marginLeft: 6, fontSize: '0.7rem' }}>repo</span>
+            )}
+            {/* Quitar reposición agregada por error */}
+            {r.attendanceType === 'REPOSICION' && (
+              <button type="button" className="btn btn-ghost"
+                style={{ marginLeft: 6, minHeight: 22, padding: '0 6px', fontSize: '0.72rem', color: 'var(--red)' }}
+                title="Quitar de la clase"
+                onClick={() => removeReposition(r.studentId)}>
+                ✕ quitar
+              </button>
             )}
             {meta[r.studentId] && (
               <div className="text-xs text-gray" style={{ fontWeight: 400, marginTop: 2 }}>
