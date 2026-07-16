@@ -19,7 +19,7 @@ const TODAY = new Date('2026-07-16T00:00:00.000Z');
 const base = {
   id: 's1', active: true, isTrial: false,
   suspendedFrom: null, suspendedUntil: null,
-  birthDate: new Date('2010-03-01'), // 16 años → PEQUEÑO
+  birthDate: new Date('2016-03-01'), // 10 años → PEQUEÑO
   classesAcquired: 40,
 };
 
@@ -30,10 +30,11 @@ describe('ageOn / priceCategory', () => {
     expect(ageOn(null, TODAY)).toBeNull();
   });
 
-  it('categoriza ADULTO desde tuition_adult_age (18) y PEQUENO por debajo', () => {
+  it('categoriza ADULTO desde tuition_adult_age (16) y PEQUENO por debajo', () => {
     expect(priceCategory({ birthDate: new Date('1990-01-01') }, TUITION_DEFAULTS, TODAY)).toBe('ADULTO');
-    expect(priceCategory({ birthDate: new Date('2008-07-16') }, TUITION_DEFAULTS, TODAY)).toBe('ADULTO'); // cumple 18 hoy
-    expect(priceCategory({ birthDate: new Date('2010-03-01') }, TUITION_DEFAULTS, TODAY)).toBe('PEQUENO');
+    expect(priceCategory({ birthDate: new Date('2010-07-16') }, TUITION_DEFAULTS, TODAY)).toBe('ADULTO'); // cumple 16 hoy
+    expect(priceCategory({ birthDate: new Date('2010-07-17') }, TUITION_DEFAULTS, TODAY)).toBe('PEQUENO'); // 15 años (cumple mañana)
+    expect(priceCategory({ birthDate: new Date('2016-03-01') }, TUITION_DEFAULTS, TODAY)).toBe('PEQUENO');
     expect(priceCategory({ birthDate: null }, TUITION_DEFAULTS, TODAY)).toBeNull();
   });
 });

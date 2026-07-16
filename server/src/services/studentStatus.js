@@ -27,7 +27,7 @@ const TUITION_DEFAULTS = {
   tuition_adult_total: 2789000,   // Valor adulto por 40 clases
   tuition_child_total: 2425000,   // Valor pequeños por 40 clases
   tuition_plan_classes: 40,       // Clases base del plan
-  tuition_adult_age: 18,          // Edad (años cumplidos) desde la que aplica tarifa adulto
+  tuition_adult_age: 16,          // Edad (años cumplidos) desde la que aplica tarifa adulto (decisión del cliente)
 };
 
 // Edad en años cumplidos a la fecha `today` (ambos @db.Date / UTC midnight).
