@@ -75,7 +75,7 @@ export default function ValidationPage() {
     <div className="page">
       <div className="page-header">
         <button className="nav-back" onClick={() => navigate('/admin')}>←</button>
-        <h1>Validación</h1>
+        <h1>Validación Asistentes</h1>
       </div>
 
       <div className="page-content">
