@@ -2,8 +2,9 @@ import { useState, useEffect, Fragment } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { api } from '../../api/client';
 import { fmtDate } from '../../utils/dates';
-import { buildPeriodOptions, getCurrentPeriod, periodLabel } from '../../utils/periods';
+import { buildPeriodOptions, getCurrentPeriod, periodLabel, periodRange } from '../../utils/periods';
 import { toast } from '../../utils/toast';
+import PayrollCalendar from './PayrollCalendar';
 
 function fmt(n) {
   return new Intl.NumberFormat('es-CO', { style: 'currency', currency: 'COP', maximumFractionDigits: 0 }).format(n || 0);
@@ -78,6 +79,7 @@ export default function PayrollPage() {
   const [approving, setApproving] = useState(false);
   const [closure, setClosure] = useState(null);
   const [semester, setSemester] = useState(null);
+  const [view, setView] = useState('list'); // 'list' | 'calendar'
 
   const locked = !!closure?.locked;
 
@@ -451,6 +453,13 @@ export default function PayrollPage() {
             </div>
           </div>
           <div className="flex items-center gap-2" style={{ flexWrap: 'wrap' }}>
+            {/* Alternar vista Lista / Calendario */}
+            <div className="flex" style={{ border: '1px solid var(--border)', borderRadius: 8, overflow: 'hidden' }}>
+              <button className={`btn ${view === 'list' ? 'btn-primary' : 'btn-ghost'}`}
+                style={{ minHeight: 40, borderRadius: 0, fontSize: '0.85rem' }} onClick={() => setView('list')}>📋 Lista</button>
+              <button className={`btn ${view === 'calendar' ? 'btn-primary' : 'btn-ghost'}`}
+                style={{ minHeight: 40, borderRadius: 0, fontSize: '0.85rem' }} onClick={() => setView('calendar')}>📅 Calendario</button>
+            </div>
             <select className="form-input form-select" style={{ minHeight: 40, width: 'auto', fontSize: '0.85rem' }}
               value={period} onChange={(e) => setPeriod(e.target.value)}>
               {buildPeriodOptions(semester, period).map((p) => (
@@ -464,7 +473,11 @@ export default function PayrollPage() {
           </div>
         </div>
 
-        {loading ? <div className="spinner" /> : (
+        {view === 'calendar' && (
+          <PayrollCalendar range={periodRange(period)} semester={semester} />
+        )}
+
+        {view === 'list' && (loading ? <div className="spinner" /> : (
           <>
             {/* Progreso de validación */}
             {summaryData?.progress && summaryData.progress.total > 0 && (() => {
@@ -580,7 +593,7 @@ export default function PayrollPage() {
               </>
             )}
           </>
-        )}
+        ))}
       </div>
     </div>
   );
