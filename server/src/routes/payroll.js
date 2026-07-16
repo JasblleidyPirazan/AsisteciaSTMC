@@ -3,9 +3,47 @@ const prisma = require('../lib/prisma');
 const { requireRole } = require('../middleware/auth');
 const { getNextPeriod } = require('../services/costEngine');
 const { assistantMissing } = require('../lib/assistantMatch');
+const { dbDateStr } = require('../lib/dates');
 const XLSX = require('xlsx');
 
 const router = express.Router();
+
+// Auto-sincroniza el payStatus de los pagos de ASISTENTE del período con la
+// regla vigente de la triple coincidencia (misma que usa la cola de Validación),
+// para que Liquidación y Validación NO se contradigan cuando un CostRecord quedó
+// PENDING_MATCH de antes de la auto-validación. Solo cambia el campo payStatus
+// (conserva approvedAt/paidAt); si un pago regresa a PENDING, limpia su aprobación.
+// No toca SUSPENDED_LATE (retención por reporte tardío) ni quincenas cerradas.
+async function refreshAssistantPayStatus(period) {
+  const closure = await prisma.payrollClosure.findUnique({ where: { period } });
+  if (closure?.locked) return;
+
+  const records = await prisma.costRecord.findMany({
+    where: { period, payeeType: 'ASSISTANT', payStatus: { in: ['PAYABLE', 'PENDING_MATCH'] } },
+    include: { session: true },
+  });
+  if (records.length === 0) return;
+
+  const cfg = await prisma.systemConfig.findUnique({ where: { key: 'assistant_match_start_date' } });
+  const matchStart = cfg?.value || null;
+
+  const updates = [];
+  for (const r of records) {
+    if (!r.session) continue;
+    const beforeCutoff = matchStart && dbDateStr(r.session.date) < matchStart;
+    const should = (beforeCutoff || assistantMissing(r.session).length === 0) ? 'PAYABLE' : 'PENDING_MATCH';
+    if (should !== r.payStatus) {
+      updates.push(prisma.costRecord.update({
+        where: { id: r.id },
+        // Un pago que vuelve a PENDING no puede seguir aprobado.
+        data: should === 'PENDING_MATCH'
+          ? { payStatus: 'PENDING_MATCH', approvedAt: null, approvedById: null }
+          : { payStatus: 'PAYABLE' },
+      }));
+    }
+  }
+  if (updates.length > 0) await prisma.$transaction(updates);
+}
 
 router.get('/', async (req, res, next) => {
   try {
@@ -17,6 +55,9 @@ router.get('/', async (req, res, next) => {
     if (!period) {
       return res.status(400).json({ success: false, error: 'period requerido (ej: 2025-06-1)' });
     }
+
+    // Coherencia con Validación: sincroniza el estado de los pagos de asistente.
+    if (['ADMIN', 'SUPERADMIN'].includes(req.user.role)) await refreshAssistantPayStatus(period);
 
     const where = { period };
 
@@ -133,6 +174,9 @@ router.get('/summary', requireRole('ADMIN'), async (req, res, next) => {
   try {
     const { period } = req.query;
     if (!period) return res.status(400).json({ success: false, error: 'period requerido' });
+
+    // Coherencia con Validación antes de contar/sumar.
+    await refreshAssistantPayStatus(period);
 
     const records = await prisma.costRecord.findMany({
       where: { period },
