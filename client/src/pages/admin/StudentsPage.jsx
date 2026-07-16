@@ -1093,6 +1093,9 @@ export default function StudentsPage() {
             <p className="text-xs text-gray mb-3">
               Sube el archivo <strong>.xlsx</strong> de preinscripción. Se leen los estudiantes de la hoja
               «Consolidado Matrícula». Actualiza los existentes (por documento) y agrega los nuevos; no borra a nadie.
+              <br />Si el archivo no trae esa hoja pero tiene columnas <strong>NOMBRE COMPLETO</strong> y{' '}
+              <strong>FECHA DE NACIMIENTO</strong>, se rellenan solo las fechas de nacimiento faltantes
+              (por documento; nunca pisa una fecha ya registrada).
             </p>
 
             {importError && <div className="alert alert-error">{importError}</div>}
@@ -1107,17 +1110,38 @@ export default function StudentsPage() {
             {importPreview && !importResult && (
               <div className="card mb-3" style={{ background: 'var(--surface-2)' }}>
                 <div className="font-medium mb-1">Vista previa</div>
-                <div className="text-sm">
-                  {importPreview.counts.students} estudiantes · {importPreview.counts.groups} grupos ·{' '}
-                  {importPreview.counts.professors} profesores
-                </div>
-                <div className="text-xs text-gray mt-1">
-                  {importPreview.counts.multiGroup} con más de un grupo · Profesores: {importPreview.professors.join(', ')}
-                </div>
-                {importPreview.counts.payments > 0 && (
-                  <div className="text-sm mt-2" style={{ color: 'var(--green)' }}>
-                    💵 {importPreview.counts.payments} pagos recibidos{importPreview.paymentsTotal ? ` · ${fmtCOP(importPreview.paymentsTotal)}` : ''}
-                  </div>
+                {importPreview.mode === 'birthdates' ? (
+                  <>
+                    <div className="text-sm">
+                      🎂 Solo fechas de nacimiento: {importPreview.counts.rows} en el archivo ·{' '}
+                      {importPreview.counts.matched} estudiantes encontrados
+                    </div>
+                    <div className="text-sm mt-1" style={{ color: 'var(--green)' }}>
+                      Se rellenarán {importPreview.counts.toFill} fechas faltantes
+                      {importPreview.counts.alreadySet > 0 ? ` · ${importPreview.counts.alreadySet} ya tenían fecha (no se tocan)` : ''}
+                    </div>
+                    {importPreview.counts.unmatched > 0 && (
+                      <div className="text-xs mt-1" style={{ color: 'var(--red)' }}>
+                        ⚠️ {importPreview.counts.unmatched} del Excel no existen en el sistema:{' '}
+                        {importPreview.unmatchedSamples?.join(', ')}
+                      </div>
+                    )}
+                  </>
+                ) : (
+                  <>
+                    <div className="text-sm">
+                      {importPreview.counts.students} estudiantes · {importPreview.counts.groups} grupos ·{' '}
+                      {importPreview.counts.professors} profesores
+                    </div>
+                    <div className="text-xs text-gray mt-1">
+                      {importPreview.counts.multiGroup} con más de un grupo · Profesores: {importPreview.professors.join(', ')}
+                    </div>
+                    {importPreview.counts.payments > 0 && (
+                      <div className="text-sm mt-2" style={{ color: 'var(--green)' }}>
+                        💵 {importPreview.counts.payments} pagos recibidos{importPreview.paymentsTotal ? ` · ${fmtCOP(importPreview.paymentsTotal)}` : ''}
+                      </div>
+                    )}
+                  </>
                 )}
                 <div className="text-xs text-gray mt-2">
                   Revisa que los números cuadren y luego presiona <strong>Importar</strong>.
@@ -1127,13 +1151,23 @@ export default function StudentsPage() {
 
             {importResult && (
               <div className="alert alert-success">
-                ✅ Importación completa: {importResult.result.created} creados,{' '}
-                {importResult.result.updated} actualizados, {importResult.result.moved} cambios de grupo.
-                {importResult.result.paymentsCreated != null && (
-                  <div className="text-sm mt-1">
-                    💵 {importResult.result.paymentsCreated} pagos registrados
-                    {importResult.result.paymentsSkipped > 0 ? ` · ${importResult.result.paymentsSkipped} ya existían` : ''}
-                  </div>
+                {importResult.mode === 'birthdates' ? (
+                  <>
+                    ✅ Fechas de nacimiento: {importResult.counts.filled} rellenadas
+                    {importResult.counts.alreadySet > 0 ? ` · ${importResult.counts.alreadySet} ya tenían fecha` : ''}
+                    {importResult.counts.unmatched > 0 ? ` · ${importResult.counts.unmatched} sin coincidencia` : ''}
+                  </>
+                ) : (
+                  <>
+                    ✅ Importación completa: {importResult.result.created} creados,{' '}
+                    {importResult.result.updated} actualizados, {importResult.result.moved} cambios de grupo.
+                    {importResult.result.paymentsCreated != null && (
+                      <div className="text-sm mt-1">
+                        💵 {importResult.result.paymentsCreated} pagos registrados
+                        {importResult.result.paymentsSkipped > 0 ? ` · ${importResult.result.paymentsSkipped} ya existían` : ''}
+                      </div>
+                    )}
+                  </>
                 )}
                 {importResult.warnings?.length > 0 && (
                   <div className="text-xs mt-1">Avisos: {importResult.warnings.join('; ')}</div>

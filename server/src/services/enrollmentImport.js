@@ -158,6 +158,90 @@ function parsePayments(wb) {
     .filter((x) => x.paymentDate && x.amount > 0);
 }
 
+// ---------- fechas de nacimiento (backfill) ----------
+
+// Lee CUALQUIER hoja que tenga columnas "NOMBRE COMPLETO" + "FECHA DE NACIMIENTO"
+// (p. ej. "PRE-INSCRITOS" del archivo de inscripciones) y devuelve una entrada
+// por estudiante (dedupe por documento, o por nombre si no hay documento).
+function parseBirthDates(wb) {
+  const out = new Map();
+  for (const sheetName of wb.SheetNames) {
+    const data = XLSX.utils.sheet_to_json(wb.Sheets[sheetName], { header: 1, defval: '' });
+    const hIdx = data.findIndex((r) =>
+      r.some((c) => /fecha\s*de\s*nacimiento/i.test(String(c))) &&
+      r.some((c) => /nombre\s*completo/i.test(String(c))));
+    if (hIdx < 0) continue;
+    const header = data[hIdx].map((h) => String(h).trim());
+    const find = (re) => header.findIndex((h) => re.test(h));
+    const idx = {
+      doc: find(/doc.*identidad|^documento$/i),
+      name: find(/nombre\s*completo/i),
+      birth: find(/fecha\s*de\s*nacimiento/i),
+    };
+    for (const r of data.slice(hIdx + 1)) {
+      const name = clean(r[idx.name]);
+      const birthDate = excelDate(r[idx.birth]);
+      if (!name || !birthDate) continue;
+      // Solo fechas plausibles (evita seriales corruptos o celdas con otra cosa)
+      const y = birthDate.getUTCFullYear();
+      if (y < 1900 || y > new Date().getUTCFullYear()) continue;
+      const document = idx.doc >= 0 ? clean(r[idx.doc]) : null;
+      const key = document || `name:${normName(name)}`;
+      if (!out.has(key)) out.set(key, { document, name, birthDate });
+    }
+  }
+  return [...out.values()];
+}
+
+// Nombre normalizado para emparejar: minúsculas, sin tildes, espacios colapsados.
+function normName(s) {
+  return String(s || '')
+    .normalize('NFD').replace(/[̀-ͯ]/g, '')
+    .toLowerCase().replace(/\s+/g, ' ').trim();
+}
+
+/**
+ * Backfill de fechas de nacimiento: empareja por documento (o nombre) y SOLO
+ * rellena a los estudiantes que no tienen fecha — nunca pisa una existente.
+ */
+async function importBirthDates(entries, { dryRun = false } = {}) {
+  const students = await prisma.student.findMany({
+    select: { id: true, name: true, document: true, birthDate: true },
+  });
+  const byDoc = {};
+  const byName = {};
+  for (const s of students) {
+    if (s.document) byDoc[String(s.document).trim()] = s;
+    byName[normName(s.name)] = s;
+  }
+
+  let matched = 0, filled = 0, alreadySet = 0;
+  const unmatched = [];
+  const toFill = [];
+  for (const e of entries) {
+    const student = (e.document && byDoc[e.document]) || byName[normName(e.name)] || null;
+    if (!student) { unmatched.push(e.name); continue; }
+    matched++;
+    if (student.birthDate) { alreadySet++; continue; }
+    toFill.push({ id: student.id, birthDate: e.birthDate });
+  }
+
+  if (!dryRun) {
+    for (const f of toFill) {
+      await prisma.student.update({ where: { id: f.id }, data: { birthDate: f.birthDate } });
+      filled++;
+    }
+  }
+
+  return {
+    dryRun,
+    mode: 'birthdates',
+    counts: { rows: entries.length, matched, toFill: toFill.length, filled, alreadySet, unmatched: unmatched.length },
+    unmatchedSamples: unmatched.slice(0, 15),
+    warnings: unmatched.length ? [`${unmatched.length} estudiante(s) del Excel no existen en el sistema: ${unmatched.slice(0, 8).join(', ')}${unmatched.length > 8 ? '…' : ''}`] : [],
+  };
+}
+
 // ---------- importación ----------
 
 /**
@@ -167,6 +251,15 @@ function parsePayments(wb) {
  */
 async function importFromBuffer(buffer, { dryRun = false, user = null } = {}) {
   const wb = XLSX.read(buffer, { type: 'buffer' });
+
+  // Sin hoja "Consolidado Matrícula": si el archivo trae fechas de nacimiento
+  // (p. ej. el Excel de inscripciones con la hoja PRE-INSCRITOS), se hace un
+  // backfill de SOLO fechas de nacimiento sobre los estudiantes existentes.
+  if (!wb.SheetNames.some((n) => /consolidado/i.test(n))) {
+    const entries = parseBirthDates(wb);
+    if (entries.length > 0) return importBirthDates(entries, { dryRun });
+  }
+
   const records = parseRecords(wb);
   const payments = parsePayments(wb);
 
@@ -338,4 +431,4 @@ async function importFromBuffer(buffer, { dryRun = false, user = null } = {}) {
   };
 }
 
-module.exports = { importFromBuffer, parseRecords, parsePayments };
+module.exports = { importFromBuffer, parseRecords, parsePayments, parseBirthDates, importBirthDates };

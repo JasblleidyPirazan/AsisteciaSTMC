@@ -47,7 +47,7 @@ async function main() {
     { key: 'tuition_adult_total', value: '2789000' },
     { key: 'tuition_child_total', value: '2425000' },
     { key: 'tuition_plan_classes', value: '40' },
-    { key: 'tuition_adult_age', value: '18' },
+    { key: 'tuition_adult_age', value: '16' },
   ];
 
   for (const config of defaults) {

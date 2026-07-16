@@ -239,7 +239,7 @@ export default function ConfigPage() {
               </div>
               <div className="form-group">
                 <label className="form-label">Edad adulto (desde, años)</label>
-                <input type="number" className="form-input" min="1" placeholder="18"
+                <input type="number" className="form-input" min="1" placeholder="16"
                   value={config.tuition_adult_age}
                   onChange={(e) => setConfig({ ...config, tuition_adult_age: e.target.value })} />
               </div>
