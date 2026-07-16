@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { api } from '../api/client';
+import { StudentStatusIcon } from '../utils/studentStatus';
 
 // Buscador global (⌘K / Ctrl+K): encuentra estudiantes y grupos y salta a su
 // detalle. Navegación por teclado (↑↓ para moverse, ↵ para abrir, esc cierra).
@@ -15,7 +16,8 @@ export default function CommandPalette({ open, onClose }) {
   // Lista plana (estudiantes y luego grupos) para navegar con el teclado.
   const items = [
     ...res.students.map((s) => ({
-      type: 'student', id: s.id, label: s.name, trial: s.isTrial,
+      type: 'student', id: s.id, label: s.name,
+      status: s.studentStatus, missingBirthDate: s.missingBirthDate,
       sub: [s.groupCode, s.document].filter(Boolean).join(' · '),
     })),
     ...res.groups.map((g) => ({
@@ -66,7 +68,10 @@ export default function CommandPalette({ open, onClose }) {
     <button key={`${it.type}-${it.id}`} className={`cmdk-row${i === active ? ' active' : ''}`}
       onMouseEnter={() => setActive(i)} onClick={() => go(it)}>
       <span className="cmdk-ico">{it.type === 'student' ? '👤' : '🎾'}</span>
-      <span className="cmdk-label">{it.label}{it.trial ? ' 🧪' : ''}</span>
+      <span className="cmdk-label">
+        {it.type === 'student' && <StudentStatusIcon status={it.status} missingBirthDate={it.missingBirthDate} />}
+        {it.label}
+      </span>
       {it.sub && <span className="cmdk-sub">{it.sub}</span>}
     </button>
   );

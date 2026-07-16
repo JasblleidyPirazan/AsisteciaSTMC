@@ -2,6 +2,7 @@ const express = require('express');
 const prisma = require('../lib/prisma');
 const { requireRole } = require('../middleware/auth');
 const { calculateCosts } = require('../services/costEngine');
+const { attachStudentStatus } = require('../services/studentStatus');
 
 const router = express.Router();
 
@@ -27,13 +28,41 @@ function festivalInclude() {
   return {
     festivalProfessors: { include: { professor: { select: { id: true, name: true } } } },
     makeupParticipants: {
-      include: { student: { select: { id: true, name: true } } },
+      include: {
+        student: {
+          select: {
+            id: true, name: true, active: true, isTrial: true, birthDate: true,
+            classesAcquired: true, suspendedFrom: true, suspendedUntil: true,
+          },
+        },
+      },
       orderBy: { student: { name: 'asc' } },
     },
     attendanceRecords: {
       include: { student: { select: { id: true, name: true } } },
       orderBy: { student: { name: 'asc' } },
     },
+  };
+}
+
+// Estado derivado junto al nombre de cada participante (solo estado, sin montos).
+async function decorateParticipants(session) {
+  const students = (session.makeupParticipants || []).map((p) => p.student).filter(Boolean);
+  if (!students.length) return session;
+  const decorated = await attachStudentStatus(students);
+  const byId = Object.fromEntries(decorated.map((s) => [s.id, s]));
+  return {
+    ...session,
+    makeupParticipants: session.makeupParticipants.map((p) => ({
+      ...p,
+      student: p.student ? {
+        id: p.student.id,
+        name: p.student.name,
+        isTrial: p.student.isTrial,
+        studentStatus: byId[p.student.id]?.studentStatus || null,
+        missingBirthDate: !!byId[p.student.id]?.missingBirthDate,
+      } : p.student,
+    })),
   };
 }
 
@@ -69,7 +98,7 @@ router.get('/:id', requireRole('ADMIN', 'PHYSICAL_TRAINER'), async (req, res, ne
     if (!session || session.kind !== 'FESTIVAL') {
       return res.status(404).json({ success: false, error: 'Festival no encontrado' });
     }
-    res.json({ success: true, data: session });
+    res.json({ success: true, data: await decorateParticipants(session) });
   } catch (err) {
     next(err);
   }

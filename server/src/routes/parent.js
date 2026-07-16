@@ -3,6 +3,7 @@ const prisma = require('../lib/prisma');
 const { requireRole } = require('../middleware/auth');
 const { isSeenRecord } = require('../services/attendanceStats');
 const { computeAttendanceDeviations } = require('../services/attendanceAlerts');
+const { attachStudentStatus } = require('../services/studentStatus');
 
 const router = express.Router();
 
@@ -23,9 +24,13 @@ router.get('/children', requireRole('PARENT', 'ADMIN'), async (req, res, next) =
       alertsById = Object.fromEntries(deviations.map((d) => [d.studentId, d]));
     } catch { /* alerts are best-effort here */ }
 
+    // Estado derivado (matriculado/inscrito/…) + saldo del plan: es el propio
+    // hijo del acudiente, así que puede ver su estado de pago.
+    const decorated = await attachStudentStatus(students);
+
     res.json({
       success: true,
-      data: students.map((s) => ({
+      data: decorated.map((s) => ({
         ...s,
         attendanceAlert: alertsById[s.id]
           ? {

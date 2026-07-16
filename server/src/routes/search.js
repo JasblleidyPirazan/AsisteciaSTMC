@@ -2,6 +2,7 @@ const express = require('express');
 const prisma = require('../lib/prisma');
 const { requireRole } = require('../middleware/auth');
 const { byGroupCode } = require('../lib/sort');
+const { attachStudentStatus } = require('../services/studentStatus');
 
 const router = express.Router();
 
@@ -23,7 +24,8 @@ router.get('/', requireRole('ADMIN', 'SUPERADMIN', 'PHYSICAL_TRAINER', 'RECEPTIO
           ],
         },
         select: {
-          id: true, name: true, document: true, isTrial: true,
+          id: true, name: true, document: true, isTrial: true, active: true, birthDate: true,
+          classesAcquired: true, suspendedFrom: true, suspendedUntil: true,
           enrollments: { select: { enrollmentType: true, group: { select: { code: true } } } },
         },
         take: 8,
@@ -43,9 +45,16 @@ router.get('/', requireRole('ADMIN', 'SUPERADMIN', 'PHYSICAL_TRAINER', 'RECEPTIO
       }),
     ]);
 
-    const studentRows = students.map((s) => {
+    // Estado derivado para mostrar el ícono junto al nombre en los resultados
+    // (solo estado, sin montos).
+    const decorated = await attachStudentStatus(students);
+    const studentRows = decorated.map((s) => {
       const primary = s.enrollments.find((e) => e.enrollmentType === 'PRIMARY') || s.enrollments[0];
-      return { id: s.id, name: s.name, document: s.document, isTrial: s.isTrial, groupCode: primary?.group?.code || null };
+      return {
+        id: s.id, name: s.name, document: s.document, isTrial: s.isTrial,
+        studentStatus: s.studentStatus, missingBirthDate: s.missingBirthDate,
+        groupCode: primary?.group?.code || null,
+      };
     });
     groups.sort(byGroupCode);
 

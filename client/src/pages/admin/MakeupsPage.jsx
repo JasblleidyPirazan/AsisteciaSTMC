@@ -4,6 +4,7 @@ import { api } from '../../api/client';
 import EmptyState from '../../components/EmptyState';
 import { fmtDate, bogotaTodayStr } from '../../utils/dates';
 import { toast } from '../../utils/toast';
+import { StudentStatusIcon } from '../../utils/studentStatus';
 
 function todayStr() {
   return bogotaTodayStr();
@@ -198,7 +199,7 @@ export default function MakeupsPage() {
                         className={`btn btn-full mb-1 ${selected ? 'btn-primary' : 'btn-outline'}`}
                         style={{ justifyContent: 'flex-start', minHeight: 40 }}
                         onClick={() => toggleStudent(s.id)}>
-                        {selected ? '✓ ' : ''}{s.name}
+                        {selected ? '✓ ' : ''}<StudentStatusIcon status={s.studentStatus} missingBirthDate={s.missingBirthDate} />{s.name}
                       </button>
                     );
                   })}

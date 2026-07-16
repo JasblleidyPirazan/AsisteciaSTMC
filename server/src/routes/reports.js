@@ -6,6 +6,7 @@ const { isSeenRecord, seenAttendanceFilter } = require('../services/attendanceSt
 const { computeAttendanceDeviations } = require('../services/attendanceAlerts');
 const { byGroupCode } = require('../lib/sort');
 const { bogotaToday, bogotaDateStr, bogotaMinutesOfDay } = require('../lib/dates');
+const { attachStudentStatus } = require('../services/studentStatus');
 
 const router = express.Router();
 
@@ -449,7 +450,10 @@ router.get('/strategy', requireRole('ADMIN'), async (req, res, next) => {
     const [studentRows, groups, sessions, attRows, payments, costRows] = await Promise.all([
       prisma.student.findMany({
         where: { active: true },
-        select: { paymentComplete: true, isTrial: true, suspendedFrom: true, suspendedUntil: true, createdAt: true },
+        select: {
+          id: true, active: true, isTrial: true, birthDate: true, classesAcquired: true,
+          suspendedFrom: true, suspendedUntil: true, createdAt: true,
+        },
       }),
       prisma.group.findMany({
         where: { active: true },
@@ -482,17 +486,21 @@ router.get('/strategy', requireRole('ADMIN'), async (req, res, next) => {
     ]);
 
     // ---- Estudiantes ----
-    const today = bogotaToday();
-    let matriculados = 0, inscritos = 0, suspendidos = 0, trial = 0, newThisPeriod = 0;
-    for (const s of studentRows) {
-      if (s.isTrial) { trial += 1; continue; }
-      const suspended = s.suspendedFrom && s.suspendedUntil &&
-        today >= new Date(s.suspendedFrom) && today <= new Date(s.suspendedUntil);
-      if (suspended) suspendidos += 1;
-      if (s.paymentComplete) matriculados += 1; else inscritos += 1;
+    // Estados derivados (pagos + asistencia + tarifas): PRUEBA / PREINSCRITO /
+    // INSCRITO / MATRICULADO / SUSPENDIDO — misma regla que el resto del sistema.
+    const decoratedStudents = await attachStudentStatus(studentRows);
+    let matriculados = 0, inscritos = 0, preinscritos = 0, suspendidos = 0, trial = 0,
+      newThisPeriod = 0, missingBirthDate = 0;
+    for (const s of decoratedStudents) {
+      if (s.missingBirthDate) missingBirthDate += 1;
+      if (s.studentStatus === 'PRUEBA') { trial += 1; continue; }
+      if (s.studentStatus === 'SUSPENDIDO') suspendidos += 1;
+      else if (s.studentStatus === 'MATRICULADO') matriculados += 1;
+      else if (s.studentStatus === 'INSCRITO') inscritos += 1;
+      else if (s.studentStatus === 'PREINSCRITO') preinscritos += 1;
       if (new Date(s.createdAt) >= from) newThisPeriod += 1;
     }
-    const activeStudents = matriculados + inscritos;
+    const activeStudents = matriculados + inscritos + preinscritos + suspendidos;
 
     // ---- Contadores por grupo ----
     const byGroup = {};
@@ -562,8 +570,8 @@ router.get('/strategy', requireRole('ADMIN'), async (req, res, next) => {
           ? { name: semester.name, startDate: semester.startDate, endDate: semester.endDate }
           : null,
         students: {
-          active: activeStudents, matriculados, inscritos, suspendidos, trial,
-          newThisPeriod,
+          active: activeStudents, matriculados, inscritos, preinscritos, suspendidos, trial,
+          newThisPeriod, missingBirthDate,
           conversionPct: activeStudents > 0 ? Math.round((matriculados / activeStudents) * 100) : null,
         },
         groups: {

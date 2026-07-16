@@ -2,14 +2,9 @@ import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { api } from '../api/client';
 import { fmtDate } from '../utils/dates';
+import { StudentStatusBadge } from '../utils/studentStatus';
 
 const BALL_COLOR = { Roja: '#E8526A', Naranja: '#EA8A2E', Verde: '#1FA971', Amarilla: '#E8A23B' };
-const STATUS_BADGE = {
-  MATRICULADO: { cls: 'badge-green', label: 'Matriculado' },
-  INSCRITO: { cls: 'badge-yellow', label: 'Inscrito' },
-  SUSPENDIDO: { cls: 'badge-gray', label: 'Suspendido' },
-  INACTIVO: { cls: 'badge-red', label: 'Inactivo' },
-};
 const AVATAR_COLORS = ['#3F52A8', '#4F9FB2', '#7A5AF8', '#E8A23B', '#1FA971', '#E8526A', '#6F7BA6'];
 function initials(name) {
   const p = String(name || '').trim().split(/\s+/);
@@ -64,8 +59,7 @@ export default function StudentQuickPanel({ studentId, onClose, from }) {
               <div style={{ flex: 1, minWidth: 0 }}>
                 <div className="flex items-center gap-2" style={{ flexWrap: 'wrap' }}>
                   <span className="font-medium">{st.name}</span>
-                  {STATUS_BADGE[st.studentStatus] && <span className={`badge ${STATUS_BADGE[st.studentStatus].cls}`}>{STATUS_BADGE[st.studentStatus].label}</span>}
-                  {st.isTrial && <span className="badge badge-yellow">🧪 Prueba</span>}
+                  <StudentStatusBadge status={st.studentStatus} missingBirthDate={st.missingBirthDate} />
                 </div>
                 <div className="text-xs text-gray mt-1" style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
                   {g?.ballLevel && <span><span className="legend-dot" style={{ background: BALL_COLOR[g.ballLevel] || 'var(--gray-400)' }} />{g.ballLevel}{g.subLevel ? ` ${g.subLevel}` : ''}</span>}

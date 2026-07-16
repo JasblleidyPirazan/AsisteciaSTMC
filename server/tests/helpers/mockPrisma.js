@@ -26,3 +26,14 @@ require.cache[prismaPath] = {
 export function resetPrisma() {
   for (const key of Object.keys(prismaMock)) delete prismaMock[key];
 }
+
+// Dependencias del estado derivado del estudiante (services/studentStatus.js →
+// attachStudentStatus): config de tarifas + agregados de pagos y asistencia.
+// Cualquier ruta que devuelva estudiantes decorados las necesita. Se hace merge
+// para no pisar mocks ya configurados por el test (p. ej. studentPayment.findMany).
+export async function mockStudentStatusDeps() {
+  const { vi } = await import('vitest');
+  prismaMock.systemConfig = { findMany: vi.fn().mockResolvedValue([]), ...(prismaMock.systemConfig || {}) };
+  prismaMock.studentPayment = { groupBy: vi.fn().mockResolvedValue([]), ...(prismaMock.studentPayment || {}) };
+  prismaMock.attendanceRecord = { groupBy: vi.fn().mockResolvedValue([]), ...(prismaMock.attendanceRecord || {}) };
+}

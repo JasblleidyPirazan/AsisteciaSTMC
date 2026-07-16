@@ -2,6 +2,7 @@ const express = require('express');
 const prisma = require('../lib/prisma');
 const { requireRole } = require('../middleware/auth');
 const { calculateCosts } = require('../services/costEngine');
+const { attachStudentStatus } = require('../services/studentStatus');
 
 const router = express.Router();
 
@@ -23,19 +24,48 @@ async function canReportMakeup(user, session) {
   return false;
 }
 
+// Campos del estudiante: los mínimos + los que necesita el estado derivado
+// (ícono junto al nombre en la página de asistencia de la reposición).
+const PARTICIPANT_STUDENT_SELECT = {
+  id: true, name: true, active: true, isTrial: true, birthDate: true,
+  classesAcquired: true, suspendedFrom: true, suspendedUntil: true,
+};
+
 function makeupInclude() {
   return {
     makeupProfessor: { select: { id: true, name: true } },
     substituteProfessor: { select: { id: true, name: true } },
     assistant: { select: { id: true, name: true } },
     makeupParticipants: {
-      include: { student: { select: { id: true, name: true } } },
+      include: { student: { select: PARTICIPANT_STUDENT_SELECT } },
       orderBy: { student: { name: 'asc' } },
     },
     attendanceRecords: {
       include: { student: { select: { id: true, name: true } } },
       orderBy: { student: { name: 'asc' } },
     },
+  };
+}
+
+// Reemplaza cada participant.student por {id, name, studentStatus,
+// missingBirthDate}: solo el estado, nunca montos (lo ven profesores).
+async function decorateParticipants(session) {
+  const students = (session.makeupParticipants || []).map((p) => p.student).filter(Boolean);
+  if (!students.length) return session;
+  const decorated = await attachStudentStatus(students);
+  const byId = Object.fromEntries(decorated.map((s) => [s.id, s]));
+  return {
+    ...session,
+    makeupParticipants: session.makeupParticipants.map((p) => ({
+      ...p,
+      student: p.student ? {
+        id: p.student.id,
+        name: p.student.name,
+        isTrial: p.student.isTrial,
+        studentStatus: byId[p.student.id]?.studentStatus || null,
+        missingBirthDate: !!byId[p.student.id]?.missingBirthDate,
+      } : p.student,
+    })),
   };
 }
 
@@ -81,7 +111,7 @@ router.get('/:id', requireRole('ADMIN', 'PHYSICAL_TRAINER', 'TEACHER'), async (r
     if (!session || session.kind !== 'MAKEUP') {
       return res.status(404).json({ success: false, error: 'Reposición no encontrada' });
     }
-    res.json({ success: true, data: session });
+    res.json({ success: true, data: await decorateParticipants(session) });
   } catch (err) {
     next(err);
   }

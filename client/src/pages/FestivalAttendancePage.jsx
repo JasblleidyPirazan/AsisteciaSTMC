@@ -3,6 +3,7 @@ import { useParams, useNavigate } from 'react-router-dom';
 import { api } from '../api/client';
 import { useAuth } from '../hooks/useAuth';
 import { fmtDate } from '../utils/dates';
+import { StudentStatusIcon } from '../utils/studentStatus';
 
 const STATUS_LABELS = { PRESENTE: 'P', AUSENTE: 'A', JUSTIFICADA: 'J' };
 const STATUS_CLASS = { PRESENTE: 'present', AUSENTE: 'absent', JUSTIFICADA: 'justified' };
@@ -36,6 +37,8 @@ export default function FestivalAttendancePage() {
           (f.makeupParticipants || []).map((p) => ({
             studentId: p.studentId,
             name: p.student?.name,
+            studentStatus: p.student?.studentStatus || null,
+            missingBirthDate: !!p.student?.missingBirthDate,
             status: byStudent[p.studentId]?.status || null,
           }))
         );
@@ -141,7 +144,7 @@ export default function FestivalAttendancePage() {
 
         {records.map((r) => (
           <div key={r.studentId} className="student-row">
-            <div className="student-name">{r.name}</div>
+            <div className="student-name"><StudentStatusIcon status={r.studentStatus} missingBirthDate={r.missingBirthDate} />{r.name}</div>
             <div className="student-actions">
               {(['PRESENTE', 'AUSENTE', 'JUSTIFICADA']).map((s) => (
                 <button key={s}

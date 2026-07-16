@@ -101,8 +101,8 @@ export default function StrategyPage() {
             <div className="home-kpis">
               <StatCard icon="🎓" tint={{ bg: 'rgba(122,90,248,0.14)', fg: '#7A5AF8' }}
                 label="Conversión de matrícula" value={d.students.conversionPct != null ? `${d.students.conversionPct}%` : '—'}
-                sub={`${d.students.matriculados} matriculados · ${d.students.inscritos} con pago pendiente`}
-                subColor={d.students.inscritos > 0 ? 'var(--warning)' : 'var(--success)'} />
+                sub={`✅ ${d.students.matriculados} matriculados · 🔵 ${d.students.inscritos} inscritos · 📝 ${d.students.preinscritos ?? 0} preinscritos`}
+                subColor={(d.students.inscritos + (d.students.preinscritos ?? 0)) > 0 ? 'var(--warning)' : 'var(--success)'} />
               <StatCard icon="🗓️" tint={{ bg: 'rgba(63,82,168,0.12)', fg: '#3F52A8' }}
                 label="Cumplimiento de clases" value={d.operations.compliancePct != null ? `${d.operations.compliancePct}%` : '—'}
                 sub={`${d.operations.realized} realizadas · ${d.operations.cancelled} canceladas (${d.operations.cancelledRain} 🌧️)`}

@@ -6,6 +6,7 @@ const { bogotaToday } = require('../lib/dates');
 const { notSuspended } = require('../lib/filters');
 const { importFromBuffer } = require('../services/enrollmentImport');
 const { isSeenRecord } = require('../services/attendanceStats');
+const { attachStudentStatus, attachStudentStatusOne, stripTuition } = require('../services/studentStatus');
 
 const router = express.Router();
 
@@ -48,27 +49,35 @@ router.get('/export', requireRole('ADMIN', 'SUPERADMIN', 'PHYSICAL_TRAINER', 'RE
       orderBy: { name: 'asc' },
     });
 
-    const rows = students.map((s) => {
+    // El personal sin acceso económico (Coordinador) exporta sin columnas de dinero.
+    const withMoney = ['ADMIN', 'SUPERADMIN', 'RECEPTION'].includes(req.user.role);
+    const decorated = await attachStudentStatus(students);
+    const rows = decorated.map((s) => {
       const primary = s.enrollments.find((e) => e.enrollmentType === 'PRIMARY') || s.enrollments[0];
       const others = s.enrollments.filter((e) => e !== primary).map((e) => e.group?.code).filter(Boolean);
-      const paid = s.payments.reduce((sum, p) => sum + parseFloat(p.amount), 0);
       return {
         Nombre: s.name,
         Documento: s.document || '',
-        Estado: studentStatus(s),
+        Estado: STATUS_LABEL[s.studentStatus] || s.studentStatus,
         Activo: s.active ? 'Sí' : 'No',
         'Grupo principal': primary?.group?.code || '',
         'Otros grupos': others.join(', '),
         Email: s.email || '',
         WhatsApp: s.phone || '',
         Acudiente: s.guardianName || '',
-        'Fecha nacimiento': s.birthDate ? new Date(s.birthDate).toISOString().slice(0, 10) : '',
+        'Fecha nacimiento': s.birthDate
+          ? new Date(s.birthDate).toISOString().slice(0, 10)
+          : (s.missingBirthDate ? '⚠️ FALTA' : ''),
+        Categoría: s.tuition.category === 'ADULTO' ? 'Adulto' : s.tuition.category === 'PEQUENO' ? 'Pequeño' : '⚠️ Sin categorizar',
         'Inicio de clases': s.classesStartDate ? new Date(s.classesStartDate).toISOString().slice(0, 10) : '',
         'Clase de prueba': s.isTrial ? 'Sí' : 'No',
         'Clases adquiridas': s.classesAcquired || 0,
-        'Pago completo': s.paymentComplete ? 'Sí' : 'No',
-        'Pagos registrados': s.payments.length,
-        'Total pagado': paid,
+        ...(withMoney ? {
+          'Valor esperado': s.tuition.expectedTotal ?? '',
+          'Pagos registrados': s.payments.length,
+          'Total pagado': s.tuition.totalPaid,
+          'Saldo pendiente': s.tuition.balance ?? '',
+        } : {}),
       };
     });
 
@@ -84,23 +93,17 @@ router.get('/export', requireRole('ADMIN', 'SUPERADMIN', 'PHYSICAL_TRAINER', 'RE
   }
 });
 
-// Derived state shown across the app:
-// INACTIVO (soft-deleted) | SUSPENDIDO (today inside suspension range) |
-// MATRICULADO (payment complete) | INSCRITO (payments pending)
-function studentStatus(student, today = bogotaToday()) {
-  if (!student.active) return 'INACTIVO';
-  if (
-    student.suspendedFrom && student.suspendedUntil &&
-    today >= new Date(student.suspendedFrom) && today <= new Date(student.suspendedUntil)
-  ) {
-    return 'SUSPENDIDO';
-  }
-  return student.paymentComplete ? 'MATRICULADO' : 'INSCRITO';
-}
-
-function withStatus(student) {
-  return { ...student, studentStatus: studentStatus(student) };
-}
+// El estado del estudiante se deriva en services/studentStatus.js a partir de
+// pagos registrados + asistencia + tarifas de matrícula (ver attachStudentStatus).
+// Etiquetas legibles para el export.
+const STATUS_LABEL = {
+  MATRICULADO: 'Matriculado',
+  INSCRITO: 'Inscrito',
+  PREINSCRITO: 'Preinscrito',
+  PRUEBA: 'Prueba',
+  SUSPENDIDO: 'Suspendido',
+  INACTIVO: 'Inactivo',
+};
 
 router.get('/', async (req, res, next) => {
   try {
@@ -140,7 +143,11 @@ router.get('/', async (req, res, next) => {
       });
     }
 
-    res.json({ success: true, data: students.map(withStatus) });
+    // El estado viaja a todos los roles; los montos (tuition) solo a quienes
+    // gestionan pagos. PARENT solo recibe a sus propios hijos (filtro arriba),
+    // así que sí puede ver el saldo de su hijo.
+    const decorated = await attachStudentStatus(students);
+    res.json({ success: true, data: stripTuition(decorated, req.user.role, ['PARENT']) });
   } catch (err) {
     next(err);
   }
@@ -182,7 +189,7 @@ router.get('/:id', async (req, res, next) => {
         include: { enrollments: { include: { group: true } } },
       });
       if (!student) return res.status(403).json({ success: false, error: 'Acceso no autorizado' });
-      return res.json({ success: true, data: withStatus(student) });
+      return res.json({ success: true, data: await attachStudentStatusOne(student) });
     }
 
     const student = await prisma.student.findUnique({
@@ -199,7 +206,8 @@ router.get('/:id', async (req, res, next) => {
       },
     });
     if (!student) return res.status(404).json({ success: false, error: 'Estudiante no encontrado' });
-    res.json({ success: true, data: withStatus(student) });
+    const [decorated] = stripTuition([await attachStudentStatusOne(student)], req.user.role);
+    res.json({ success: true, data: decorated });
   } catch (err) {
     next(err);
   }
@@ -218,7 +226,7 @@ router.post('/trial', requireRole('ADMIN', 'SUPERADMIN', 'PHYSICAL_TRAINER', 'TE
     const student = await prisma.student.create({
       data: { name, isTrial: true, classesStartDate: bogotaToday() },
     });
-    res.status(201).json({ success: true, data: withStatus(student) });
+    res.status(201).json({ success: true, data: await attachStudentStatusOne(student) });
   } catch (err) {
     next(err);
   }
@@ -227,8 +235,14 @@ router.post('/trial', requireRole('ADMIN', 'SUPERADMIN', 'PHYSICAL_TRAINER', 'TE
 router.post('/', requireRole('ADMIN', 'SUPERADMIN', 'PHYSICAL_TRAINER', 'RECEPTION'), async (req, res, next) => {
   try {
     const { name, email, parentUserId, primaryGroupId, secondaryGroupId, classesAcquired,
-      paymentComplete, document, phone, guardianName, birthDate, classesStartDate } = req.body;
+      document, phone, guardianName, birthDate, classesStartDate } = req.body;
     if (!name) return res.status(400).json({ success: false, error: 'Nombre requerido' });
+    // La fecha de nacimiento determina la tarifa (adulto/pequeño); sin ella el
+    // estado de pago no se puede derivar. Obligatoria en la creación normal
+    // (las clases de prueba se crean por /trial y no la requieren).
+    if (!birthDate) {
+      return res.status(400).json({ success: false, error: 'Fecha de nacimiento requerida (define la tarifa adulto/pequeño)' });
+    }
 
     const student = await prisma.student.create({
       data: {
@@ -237,10 +251,9 @@ router.post('/', requireRole('ADMIN', 'SUPERADMIN', 'PHYSICAL_TRAINER', 'RECEPTI
         document: document || null,
         phone: phone || null,
         guardianName: guardianName || null,
-        birthDate: birthDate ? new Date(birthDate) : null,
+        birthDate: new Date(birthDate),
         // Fecha de inicio de clases: si no llega, el día del registro (Bogotá).
         classesStartDate: classesStartDate ? new Date(classesStartDate) : bogotaToday(),
-        paymentComplete: !!paymentComplete,
         parentUserId: parentUserId || null,
         // Parsear primero: "" y valores no numéricos → 0 (antes daban NaN, que
         // Prisma rechazaba con un 500 genérico al dejar el campo en blanco).
@@ -269,7 +282,7 @@ router.post('/', requireRole('ADMIN', 'SUPERADMIN', 'PHYSICAL_TRAINER', 'RECEPTI
       });
     }
 
-    res.status(201).json({ success: true, data: student });
+    res.status(201).json({ success: true, data: await attachStudentStatusOne(student) });
   } catch (err) {
     next(err);
   }
@@ -306,30 +319,15 @@ router.put('/:id', requireRole('ADMIN', 'SUPERADMIN', 'PHYSICAL_TRAINER', 'RECEP
       data,
       include: { enrollments: { include: { group: true } } },
     });
-    res.json({ success: true, data: withStatus(student) });
+    res.json({ success: true, data: await attachStudentStatusOne(student) });
   } catch (err) {
     next(err);
   }
 });
 
-// Payment status (Inscrito ↔ Matriculado). Separate endpoint so RECEPTION can
-// flip it without being able to edit anything else about the student.
-router.patch('/:id/payment-status', requireRole('ADMIN', 'SUPERADMIN', 'RECEPTION', 'PHYSICAL_TRAINER'), async (req, res, next) => {
-  try {
-    const { paymentComplete } = req.body;
-    if (typeof paymentComplete !== 'boolean') {
-      return res.status(400).json({ success: false, error: 'paymentComplete (true/false) requerido' });
-    }
-    const student = await prisma.student.update({
-      where: { id: req.params.id },
-      data: { paymentComplete },
-      include: { enrollments: { include: { group: { select: { id: true, code: true, name: true } } } } },
-    });
-    res.json({ success: true, data: withStatus(student) });
-  } catch (err) {
-    next(err);
-  }
-});
+// NOTA: el antiguo PATCH /:id/payment-status (checkbox manual Inscrito ↔
+// Matriculado) fue eliminado — el estado ahora se DERIVA de los pagos
+// registrados vs el valor de las clases adquiridas (services/studentStatus.js).
 
 // ---------- Registro de pagos del estudiante ----------
 // Historial de pagos, independiente del estado Inscrito/Matriculado (no lo
@@ -422,7 +420,7 @@ router.post('/:id/suspend', requireRole('ADMIN', 'SUPERADMIN', 'PHYSICAL_TRAINER
       data: { suspendedFrom: fromDate, suspendedUntil: untilDate, suspensionReason: reason.trim().slice(0, 500) },
       include: { enrollments: { include: { group: { select: { id: true, code: true, name: true } } } } },
     });
-    res.json({ success: true, data: withStatus(student) });
+    res.json({ success: true, data: await attachStudentStatusOne(student) });
   } catch (err) {
     next(err);
   }
@@ -435,7 +433,7 @@ router.post('/:id/unsuspend', requireRole('ADMIN', 'SUPERADMIN', 'PHYSICAL_TRAIN
       data: { suspendedFrom: null, suspendedUntil: null, suspensionReason: null },
       include: { enrollments: { include: { group: { select: { id: true, code: true, name: true } } } } },
     });
-    res.json({ success: true, data: withStatus(student) });
+    res.json({ success: true, data: await attachStudentStatusOne(student) });
   } catch (err) {
     next(err);
   }
@@ -667,7 +665,8 @@ router.get('/:id/report', requireRole('ADMIN', 'SUPERADMIN', 'PHYSICAL_TRAINER',
     res.json({
       success: true,
       data: {
-        student: withStatus(student),
+        // Coordinador ve la ficha pero sin montos de matrícula (sin dinero).
+        student: stripTuition([await attachStudentStatusOne(student)], req.user.role)[0],
         timeline,
         summary: {
           present, absent, justified, cancelledRain, classesSeen, attendanceRate,
@@ -693,7 +692,7 @@ router.post('/:id/previous-classes', requireRole('ADMIN', 'SUPERADMIN', 'PHYSICA
       data: { previousClasses: { increment: amount } },
       include: { enrollments: { include: { group: true } } },
     });
-    res.json({ success: true, data: withStatus(student) });
+    res.json({ success: true, data: await attachStudentStatusOne(student) });
   } catch (err) {
     next(err);
   }

@@ -9,6 +9,7 @@ const {
   summarizeExpenses,
   buildBalance,
 } = require('../services/accounting');
+const { attachStudentStatus } = require('../services/studentStatus');
 
 const router = express.Router();
 
@@ -53,19 +54,72 @@ async function loadSummary(from, to) {
   return { payments, income, expenses, balance };
 }
 
+// Pagos Estudiantes: estado de ingresos y deudas por estudiante ACTIVO, contra
+// el valor de su plan (clases adquiridas × tarifa adulto/pequeño). No depende
+// del rango de fechas: la deuda es contra el plan completo del semestre.
+async function loadStudentTuition() {
+  const students = await prisma.student.findMany({
+    where: { active: true },
+    include: {
+      enrollments: {
+        include: { group: { select: { code: true } } },
+        orderBy: { enrollmentType: 'asc' },
+      },
+    },
+    orderBy: { name: 'asc' },
+  });
+  const decorated = await attachStudentStatus(students);
+
+  const rows = decorated.map((s) => {
+    const primary = s.enrollments.find((e) => e.enrollmentType === 'PRIMARY') || s.enrollments[0];
+    return {
+      id: s.id,
+      name: s.name,
+      document: s.document,
+      groupCode: primary?.group?.code || null,
+      studentStatus: s.studentStatus,
+      missingBirthDate: s.missingBirthDate,
+      category: s.tuition.category,
+      classesAcquired: s.classesAcquired || 0,
+      expectedTotal: s.tuition.expectedTotal,
+      totalPaid: s.tuition.totalPaid,
+      balance: s.tuition.balance,
+    };
+  });
+
+  const totals = rows.reduce(
+    (acc, r) => ({
+      students: acc.students + 1,
+      expected: acc.expected + (r.expectedTotal || 0),
+      paid: acc.paid + (r.totalPaid || 0),
+      debt: acc.debt + (r.balance || 0),
+      matriculados: acc.matriculados + (r.studentStatus === 'MATRICULADO' ? 1 : 0),
+      withDebt: acc.withDebt + (r.balance > 0 ? 1 : 0),
+      missingBirthDate: acc.missingBirthDate + (r.missingBirthDate ? 1 : 0),
+    }),
+    { students: 0, expected: 0, paid: 0, debt: 0, matriculados: 0, withDebt: 0, missingBirthDate: 0 }
+  );
+
+  return { rows, totals };
+}
+
 // Resumen completo del módulo: ingresos (con detalle de pagos), gastos por
 // quincena y balance mensual, para el rango [from, to].
 router.get('/summary', async (req, res, next) => {
   try {
     const range = parseRange(req, res);
     if (!range) return;
-    const { payments, income, expenses, balance } = await loadSummary(range.from, range.to);
+    const [{ payments, income, expenses, balance }, studentsTuition] = await Promise.all([
+      loadSummary(range.from, range.to),
+      loadStudentTuition(),
+    ]);
 
     res.json({
       success: true,
       data: {
         from: range.from,
         to: range.to,
+        studentsTuition,
         income: {
           ...income.totals,
           byMethod: income.byMethod,
@@ -113,12 +167,15 @@ router.patch('/payments/:id/verified', async (req, res, next) => {
   }
 });
 
-// Export Excel con las 3 hojas del módulo (Ingresos, Gastos, Balance).
+// Export Excel con las 4 hojas del módulo (Ingresos, Gastos, Balance, Pagos Estudiantes).
 router.get('/export', async (req, res, next) => {
   try {
     const range = parseRange(req, res);
     if (!range) return;
-    const { payments, income, expenses, balance } = await loadSummary(range.from, range.to);
+    const [{ payments, income, expenses, balance }, studentsTuition] = await Promise.all([
+      loadSummary(range.from, range.to),
+      loadStudentTuition(),
+    ]);
 
     const fmtDate = (d) =>
       new Date(d).toLocaleDateString('es-CO', { day: '2-digit', month: '2-digit', year: 'numeric', timeZone: 'UTC' });
@@ -178,6 +235,34 @@ router.get('/export', async (req, res, next) => {
       ['MARGEN', balance.totals.marginPct != null ? `${balance.totals.marginPct.toFixed(1)}%` : '—'],
     ]);
     XLSX.utils.book_append_sheet(wb, wsBalance, 'Balance');
+
+    // Hoja 4: Pagos Estudiantes — estado de ingresos y deudas por estudiante
+    const STATUS_LABEL = {
+      MATRICULADO: 'Matriculado', INSCRITO: 'Inscrito', PREINSCRITO: 'Preinscrito',
+      PRUEBA: 'Prueba', SUSPENDIDO: 'Suspendido', INACTIVO: 'Inactivo',
+    };
+    const t = studentsTuition.totals;
+    const wsStudents = XLSX.utils.aoa_to_sheet([
+      ['PAGOS ESTUDIANTES — INGRESOS Y DEUDAS'],
+      ['Deuda = valor esperado del plan (clases adquiridas × tarifa adulto/pequeño) − total pagado. Incluye todos los estudiantes activos.'],
+      [],
+      ['Estudiante', 'Documento', 'Grupo', 'Estado', 'Categoría', 'Clases adquiridas', 'Valor esperado (COP)', 'Total pagado (COP)', 'Saldo pendiente (COP)'],
+      ...studentsTuition.rows.map((r) => [
+        r.name, r.document || '', r.groupCode || '',
+        STATUS_LABEL[r.studentStatus] || r.studentStatus,
+        r.category === 'ADULTO' ? 'Adulto' : r.category === 'PEQUENO' ? 'Pequeño' : '⚠️ Sin fecha de nacimiento',
+        r.classesAcquired,
+        r.expectedTotal ?? '',
+        r.totalPaid,
+        r.balance ?? '',
+      ]),
+      [],
+      ['TOTAL', '', '', `${t.matriculados} matriculados · ${t.withDebt} con deuda`, '', '', t.expected, t.paid, t.debt],
+      ...(t.missingBirthDate > 0
+        ? [[`⚠️ ${t.missingBirthDate} estudiante(s) sin fecha de nacimiento: no se puede calcular su tarifa. Ingresa la fecha en su ficha.`]]
+        : []),
+    ]);
+    XLSX.utils.book_append_sheet(wb, wsStudents, 'Pagos Estudiantes');
 
     const buffer = XLSX.write(wb, { type: 'buffer', bookType: 'xlsx' });
     res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');

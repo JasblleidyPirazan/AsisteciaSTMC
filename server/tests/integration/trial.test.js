@@ -1,5 +1,5 @@
 // mockPrisma MUST be imported before the router (require.cache injection).
-import { prismaMock, resetPrisma } from '../helpers/mockPrisma.js';
+import { prismaMock, resetPrisma, mockStudentStatusDeps } from '../helpers/mockPrisma.js';
 import { describe, it, expect, beforeAll, beforeEach, vi } from 'vitest';
 import request from 'supertest';
 import { JWT_SECRET, tokenFor, buildApp } from '../helpers/testApp.js';
@@ -19,11 +19,12 @@ beforeAll(async () => {
   app = await buildApp('/api/students', studentsRouter);
 });
 
-beforeEach(() => {
+beforeEach(async () => {
   resetPrisma();
   prismaMock.student = {
     create: vi.fn().mockImplementation(({ data }) => Promise.resolve({ id: 'trial1', active: true, ...data })),
   };
+  await mockStudentStatusDeps();
 });
 
 describe('POST /students/trial — clase de prueba', () => {

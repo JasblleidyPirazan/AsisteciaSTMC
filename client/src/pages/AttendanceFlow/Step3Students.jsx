@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react';
 import { api } from '../../api/client';
 import { cacheGet, cacheSet, CACHE_KEYS } from '../../utils/offlineCache';
 import { toast } from '../../utils/toast';
+import { StudentStatusIcon } from '../../utils/studentStatus';
 
 const STATUS_LABELS = { PRESENTE: 'P', AUSENTE: 'A', JUSTIFICADA: 'J' };
 const STATUS_CLASS = { PRESENTE: 'present', AUSENTE: 'absent', JUSTIFICADA: 'justified' };
@@ -26,9 +27,16 @@ export default function Step3Students({ groupId, records, onChange, onNext }) {
     function apply(group, all) {
       setStudents(group);
       setAllStudents(all);
-      setMeta(Object.fromEntries(
-        group.map((s) => [s.id, { seen: s.classesSeen ?? 0, acquired: s.classesAcquired ?? 0 }])
-      ));
+      // Estado derivado + ⚠️ sin fecha de nacimiento: el ícono acompaña siempre
+      // al nombre. Los de reposición (allStudents) también traen su estado.
+      const metaOf = (s) => ({
+        seen: s.classesSeen ?? 0, acquired: s.classesAcquired ?? 0,
+        status: s.studentStatus || null, missingBirthDate: !!s.missingBirthDate,
+      });
+      setMeta({
+        ...Object.fromEntries(all.map((s) => [s.id, { ...metaOf(s), seen: null }])),
+        ...Object.fromEntries(group.map((s) => [s.id, metaOf(s)])),
+      });
       // Pre-populate records for group students
       if (records.length === 0) {
         onChange(group.map((s) => ({ studentId: s.id, name: s.name, status: null, attendanceType: 'REGULAR' })));
@@ -136,6 +144,9 @@ export default function Step3Students({ groupId, records, onChange, onNext }) {
       {records.map((r) => (
         <div key={r.studentId} className="student-row">
           <div className="student-name">
+            {meta[r.studentId] && (
+              <StudentStatusIcon status={meta[r.studentId].status} missingBirthDate={meta[r.studentId].missingBirthDate} />
+            )}
             {r.name}
             {r.isTrial ? (
               <span className="badge badge-yellow" style={{ marginLeft: 6, fontSize: '0.7rem' }}>🧪 prueba</span>
@@ -151,7 +162,7 @@ export default function Step3Students({ groupId, records, onChange, onNext }) {
                 ✕ quitar
               </button>
             )}
-            {meta[r.studentId] && (
+            {meta[r.studentId]?.seen != null && (
               <div className="text-xs text-gray" style={{ fontWeight: 400, marginTop: 2 }}>
                 Clases: {meta[r.studentId].seen}/{meta[r.studentId].acquired}
               </div>
@@ -225,7 +236,7 @@ export default function Step3Students({ groupId, records, onChange, onNext }) {
             .slice(0, 8)
             .map((s) => (
               <button key={s.id} className="btn btn-outline btn-full mb-1" onClick={() => addReposition(s)}>
-                {s.name}{s.isTrial ? ' 🧪' : ''}
+                <StudentStatusIcon status={s.studentStatus} missingBirthDate={s.missingBirthDate} /> {s.name}
               </button>
             ))}
           <button className="btn btn-ghost btn-full mt-1" onClick={() => setShowRepoSearch(false)}>

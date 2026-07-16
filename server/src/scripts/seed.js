@@ -42,6 +42,12 @@ async function main() {
     { key: 'assistant_match_start_date', value: bogotaDateStr() },
     // Group rain alert: classes cancelled by rain in the active semester
     { key: 'rain_alert_threshold', value: '3' },
+    // Matrícula de estudiantes: valor del plan de 40 clases por categoría de
+    // edad. Derivan el estado MATRICULADO (pago completo) vs INSCRITO.
+    { key: 'tuition_adult_total', value: '2789000' },
+    { key: 'tuition_child_total', value: '2425000' },
+    { key: 'tuition_plan_classes', value: '40' },
+    { key: 'tuition_adult_age', value: '18' },
   ];
 
   for (const config of defaults) {

@@ -1,6 +1,6 @@
 // mockPrisma MUST be imported before the router so the require.cache
 // injection lands before the CJS graph captures the prisma reference.
-import { prismaMock, resetPrisma } from '../helpers/mockPrisma.js';
+import { prismaMock, resetPrisma, mockStudentStatusDeps } from '../helpers/mockPrisma.js';
 import { describe, it, expect, beforeAll, beforeEach, vi } from 'vitest';
 import request from 'supertest';
 import { JWT_SECRET, tokenFor, buildApp } from '../helpers/testApp.js';
@@ -19,12 +19,15 @@ beforeAll(async () => {
   app = await buildApp('/api/accounting', router.default || router);
 });
 
-beforeEach(() => {
+beforeEach(async () => {
   resetPrisma();
   prismaMock.user = { findUnique: vi.fn() };
   prismaMock.studentPayment = { findMany: vi.fn().mockResolvedValue([]), findUnique: vi.fn(), update: vi.fn() };
   prismaMock.costRecord = { findMany: vi.fn().mockResolvedValue([]) };
   prismaMock.payrollClosure = { findMany: vi.fn().mockResolvedValue([]) };
+  // Hoja "Pagos Estudiantes": lista de estudiantes activos + deps del estado derivado
+  prismaMock.student = { findMany: vi.fn().mockResolvedValue([]) };
+  await mockStudentStatusDeps();
 });
 
 describe('GET /accounting/summary — guards de rol', () => {
@@ -47,6 +50,7 @@ describe('GET /accounting/summary — guards de rol', () => {
     expect(res.body.data).toHaveProperty('income');
     expect(res.body.data).toHaveProperty('expenses');
     expect(res.body.data).toHaveProperty('balance');
+    expect(res.body.data).toHaveProperty('studentsTuition');
   });
 
   it('exige from/to válidos (400)', async () => {

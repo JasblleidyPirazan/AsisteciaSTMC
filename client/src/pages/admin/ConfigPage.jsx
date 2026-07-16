@@ -12,6 +12,10 @@ const EMPTY_CONFIG = {
   rate_5plus_students: '',
   assistant_fixed_rate: '',
   rain_alert_threshold: '',
+  tuition_adult_total: '',
+  tuition_child_total: '',
+  tuition_plan_classes: '',
+  tuition_adult_age: '',
 };
 
 const EMPTY_SEMESTER = { name: '', startDate: '', endDate: '' };
@@ -205,6 +209,44 @@ export default function ConfigPage() {
               />
               <span className="text-xs text-gray">Pago fijo al asistente × unidades de clase</span>
             </div>
+          </div>
+
+          <div className="card mb-4">
+            <h3 className="mb-3" style={{ fontSize: '0.9rem' }}>Matrícula de estudiantes</h3>
+            <p className="text-xs text-gray mb-3">
+              Valor del plan por categoría de edad. El estado <strong>Matriculado</strong> (pago completo)
+              se deriva comparando los pagos registrados contra el valor de las clases adquiridas:
+              esperado = clases adquiridas × (valor del plan ÷ clases del plan).
+            </p>
+            <div className="form-group">
+              <label className="form-label">Valor adulto — plan de {config.tuition_plan_classes || 40} clases (COP)</label>
+              <input type="number" className="form-input" min="0" placeholder="2789000"
+                value={config.tuition_adult_total}
+                onChange={(e) => setConfig({ ...config, tuition_adult_total: e.target.value })} />
+            </div>
+            <div className="form-group">
+              <label className="form-label">Valor pequeños — plan de {config.tuition_plan_classes || 40} clases (COP)</label>
+              <input type="number" className="form-input" min="0" placeholder="2425000"
+                value={config.tuition_child_total}
+                onChange={(e) => setConfig({ ...config, tuition_child_total: e.target.value })} />
+            </div>
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+              <div className="form-group">
+                <label className="form-label">Clases del plan</label>
+                <input type="number" className="form-input" min="1" placeholder="40"
+                  value={config.tuition_plan_classes}
+                  onChange={(e) => setConfig({ ...config, tuition_plan_classes: e.target.value })} />
+              </div>
+              <div className="form-group">
+                <label className="form-label">Edad adulto (desde, años)</label>
+                <input type="number" className="form-input" min="1" placeholder="18"
+                  value={config.tuition_adult_age}
+                  onChange={(e) => setConfig({ ...config, tuition_adult_age: e.target.value })} />
+              </div>
+            </div>
+            <span className="text-xs text-gray">
+              La categoría se calcula con la fecha de nacimiento; los estudiantes sin fecha quedan marcados con error ⚠️.
+            </span>
           </div>
 
           <div className="card mb-4">
