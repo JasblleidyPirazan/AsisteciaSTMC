@@ -184,12 +184,20 @@ function ClassDetailModal({ sessionId, onClose }) {
               {fmtDate(data.date)}{data.substituteProfessor ? ` · Sustituto: ${data.substituteProfessor.name}` : ''}
               {data.assistant ? ` · Asistente: ${data.assistant.name}` : ''}
             </div>
-            <div className="stats-row mb-3">
+            <div className="stats-row mb-2">
               <div className="stat-box"><div className="num">{data.present}</div><div className="lbl">Presentes</div></div>
               <div className="stat-box"><div className="num" style={{ color: 'var(--red)' }}>{data.absent}</div><div className="lbl">Ausentes</div></div>
               <div className="stat-box"><div className="num" style={{ color: 'var(--blue)' }}>{data.justified}</div><div className="lbl">Justificados</div></div>
-              {data.totalCost > 0 && <div className="stat-box"><div className="num" style={{ fontSize: '0.9rem' }}>{fmtCOP(data.totalCost)}</div><div className="lbl">Costo</div></div>}
+              {data.professorCost != null && data.professorCost > 0 && (
+                <div className="stat-box"><div className="num" style={{ fontSize: '0.9rem' }}>{fmtCOP(data.professorCost)}</div><div className="lbl">Pago profesor</div></div>
+              )}
             </div>
+            {/* Desglose del costo (coincide con el valor de la tarjeta = pago profesor) */}
+            {data.totalCost != null && (data.assistantCost > 0) && (
+              <div className="text-xs text-gray mb-3">
+                Asistente: {fmtCOP(data.assistantCost)} · Costo total de la clase: <strong>{fmtCOP(data.totalCost)}</strong>
+              </div>
+            )}
             {data.dictatedByOwner === false && (
               <div className="alert alert-info mb-2"><span className="text-xs">⚠️ No dictada por el titular{data.notDictatedNote ? ` — ${data.notDictatedNote}` : ''}</span></div>
             )}

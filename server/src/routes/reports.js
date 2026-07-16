@@ -354,9 +354,12 @@ router.get('/class/:sessionId', requireRole('ADMIN', 'PHYSICAL_TRAINER', 'TEACHE
     }
 
     const { costRecords, ...rest } = session;
-    const totalCost = showCost
-      ? costRecords.reduce((s, r) => s + parseFloat(r.total), 0)
-      : null;
+    // Desglose del costo: profesor (tarifa por tramo) vs asistente (tarifa fija).
+    // La vista de calendario muestra el pago del profesor; el total incluye ambos.
+    const sumBy = (type) => costRecords.filter((r) => r.payeeType === type).reduce((s, r) => s + parseFloat(r.total), 0);
+    const professorCost = showCost ? sumBy('PROFESSOR') : null;
+    const assistantCost = showCost ? sumBy('ASSISTANT') : null;
+    const totalCost = showCost ? (professorCost + assistantCost) : null;
 
     res.json({
       success: true,
@@ -365,6 +368,8 @@ router.get('/class/:sessionId', requireRole('ADMIN', 'PHYSICAL_TRAINER', 'TEACHE
         present: counts.PRESENTE,
         absent: counts.AUSENTE,
         justified: counts.JUSTIFICADA,
+        professorCost,
+        assistantCost,
         totalCost,
       },
     });
