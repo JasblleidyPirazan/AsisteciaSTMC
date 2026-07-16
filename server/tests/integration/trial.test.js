@@ -23,6 +23,8 @@ beforeEach(async () => {
   resetPrisma();
   prismaMock.student = {
     create: vi.fn().mockImplementation(({ data }) => Promise.resolve({ id: 'trial1', active: true, ...data })),
+    // Anti-duplicados: /trial consulta primero las pruebas activas existentes
+    findMany: vi.fn().mockResolvedValue([]),
   };
   await mockStudentStatusDeps();
 });
@@ -54,6 +56,19 @@ describe('POST /students/trial — clase de prueba', () => {
       .set('Authorization', `Bearer ${authAs('TEACHER')}`)
       .send({ name: '   ' });
     expect(res.status).toBe(400);
+    expect(prismaMock.student.create).not.toHaveBeenCalled();
+  });
+
+  it('reutiliza una prueba activa con el mismo nombre (normalizado) en vez de duplicar', async () => {
+    prismaMock.student.findMany.mockResolvedValue([
+      { id: 'ya-existe', name: 'Sebastián  Herrera ', isTrial: true, active: true, birthDate: null, classesAcquired: 0, suspendedFrom: null, suspendedUntil: null },
+    ]);
+    const res = await request(app).post('/api/students/trial')
+      .set('Authorization', `Bearer ${authAs('TEACHER')}`)
+      .send({ name: 'sebastian herrera' }); // sin tilde, otro casing y espacios
+    expect(res.status).toBe(200);
+    expect(res.body.data.id).toBe('ya-existe');
+    expect(res.body.data.reusedExisting).toBe(true);
     expect(prismaMock.student.create).not.toHaveBeenCalled();
   });
 });

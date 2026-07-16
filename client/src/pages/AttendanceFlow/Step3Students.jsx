@@ -94,13 +94,20 @@ export default function Step3Students({ groupId, records, onChange, onNext }) {
   }
 
   // Crea el estudiante de clase de prueba (isTrial) y lo agrega a la lista.
+  // Si ya existía uno activo con el mismo nombre, el servidor lo REUTILIZA
+  // (reusedExisting) en lugar de crear un duplicado.
   async function addTrialStudent() {
     const name = trialName.trim();
     if (!name) return;
     setTrialSaving(true);
     try {
       const s = await api.post('/students/trial', { name });
-      onChange([...records, { studentId: s.id, name: s.name, status: null, attendanceType: 'REPOSICION', isTrial: true }]);
+      if (records.find((r) => r.studentId === s.id)) {
+        toast.info('Ese estudiante de prueba ya está en la lista');
+      } else {
+        onChange([...records, { studentId: s.id, name: s.name, status: null, attendanceType: 'REPOSICION', isTrial: true }]);
+        if (s.reusedExisting) toast.info(`Ya existía 🧪 ${s.name}: se usó el registro existente (sin duplicar)`);
+      }
       setShowRepoSearch(false);
       setTrialMode(false);
       setTrialName('');
@@ -111,6 +118,15 @@ export default function Step3Students({ groupId, records, onChange, onNext }) {
       setTrialSaving(false);
     }
   }
+
+  // Sugerencias mientras se escribe el nombre de la clase de prueba: si el
+  // estudiante ya existe (de prueba o regular), mejor usarlo que duplicarlo.
+  const trialMatches = trialName.trim().length >= 3
+    ? allStudents.filter((s) =>
+        s.name.toLowerCase().includes(trialName.trim().toLowerCase()) &&
+        !records.find((r) => r.studentId === s.id)
+      ).slice(0, 4)
+    : [];
 
   const allMarked = records.length > 0 && records.every((r) => r.status !== null);
   const present = records.filter((r) => r.status === 'PRESENTE').length;
@@ -204,6 +220,20 @@ export default function Step3Students({ groupId, records, onChange, onNext }) {
             onChange={(e) => setTrialName(e.target.value)}
             autoFocus
           />
+          {/* Anti-duplicados: si ya existe, usarlo en vez de crear otro */}
+          {trialMatches.length > 0 && (
+            <div className="mb-2">
+              <div className="text-xs mb-1" style={{ color: 'var(--yellow)' }}>
+                ⚠️ ¿Es alguno de estos? Tócalo para usarlo (evita duplicados):
+              </div>
+              {trialMatches.map((s) => (
+                <button key={s.id} type="button" className="btn btn-outline btn-full mb-1"
+                  onClick={() => { addReposition(s); setTrialMode(false); setTrialName(''); }}>
+                  <StudentStatusIcon status={s.studentStatus} missingBirthDate={s.missingBirthDate} /> {s.name}
+                </button>
+              ))}
+            </div>
+          )}
           <div className="flex gap-2">
             <button className="btn btn-outline" style={{ flex: 1 }}
               onClick={() => { setTrialMode(false); setTrialName(''); }}>

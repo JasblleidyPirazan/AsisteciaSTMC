@@ -217,11 +217,29 @@ router.get('/:id', async (req, res, next) => {
 // solo el nombre desde el menú de reposición del flujo de asistencia, para
 // poder marcarle asistencia. Queda marcado isTrial y sin grupos; luego el
 // admin lo convierte en estudiante normal (editándolo) o lo elimina.
+// Nombre normalizado para comparar: minúsculas, sin tildes, espacios colapsados.
+function normName(s) {
+  return String(s || '')
+    .normalize('NFD').replace(/[̀-ͯ]/g, '')
+    .toLowerCase().replace(/\s+/g, ' ').trim();
+}
+
 router.post('/trial', requireRole('ADMIN', 'SUPERADMIN', 'PHYSICAL_TRAINER', 'TEACHER'), async (req, res, next) => {
   try {
     const name = (req.body?.name || '').trim();
     if (!name) return res.status(400).json({ success: false, error: 'Nombre requerido' });
     if (name.length > 200) return res.status(400).json({ success: false, error: 'Nombre demasiado largo' });
+
+    // Anti-duplicados: si ya existe un estudiante de prueba ACTIVO con el mismo
+    // nombre (normalizado), se reutiliza en lugar de crear otro registro.
+    // (Cada "🧪 Clase de prueba" del flujo creaba un Student nuevo aunque el
+    // prospecto viniera por segunda vez.)
+    const trials = await prisma.student.findMany({ where: { isTrial: true, active: true } });
+    const existing = trials.find((t) => normName(t.name) === normName(name));
+    if (existing) {
+      const decorated = await attachStudentStatusOne(existing);
+      return res.json({ success: true, data: { ...decorated, reusedExisting: true } });
+    }
 
     const student = await prisma.student.create({
       data: { name, isTrial: true, classesStartDate: bogotaToday() },
