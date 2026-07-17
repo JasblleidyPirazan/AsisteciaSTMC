@@ -37,7 +37,17 @@ async function loadSummary(from, to) {
   const [payments, records, closures] = await Promise.all([
     prisma.studentPayment.findMany({
       where: { paymentDate: { gte: new Date(from), lte: new Date(to) } },
-      include: { student: { select: { id: true, name: true, document: true } } },
+      include: {
+        student: {
+          select: {
+            id: true, name: true, document: true,
+            enrollments: {
+              orderBy: { enrollmentType: 'asc' },
+              select: { group: { select: { code: true, ballLevel: true, professor: { select: { name: true } } } } },
+            },
+          },
+        },
+      },
       orderBy: [{ paymentDate: 'desc' }, { createdAt: 'desc' }],
     }),
     prisma.costRecord.findMany({
@@ -62,7 +72,7 @@ async function loadStudentTuition() {
     where: { active: true },
     include: {
       enrollments: {
-        include: { group: { select: { code: true } } },
+        include: { group: { select: { code: true, ballLevel: true, professor: { select: { name: true } } } } },
         orderBy: { enrollmentType: 'asc' },
       },
     },
@@ -77,6 +87,8 @@ async function loadStudentTuition() {
       name: s.name,
       document: s.document,
       groupCode: primary?.group?.code || null,
+      level: primary?.group?.ballLevel || null,
+      professor: primary?.group?.professor?.name || null,
       studentStatus: s.studentStatus,
       missingBirthDate: s.missingBirthDate,
       category: s.tuition.category,
@@ -123,21 +135,44 @@ router.get('/summary', async (req, res, next) => {
         income: {
           ...income.totals,
           byMethod: income.byMethod,
-          payments: payments.map((p) => ({
-            id: p.id,
-            paymentDate: p.paymentDate,
-            method: p.method,
-            amount: parseFloat(p.amount),
-            note: p.note,
-            receivedByName: p.receivedByName,
-            verifiedAt: p.verifiedAt,
-            verifiedByName: p.verifiedByName,
-            student: p.student,
-          })),
+          payments: payments.map((p) => {
+            const enr = p.student?.enrollments || [];
+            const grp = enr[0]?.group || null;
+            return {
+              id: p.id,
+              paymentDate: p.paymentDate,
+              method: p.method,
+              amount: parseFloat(p.amount),
+              note: p.note,
+              receivedByName: p.receivedByName,
+              verifiedAt: p.verifiedAt,
+              verifiedByName: p.verifiedByName,
+              student: p.student ? { id: p.student.id, name: p.student.name, document: p.student.document } : null,
+              groupCode: grp?.code || null,
+              level: grp?.ballLevel || null,
+              professor: grp?.professor?.name || null,
+            };
+          }),
         },
         expenses: { rows: expenses.rows, totals: expenses.totals },
         balance,
       },
+    });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// Fecha del primer pago registrado (para el rango por defecto de la vista).
+router.get('/first-payment', async (req, res, next) => {
+  try {
+    const first = await prisma.studentPayment.findFirst({
+      orderBy: { paymentDate: 'asc' },
+      select: { paymentDate: true },
+    });
+    res.json({
+      success: true,
+      data: { firstPaymentDate: first ? new Date(first.paymentDate).toISOString().slice(0, 10) : null },
     });
   } catch (err) {
     next(err);

@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { api } from '../../api/client';
 import { fmtDate, bogotaTodayStr } from '../../utils/dates';
@@ -34,6 +34,71 @@ function monthLabel(ym) {
   return new Date(Date.UTC(y, m - 1, 1)).toLocaleDateString('es-CO', { month: 'long', year: 'numeric', timeZone: 'UTC' });
 }
 
+// Ordena filas por una columna (accessor). Numérico → resta; texto → localeCompare.
+function sortRows(rows, sort, accessors) {
+  if (!sort?.key || !accessors[sort.key]) return rows;
+  const get = accessors[sort.key];
+  const arr = [...rows];
+  arr.sort((a, b) => {
+    const va = get(a);
+    const vb = get(b);
+    let cmp;
+    if (typeof va === 'string' || typeof vb === 'string') {
+      cmp = String(va ?? '').localeCompare(String(vb ?? ''), 'es', { numeric: true, sensitivity: 'base' });
+    } else {
+      cmp = (va ?? 0) - (vb ?? 0);
+    }
+    return sort.dir === 'desc' ? -cmp : cmp;
+  });
+  return arr;
+}
+
+// Encabezado clicable que ordena la tabla. Columnas numéricas arrancan de mayor a menor.
+function SortTh({ label, col, sort, setSort, numeric, className, style }) {
+  const active = sort.key === col;
+  function toggle() {
+    if (active) setSort({ key: col, dir: sort.dir === 'asc' ? 'desc' : 'asc' });
+    else setSort({ key: col, dir: numeric ? 'desc' : 'asc' });
+  }
+  const arrow = active ? (sort.dir === 'asc' ? '▲' : '▼') : '↕';
+  return (
+    <th className={className} style={{ cursor: 'pointer', whiteSpace: 'nowrap', userSelect: 'none', ...style }}
+      onClick={toggle} title="Ordenar">
+      {label} <span style={{ opacity: active ? 1 : 0.35, fontSize: '0.75em' }}>{arrow}</span>
+    </th>
+  );
+}
+
+// Barra de filtros compartida (nivel / profesor / grupo) para Ingresos y Pagos Estudiantes.
+function FilterBar({ options, level, setLevel, prof, setProf, group, setGroup, shown, total }) {
+  const active = level || prof || group;
+  return (
+    <div className="flex items-center gap-2 mb-3" style={{ flexWrap: 'wrap' }}>
+      <select className="form-input form-select" style={{ minHeight: 36, width: 'auto', fontSize: '0.85rem' }}
+        value={level} onChange={(e) => setLevel(e.target.value)}>
+        <option value="">Todos los niveles</option>
+        {options.levels.map((l) => <option key={l} value={l}>{l}</option>)}
+      </select>
+      <select className="form-input form-select" style={{ minHeight: 36, width: 'auto', fontSize: '0.85rem' }}
+        value={prof} onChange={(e) => setProf(e.target.value)}>
+        <option value="">Todos los profes</option>
+        {options.professors.map((p) => <option key={p} value={p}>{p}</option>)}
+      </select>
+      <select className="form-input form-select" style={{ minHeight: 36, width: 'auto', fontSize: '0.85rem' }}
+        value={group} onChange={(e) => setGroup(e.target.value)}>
+        <option value="">Todos los grupos</option>
+        {options.groups.map((g) => <option key={g} value={g}>{g}</option>)}
+      </select>
+      {active && (
+        <button className="btn btn-ghost" style={{ minHeight: 36, fontSize: '0.8rem' }}
+          onClick={() => { setLevel(''); setProf(''); setGroup(''); }}>
+          ✕ Limpiar ({shown} de {total})
+        </button>
+      )}
+    </div>
+  );
+}
+
 function StatCard({ icon, tint, label, value, sub, subColor }) {
   return (
     <div className="card">
@@ -57,19 +122,33 @@ export default function AccountingPage() {
   const [tab, setTab] = useState('income');
   const [semester, setSemester] = useState(null);
   const [range, setRange] = useState(null); // { from, to }
+  const [firstPaymentDate, setFirstPaymentDate] = useState(null);
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(true);
   const [exporting, setExporting] = useState(false);
 
-  // Rango inicial: el semestre activo si existe; si no, el mes actual.
+  // Filtros compartidos (nivel / profesor / grupo) para Ingresos y Pagos Estudiantes.
+  const [levelFilter, setLevelFilter] = useState('');
+  const [profFilter, setProfFilter] = useState('');
+  const [groupFilter, setGroupFilter] = useState('');
+  // Orden de cada tabla (columna + dirección).
+  const [incomeSort, setIncomeSort] = useState({ key: 'paymentDate', dir: 'desc' });
+  const [studentSort, setStudentSort] = useState({ key: 'name', dir: 'asc' });
+
+  // Rango inicial: desde el PRIMER pago registrado hasta hoy (para ver toda la
+  // historia de pagos). Si aún no hay pagos, cae al semestre activo o al mes actual.
   useEffect(() => {
-    api.get('/semesters/active')
-      .then((s) => {
-        setSemester(s);
-        if (s?.startDate && s?.endDate) setRange({ from: dateStr(s.startDate), to: dateStr(s.endDate) });
-        else setRange(monthRange());
-      })
-      .catch(() => { setSemester(null); setRange(monthRange()); });
+    Promise.all([
+      api.get('/semesters/active').catch(() => null),
+      api.get('/accounting/first-payment').catch(() => null),
+    ]).then(([s, meta]) => {
+      setSemester(s || null);
+      const first = meta?.firstPaymentDate || null;
+      setFirstPaymentDate(first);
+      if (first) setRange({ from: first, to: bogotaTodayStr() });
+      else if (s?.startDate && s?.endDate) setRange({ from: dateStr(s.startDate), to: dateStr(s.endDate) });
+      else setRange(monthRange());
+    });
   }, []);
 
   useEffect(() => {
@@ -129,6 +208,82 @@ export default function AccountingPage() {
   const balance = data?.balance;
   const studentsTuition = data?.studentsTuition;
 
+  // Opciones de filtro: unión de niveles/profes/grupos de pagos y del roster.
+  const filterOptions = useMemo(() => {
+    const levels = new Set();
+    const professors = new Set();
+    const groups = new Set();
+    for (const r of studentsTuition?.rows || []) {
+      if (r.level) levels.add(r.level);
+      if (r.professor) professors.add(r.professor);
+      if (r.groupCode) groups.add(r.groupCode);
+    }
+    for (const p of income?.payments || []) {
+      if (p.level) levels.add(p.level);
+      if (p.professor) professors.add(p.professor);
+      if (p.groupCode) groups.add(p.groupCode);
+    }
+    const arr = (s) => [...s].sort((a, b) => String(a).localeCompare(String(b), 'es', { numeric: true, sensitivity: 'base' }));
+    return { levels: arr(levels), professors: arr(professors), groups: arr(groups) };
+  }, [studentsTuition, income]);
+
+  const matchesFilter = (o) => {
+    if (levelFilter && o.level !== levelFilter) return false;
+    if (profFilter && o.professor !== profFilter) return false;
+    if (groupFilter && o.groupCode !== groupFilter) return false;
+    return true;
+  };
+  const hasFilter = !!(levelFilter || profFilter || groupFilter);
+
+  // Ingresos filtrados + ordenados, con KPIs recalculados sobre lo visible.
+  const incomeView = useMemo(() => {
+    const payments = (income?.payments || []).filter(matchesFilter);
+    const totals = { total: 0, verifiedTotal: 0, verifiedCount: 0, unverifiedTotal: 0, unverifiedCount: 0, count: payments.length };
+    const byMethod = {};
+    for (const p of payments) {
+      totals.total += p.amount;
+      if (p.verifiedAt) { totals.verifiedTotal += p.amount; totals.verifiedCount += 1; }
+      else { totals.unverifiedTotal += p.amount; totals.unverifiedCount += 1; }
+      if (!byMethod[p.method]) byMethod[p.method] = { total: 0, count: 0, verifiedTotal: 0 };
+      byMethod[p.method].total += p.amount;
+      byMethod[p.method].count += 1;
+      if (p.verifiedAt) byMethod[p.method].verifiedTotal += p.amount;
+    }
+    const rows = sortRows(payments, incomeSort, {
+      paymentDate: (p) => new Date(p.paymentDate).getTime(),
+      student: (p) => p.student?.name || '',
+      method: (p) => p.method || '',
+      amount: (p) => p.amount || 0,
+    });
+    return { rows, totals, byMethod };
+  }, [income, levelFilter, profFilter, groupFilter, incomeSort]);
+
+  // Pagos Estudiantes filtrados + ordenados, con totales recalculados.
+  const studentsView = useMemo(() => {
+    const src = (studentsTuition?.rows || []).filter(matchesFilter);
+    const rows = sortRows(src, studentSort, {
+      name: (r) => r.name || '',
+      groupCode: (r) => r.groupCode || '',
+      classesAcquired: (r) => r.classesAcquired || 0,
+      expectedTotal: (r) => r.expectedTotal || 0,
+      totalPaid: (r) => r.totalPaid || 0,
+      balance: (r) => r.balance || 0,
+    });
+    const totals = src.reduce(
+      (acc, r) => ({
+        students: acc.students + 1,
+        expected: acc.expected + (r.expectedTotal || 0),
+        paid: acc.paid + (r.totalPaid || 0),
+        debt: acc.debt + (r.balance > 0 ? r.balance : 0),
+        matriculados: acc.matriculados + (r.studentStatus === 'MATRICULADO' ? 1 : 0),
+        withDebt: acc.withDebt + (r.balance > 0 ? 1 : 0),
+        missingBirthDate: acc.missingBirthDate + (r.missingBirthDate ? 1 : 0),
+      }),
+      { students: 0, expected: 0, paid: 0, debt: 0, matriculados: 0, withDebt: 0, missingBirthDate: 0 }
+    );
+    return { rows, totals };
+  }, [studentsTuition, levelFilter, profFilter, groupFilter, studentSort]);
+
   return (
     <div className="page page-wide">
       <div className="page-content" style={{ paddingTop: 8 }}>
@@ -151,6 +306,11 @@ export default function AccountingPage() {
         {range && (
           <div className="card mb-3">
             <div className="flex items-center gap-2" style={{ flexWrap: 'wrap' }}>
+              {firstPaymentDate && (
+                <button className="btn btn-ghost" style={{ minHeight: 34, fontSize: '0.8rem' }}
+                  onClick={() => setRange({ from: firstPaymentDate, to: bogotaTodayStr() })}
+                  title={`Desde el primer pago (${firstPaymentDate})`}>Desde el primer pago</button>
+              )}
               <button className="btn btn-ghost" style={{ minHeight: 34, fontSize: '0.8rem' }}
                 onClick={() => setRange(monthRange())}>Este mes</button>
               <button className="btn btn-ghost" style={{ minHeight: 34, fontSize: '0.8rem' }}
@@ -193,22 +353,28 @@ export default function AccountingPage() {
               <>
                 <div className="home-kpis">
                   <StatCard icon="💵" tint={{ bg: 'rgba(31,169,113,0.14)', fg: '#1FA971' }}
-                    label="Total de ingresos" value={fmt(income.total)}
-                    sub={`${income.count} pago${income.count !== 1 ? 's' : ''} registrados`} />
+                    label="Total de ingresos" value={fmt(incomeView.totals.total)}
+                    sub={`${incomeView.totals.count} pago${incomeView.totals.count !== 1 ? 's' : ''}${hasFilter ? ' (filtrado)' : ' registrados'}`} />
                   <StatCard icon="✓" tint={{ bg: 'rgba(63,82,168,0.12)', fg: '#3F52A8' }}
-                    label="Verificado" value={fmt(income.verifiedTotal)}
-                    sub={`${income.verifiedCount} pago${income.verifiedCount !== 1 ? 's' : ''} conciliados`} subColor="var(--success)" />
+                    label="Verificado" value={fmt(incomeView.totals.verifiedTotal)}
+                    sub={`${incomeView.totals.verifiedCount} pago${incomeView.totals.verifiedCount !== 1 ? 's' : ''} conciliados`} subColor="var(--success)" />
                   <StatCard icon="⏳" tint={{ bg: 'rgba(232,162,59,0.14)', fg: '#E8A23B' }}
-                    label="Sin verificar" value={fmt(income.unverifiedTotal)}
-                    sub={income.unverifiedCount > 0 ? `${income.unverifiedCount} por conciliar` : 'todo conciliado'}
-                    subColor={income.unverifiedCount > 0 ? 'var(--warning)' : 'var(--success)'} />
+                    label="Sin verificar" value={fmt(incomeView.totals.unverifiedTotal)}
+                    sub={incomeView.totals.unverifiedCount > 0 ? `${incomeView.totals.unverifiedCount} por conciliar` : 'todo conciliado'}
+                    subColor={incomeView.totals.unverifiedCount > 0 ? 'var(--warning)' : 'var(--success)'} />
                   <StatCard icon="🏦" tint={{ bg: 'rgba(79,159,178,0.14)', fg: '#4F9FB2' }}
-                    label="Efectivo recibido" value={fmt(income.byMethod?.EFECTIVO?.total || 0)}
+                    label="Efectivo recibido" value={fmt(incomeView.byMethod?.EFECTIVO?.total || 0)}
                     sub="para arqueo de caja" />
                 </div>
 
+                <FilterBar options={filterOptions}
+                  level={levelFilter} setLevel={setLevelFilter}
+                  prof={profFilter} setProf={setProfFilter}
+                  group={groupFilter} setGroup={setGroupFilter}
+                  shown={incomeView.totals.count} total={income.payments.length} />
+
                 {/* Desglose por medio de pago (conciliación bancaria) */}
-                {Object.keys(income.byMethod || {}).length > 0 && (
+                {Object.keys(incomeView.byMethod || {}).length > 0 && (
                   <div className="card mb-3">
                     <h3 className="mb-2">Por medio de pago</h3>
                     <div className="table-wrap">
@@ -217,7 +383,7 @@ export default function AccountingPage() {
                           <tr><th>Medio</th><th className="num">Pagos</th><th className="num">Total</th><th className="num">Verificado</th></tr>
                         </thead>
                         <tbody>
-                          {Object.entries(income.byMethod).map(([method, m]) => (
+                          {Object.entries(incomeView.byMethod).map(([method, m]) => (
                             <tr key={method}>
                               <td><span className={`badge ${METHOD_BADGE[method] || 'badge-gray'}`}>{METHOD_LABEL[method] || method}</span></td>
                               <td className="num">{m.count}</td>
@@ -236,17 +402,24 @@ export default function AccountingPage() {
                 {/* Detalle de pagos con verificación */}
                 {income.payments.length === 0 ? (
                   <div className="alert alert-info">No hay pagos registrados en este rango.</div>
+                ) : incomeView.rows.length === 0 ? (
+                  <div className="alert alert-info">Ningún pago coincide con los filtros.</div>
                 ) : (
                   <div className="table-wrap">
                     <table className="data-table">
                       <thead>
                         <tr>
-                          <th>Fecha</th><th>Estudiante</th><th>Medio</th><th>Recibido por</th>
-                          <th className="num">Monto</th><th style={{ textAlign: 'center' }}>Verificado</th>
+                          <SortTh label="Fecha" col="paymentDate" sort={incomeSort} setSort={setIncomeSort} />
+                          <SortTh label="Estudiante" col="student" sort={incomeSort} setSort={setIncomeSort} />
+                          <th>Grupo</th>
+                          <SortTh label="Medio" col="method" sort={incomeSort} setSort={setIncomeSort} />
+                          <th>Recibido por</th>
+                          <SortTh label="Monto" col="amount" sort={incomeSort} setSort={setIncomeSort} numeric className="num" />
+                          <th style={{ textAlign: 'center' }}>Verificado</th>
                         </tr>
                       </thead>
                       <tbody>
-                        {income.payments.map((p) => (
+                        {incomeView.rows.map((p) => (
                           <tr key={p.id}>
                             <td style={{ whiteSpace: 'nowrap' }}>{fmtDate(p.paymentDate, { day: 'numeric', month: 'short', year: 'numeric' })}</td>
                             <td>
@@ -260,6 +433,10 @@ export default function AccountingPage() {
                                 <div className="font-medium">{p.student?.name}</div>
                               )}
                               {p.note && <div className="text-xs text-gray">{p.note}</div>}
+                            </td>
+                            <td className="text-sm">
+                              {p.groupCode || '—'}
+                              {p.level && <div className="text-xs text-gray">{p.level}</div>}
                             </td>
                             <td><span className={`badge ${METHOD_BADGE[p.method] || 'badge-gray'}`}>{METHOD_LABEL[p.method] || p.method}</span></td>
                             <td className="text-sm text-gray">{p.receivedByName || '—'}</td>
@@ -277,8 +454,8 @@ export default function AccountingPage() {
                       </tbody>
                       <tfoot>
                         <tr>
-                          <td colSpan={4}>Total del rango</td>
-                          <td className="num" style={{ color: 'var(--brand-indigo, var(--blue))' }}>{fmt(income.total)}</td>
+                          <td colSpan={5}>{hasFilter ? 'Total filtrado' : 'Total del rango'}</td>
+                          <td className="num" style={{ color: 'var(--brand-indigo, var(--blue))' }}>{fmt(incomeView.totals.total)}</td>
                           <td></td>
                         </tr>
                       </tfoot>
@@ -443,19 +620,19 @@ export default function AccountingPage() {
               <>
                 <div className="home-kpis">
                   <StatCard icon="🎓" tint={{ bg: 'rgba(63,82,168,0.12)', fg: '#3F52A8' }}
-                    label="Valor esperado" value={fmt(studentsTuition.totals.expected)}
-                    sub={`${studentsTuition.totals.students} estudiantes activos`} />
+                    label="Valor esperado" value={fmt(studentsView.totals.expected)}
+                    sub={`${studentsView.totals.students} estudiante${studentsView.totals.students !== 1 ? 's' : ''}${hasFilter ? ' (filtrado)' : ' activos'}`} />
                   <StatCard icon="💵" tint={{ bg: 'rgba(31,169,113,0.14)', fg: '#1FA971' }}
-                    label="Recaudado" value={fmt(studentsTuition.totals.paid)}
-                    sub={`${studentsTuition.totals.matriculados} matriculados (pago completo)`} subColor="var(--success)" />
+                    label="Recaudado" value={fmt(studentsView.totals.paid)}
+                    sub={`${studentsView.totals.matriculados} matriculados (pago completo)`} subColor="var(--success)" />
                   <StatCard icon="⏳" tint={{ bg: 'rgba(232,82,106,0.12)', fg: '#E8526A' }}
-                    label="Deuda pendiente" value={fmt(studentsTuition.totals.debt)}
-                    sub={`${studentsTuition.totals.withDebt} estudiante${studentsTuition.totals.withDebt !== 1 ? 's' : ''} con saldo`}
-                    subColor={studentsTuition.totals.debt > 0 ? 'var(--red)' : 'var(--success)'} />
+                    label="Deuda pendiente" value={fmt(studentsView.totals.debt)}
+                    sub={`${studentsView.totals.withDebt} estudiante${studentsView.totals.withDebt !== 1 ? 's' : ''} con saldo`}
+                    subColor={studentsView.totals.debt > 0 ? 'var(--red)' : 'var(--success)'} />
                   <StatCard icon="⚠️" tint={{ bg: 'rgba(232,162,59,0.14)', fg: '#E8A23B' }}
-                    label="Sin fecha de nacimiento" value={studentsTuition.totals.missingBirthDate}
-                    sub={studentsTuition.totals.missingBirthDate > 0 ? 'no se puede calcular su tarifa' : 'todos categorizados'}
-                    subColor={studentsTuition.totals.missingBirthDate > 0 ? 'var(--red)' : 'var(--success)'} />
+                    label="Sin fecha de nacimiento" value={studentsView.totals.missingBirthDate}
+                    sub={studentsView.totals.missingBirthDate > 0 ? 'no se puede calcular su tarifa' : 'todos categorizados'}
+                    subColor={studentsView.totals.missingBirthDate > 0 ? 'var(--red)' : 'var(--success)'} />
                 </div>
 
                 <div className="alert alert-info mb-3" style={{ fontSize: '0.85rem' }}>
@@ -463,20 +640,32 @@ export default function AccountingPage() {
                   nacimiento) − pagos registrados. No depende del rango de fechas: compara el plan completo.
                 </div>
 
+                <FilterBar options={filterOptions}
+                  level={levelFilter} setLevel={setLevelFilter}
+                  prof={profFilter} setProf={setProfFilter}
+                  group={groupFilter} setGroup={setGroupFilter}
+                  shown={studentsView.totals.students} total={studentsTuition.rows.length} />
+
                 {studentsTuition.rows.length === 0 ? (
                   <div className="alert alert-info">No hay estudiantes activos.</div>
+                ) : studentsView.rows.length === 0 ? (
+                  <div className="alert alert-info">Ningún estudiante coincide con los filtros.</div>
                 ) : (
                   <div className="table-wrap">
                     <table className="data-table">
                       <thead>
                         <tr>
-                          <th>Estudiante</th><th>Grupo</th><th>Estado</th><th>Categoría</th>
-                          <th className="num">Clases</th><th className="num">Esperado</th>
-                          <th className="num">Pagado</th><th className="num">Saldo</th>
+                          <SortTh label="Estudiante" col="name" sort={studentSort} setSort={setStudentSort} />
+                          <SortTh label="Grupo" col="groupCode" sort={studentSort} setSort={setStudentSort} />
+                          <th>Profesor</th><th>Estado</th><th>Categoría</th>
+                          <SortTh label="Clases" col="classesAcquired" sort={studentSort} setSort={setStudentSort} numeric className="num" />
+                          <SortTh label="Esperado" col="expectedTotal" sort={studentSort} setSort={setStudentSort} numeric className="num" />
+                          <SortTh label="Pagado" col="totalPaid" sort={studentSort} setSort={setStudentSort} numeric className="num" />
+                          <SortTh label="Saldo" col="balance" sort={studentSort} setSort={setStudentSort} numeric className="num" />
                         </tr>
                       </thead>
                       <tbody>
-                        {studentsTuition.rows.map((r) => (
+                        {studentsView.rows.map((r) => (
                           <tr key={r.id}>
                             <td>
                               <button className="link-name font-medium"
@@ -485,7 +674,11 @@ export default function AccountingPage() {
                                 <StudentStatusIcon status={r.studentStatus} missingBirthDate={r.missingBirthDate} />{r.name} ›
                               </button>
                             </td>
-                            <td className="text-sm">{r.groupCode || '—'}</td>
+                            <td className="text-sm">
+                              {r.groupCode || '—'}
+                              {r.level && <div className="text-xs text-gray">{r.level}</div>}
+                            </td>
+                            <td className="text-sm text-gray">{r.professor || '—'}</td>
                             <td><StudentStatusBadge status={r.studentStatus} /></td>
                             <td className="text-sm">
                               {r.category === 'ADULTO' ? 'Adulto' : r.category === 'PEQUENO' ? 'Pequeño'
@@ -502,11 +695,11 @@ export default function AccountingPage() {
                       </tbody>
                       <tfoot>
                         <tr>
-                          <td colSpan={5}>Total · {studentsTuition.totals.students} estudiantes</td>
-                          <td className="num">{fmt(studentsTuition.totals.expected)}</td>
-                          <td className="num" style={{ color: 'var(--success)' }}>{fmt(studentsTuition.totals.paid)}</td>
-                          <td className="num" style={{ color: studentsTuition.totals.debt > 0 ? 'var(--red)' : 'var(--success)' }}>
-                            {fmt(studentsTuition.totals.debt)}
+                          <td colSpan={6}>{hasFilter ? 'Total filtrado' : 'Total'} · {studentsView.totals.students} estudiante{studentsView.totals.students !== 1 ? 's' : ''}</td>
+                          <td className="num">{fmt(studentsView.totals.expected)}</td>
+                          <td className="num" style={{ color: 'var(--success)' }}>{fmt(studentsView.totals.paid)}</td>
+                          <td className="num" style={{ color: studentsView.totals.debt > 0 ? 'var(--red)' : 'var(--success)' }}>
+                            {fmt(studentsView.totals.debt)}
                           </td>
                         </tr>
                       </tfoot>
