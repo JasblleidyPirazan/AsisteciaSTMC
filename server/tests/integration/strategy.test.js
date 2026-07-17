@@ -59,17 +59,19 @@ describe('GET /reports/strategy — Visión Estratégica', () => {
     // Estados derivados: s1 adulto con el plan de 40 clases pagado completo
     // (2.789.000) → MATRICULADO; s2 pequeño sin pagos ni asistencia →
     // PREINSCRITO; s3 clase de prueba → PRUEBA (no cuenta como activo).
+    // Ocupación por estado: s1 (MATRICULADO) ocupa cupo en g1; s2 (PREINSCRITO)
+    // NO ocupa (va aparte); s3 sin grupos.
     prismaMock.student.findMany.mockResolvedValue([
-      { id: 's1', active: true, isTrial: false, birthDate: new Date('1990-01-01'), classesAcquired: 40, suspendedFrom: null, suspendedUntil: null, createdAt: new Date() },
-      { id: 's2', active: true, isTrial: false, birthDate: new Date('2015-01-01'), classesAcquired: 40, suspendedFrom: null, suspendedUntil: null, createdAt: new Date('2020-01-01') },
-      { id: 's3', active: true, isTrial: true, birthDate: null, classesAcquired: 0, suspendedFrom: null, suspendedUntil: null, createdAt: new Date() },
+      { id: 's1', active: true, isTrial: false, birthDate: new Date('1990-01-01'), classesAcquired: 40, suspendedFrom: null, suspendedUntil: null, createdAt: new Date(), enrollments: [{ groupId: 'g1' }] },
+      { id: 's2', active: true, isTrial: false, birthDate: new Date('2015-01-01'), classesAcquired: 40, suspendedFrom: null, suspendedUntil: null, createdAt: new Date('2020-01-01'), enrollments: [{ groupId: 'g1' }] },
+      { id: 's3', active: true, isTrial: true, birthDate: null, classesAcquired: 0, suspendedFrom: null, suspendedUntil: null, createdAt: new Date(), enrollments: [] },
     ]);
     prismaMock.studentPayment.groupBy.mockResolvedValue([
       { studentId: 's1', _sum: { amount: '2789000' } },
     ]);
     prismaMock.group.findMany.mockResolvedValue([
-      { id: 'g1', code: 'G2', ballLevel: 'Verde', subLevel: 'A', capacity: 8, professor: { name: 'Ana' }, _count: { enrollments: 6 } },
-      { id: 'g2', code: 'G10', ballLevel: 'Roja', subLevel: null, capacity: 6, professor: { name: 'Luis' }, _count: { enrollments: 2 } },
+      { id: 'g1', code: 'G2', ballLevel: 'Verde', subLevel: 'A', capacity: 8, professor: { name: 'Ana' } },
+      { id: 'g2', code: 'G10', ballLevel: 'Roja', subLevel: null, capacity: 6, professor: { name: 'Luis' } },
     ]);
     prismaMock.classSession.findMany.mockResolvedValue([
       { groupId: 'g1', status: 'REALIZADA', cancellationCategory: null },
@@ -98,12 +100,14 @@ describe('GET /reports/strategy — Visión Estratégica', () => {
     // Estudiantes: el de prueba no cuenta como activo; conversión 1/2 = 50%
     expect(d.students).toMatchObject({ active: 2, matriculados: 1, inscritos: 0, preinscritos: 1, trial: 1, conversionPct: 50 });
 
-    // Grupos: orden alfanumérico (G2 antes que G10), ocupación y asistencia
+    // Grupos: orden alfanumérico (G2 antes que G10). Ocupación por ESTADO:
+    // solo s1 (MATRICULADO) ocupa cupo en g1; s2 (PREINSCRITO) va aparte.
     expect(d.groups.rows.map((g) => g.code)).toEqual(['G2', 'G10']);
     expect(d.groups.rows[0]).toMatchObject({
-      occupancyPct: 75, attendanceRate: 67, realized: 1, cancelled: 1, cancelledRain: 1,
+      students: 1, preinscritos: 1, occupancyPct: 13,
+      attendanceRate: 67, realized: 1, cancelled: 1, cancelledRain: 1,
     });
-    expect(d.groups).toMatchObject({ totalEnrolled: 8, totalCapacity: 14, occupancyPct: 57, freeSpots: 6 });
+    expect(d.groups).toMatchObject({ totalEnrolled: 1, totalCapacity: 14, occupancyPct: 7, freeSpots: 13 });
 
     // Operación: 2 realizadas, 1 cancelada (lluvia) → cumplimiento 67%
     expect(d.operations).toMatchObject({ realized: 2, cancelled: 1, cancelledRain: 1, compliancePct: 67, avgAttendance: 75 });
