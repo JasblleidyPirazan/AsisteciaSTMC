@@ -3,6 +3,7 @@ const prisma = require('../lib/prisma');
 const { requireRole } = require('../middleware/auth');
 const { expectedDatesForGroup } = require('../services/schedule');
 const { computeAttendanceDeviations, RED_THRESHOLD, YELLOW_THRESHOLD } = require('../services/attendanceAlerts');
+const { attachStudentStatus } = require('../services/studentStatus');
 const { bogotaToday, dbDateStr } = require('../lib/dates');
 
 const router = express.Router();
@@ -183,6 +184,55 @@ router.get('/rain', requireRole('ADMIN', 'PHYSICAL_TRAINER'), async (req, res, n
       .sort((a, b) => b.rainCancelled - a.rainCancelled);
 
     res.json({ success: true, data: { groups: data, threshold } });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// Group-level pre-enrollment alert: groups with PREINSCRITO students (derived
+// status: registered, no payment and no attendance yet). Alert at 2 or more.
+const PREINSCRITOS_THRESHOLD = 2;
+router.get('/preinscritos', requireRole('ADMIN', 'PHYSICAL_TRAINER'), async (req, res, next) => {
+  try {
+    const groups = await prisma.group.findMany({
+      where: { active: true },
+      include: {
+        professor: { select: { id: true, name: true } },
+        enrollments: {
+          where: { student: { active: true } },
+          include: { student: true },
+        },
+      },
+    });
+
+    // Derive each distinct student's status once, then count per group.
+    const studentById = new Map();
+    for (const g of groups) for (const e of g.enrollments) studentById.set(e.student.id, e.student);
+    const decorated = await attachStudentStatus([...studentById.values()]);
+    const statusById = new Map(decorated.map((s) => [s.id, s.studentStatus]));
+
+    const data = groups
+      .map((g) => {
+        const pre = g.enrollments
+          .map((e) => e.student)
+          .filter((s) => statusById.get(s.id) === 'PREINSCRITO')
+          .sort((a, b) => a.name.localeCompare(b.name, 'es'));
+        return {
+          groupId: g.id,
+          code: g.code,
+          professor: g.professor,
+          preinscritos: pre.length,
+          students: pre.map((s) => ({ id: s.id, name: s.name })),
+          alert: pre.length >= PREINSCRITOS_THRESHOLD,
+        };
+      })
+      .filter((g) => g.preinscritos > 0)
+      .sort((a, b) => b.preinscritos - a.preinscritos);
+
+    res.json({
+      success: true,
+      data: { groups: data, threshold: PREINSCRITOS_THRESHOLD, alertCount: data.filter((g) => g.alert).length },
+    });
   } catch (err) {
     next(err);
   }

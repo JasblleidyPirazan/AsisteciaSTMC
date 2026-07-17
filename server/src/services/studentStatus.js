@@ -8,7 +8,7 @@
 //   SUSPENDIDO   hoy dentro del rango de suspensión temporal
 //   PRUEBA       estudiante de clase de prueba (isTrial)
 //   MATRICULADO  pago completo: total pagado >= valor esperado de sus clases
-//   INSCRITO     tiene alguna asistencia (PRESENTE) y/o algún pago
+//   INSCRITO     tiene alguna clase vista (regla de attendanceStats) y/o algún pago
 //   PREINSCRITO  registrado, sin asistencia ni pagos
 //
 // El valor esperado depende de la categoría de precio por edad:
@@ -20,6 +20,7 @@
 // a MATRICULADO hasta que se ingrese la fecha.
 const prisma = require('../lib/prisma');
 const { bogotaToday } = require('../lib/dates');
+const { seenAttendanceFilter } = require('./attendanceStats');
 
 const TUITION_KEYS = ['tuition_adult_total', 'tuition_child_total', 'tuition_plan_classes', 'tuition_adult_age'];
 
@@ -125,9 +126,12 @@ async function attachStudentStatus(students) {
       where: { studentId: { in: ids } },
       _sum: { amount: true },
     }),
+    // "Al menos una asistencia" usa la regla canónica de clase vista
+    // (attendanceStats): PRESENTE en cualquier sesión, o AUSENTE en festival.
+    // Así el estado INSCRITO coincide con las "clases vistas" del resto del sistema.
     prisma.attendanceRecord.groupBy({
       by: ['studentId'],
-      where: { studentId: { in: ids }, status: 'PRESENTE' },
+      where: { studentId: { in: ids }, ...seenAttendanceFilter() },
       _count: { _all: true },
     }),
   ]);
