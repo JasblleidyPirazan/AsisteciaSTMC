@@ -4,7 +4,7 @@ import { api } from '../../api/client';
 import { fmtDate, bogotaTodayStr } from '../../utils/dates';
 import { periodLabel } from '../../utils/periods';
 import { toast } from '../../utils/toast';
-import { StudentStatusBadge, StudentStatusIcon } from '../../utils/studentStatus';
+import { StudentStatusBadge, StudentStatusIcon, STUDENT_STATUS } from '../../utils/studentStatus';
 
 // Módulo de Contabilidad (solo Admin/Superadmin):
 //   Ingresos = pagos de estudiantes, con verificación (conciliación) por pago.
@@ -69,9 +69,11 @@ function SortTh({ label, col, sort, setSort, numeric, className, style }) {
   );
 }
 
-// Barra de filtros compartida (nivel / profesor / grupo) para Ingresos y Pagos Estudiantes.
-function FilterBar({ options, level, setLevel, prof, setProf, group, setGroup, shown, total }) {
-  const active = level || prof || group;
+// Barra de filtros compartida (nivel / profesor / grupo, + estado opcional)
+// para Ingresos y Pagos Estudiantes.
+function FilterBar({ options, level, setLevel, prof, setProf, group, setGroup, status, setStatus, shown, total }) {
+  const hasStatus = typeof setStatus === 'function';
+  const active = level || prof || group || (hasStatus && status);
   return (
     <div className="flex items-center gap-2 mb-3" style={{ flexWrap: 'wrap' }}>
       <select className="form-input form-select" style={{ minHeight: 36, width: 'auto', fontSize: '0.85rem' }}
@@ -89,9 +91,18 @@ function FilterBar({ options, level, setLevel, prof, setProf, group, setGroup, s
         <option value="">Todos los grupos</option>
         {options.groups.map((g) => <option key={g} value={g}>{g}</option>)}
       </select>
+      {hasStatus && (
+        <select className="form-input form-select" style={{ minHeight: 36, width: 'auto', fontSize: '0.85rem' }}
+          value={status} onChange={(e) => setStatus(e.target.value)}>
+          <option value="">Todos los estados</option>
+          {options.statuses.map((s) => (
+            <option key={s} value={s}>{STUDENT_STATUS[s] ? `${STUDENT_STATUS[s].icon} ${STUDENT_STATUS[s].label}` : s}</option>
+          ))}
+        </select>
+      )}
       {active && (
         <button className="btn btn-ghost" style={{ minHeight: 36, fontSize: '0.8rem' }}
-          onClick={() => { setLevel(''); setProf(''); setGroup(''); }}>
+          onClick={() => { setLevel(''); setProf(''); setGroup(''); if (hasStatus) setStatus(''); }}>
           ✕ Limpiar ({shown} de {total})
         </button>
       )}
@@ -131,6 +142,7 @@ export default function AccountingPage() {
   const [levelFilter, setLevelFilter] = useState('');
   const [profFilter, setProfFilter] = useState('');
   const [groupFilter, setGroupFilter] = useState('');
+  const [statusFilter, setStatusFilter] = useState(''); // solo Pagos Estudiantes
   // Orden de cada tabla (columna + dirección).
   const [incomeSort, setIncomeSort] = useState({ key: 'paymentDate', dir: 'desc' });
   const [studentSort, setStudentSort] = useState({ key: 'name', dir: 'asc' });
@@ -213,10 +225,12 @@ export default function AccountingPage() {
     const levels = new Set();
     const professors = new Set();
     const groups = new Set();
+    const statuses = new Set();
     for (const r of studentsTuition?.rows || []) {
       if (r.level) levels.add(r.level);
       if (r.professor) professors.add(r.professor);
       if (r.groupCode) groups.add(r.groupCode);
+      if (r.studentStatus) statuses.add(r.studentStatus);
     }
     for (const p of income?.payments || []) {
       if (p.level) levels.add(p.level);
@@ -224,7 +238,12 @@ export default function AccountingPage() {
       if (p.groupCode) groups.add(p.groupCode);
     }
     const arr = (s) => [...s].sort((a, b) => String(a).localeCompare(String(b), 'es', { numeric: true, sensitivity: 'base' }));
-    return { levels: arr(levels), professors: arr(professors), groups: arr(groups) };
+    // Estados en el orden canónico del sistema (no alfabético).
+    const statusOrder = Object.keys(STUDENT_STATUS);
+    return {
+      levels: arr(levels), professors: arr(professors), groups: arr(groups),
+      statuses: statusOrder.filter((s) => statuses.has(s)),
+    };
   }, [studentsTuition, income]);
 
   const matchesFilter = (o) => {
@@ -234,6 +253,7 @@ export default function AccountingPage() {
     return true;
   };
   const hasFilter = !!(levelFilter || profFilter || groupFilter);
+  const studentsHasFilter = hasFilter || !!statusFilter;
 
   // Ingresos filtrados + ordenados, con KPIs recalculados sobre lo visible.
   const incomeView = useMemo(() => {
@@ -260,7 +280,9 @@ export default function AccountingPage() {
 
   // Pagos Estudiantes filtrados + ordenados, con totales recalculados.
   const studentsView = useMemo(() => {
-    const src = (studentsTuition?.rows || []).filter(matchesFilter);
+    const src = (studentsTuition?.rows || []).filter(
+      (r) => matchesFilter(r) && (!statusFilter || r.studentStatus === statusFilter)
+    );
     const rows = sortRows(src, studentSort, {
       name: (r) => r.name || '',
       groupCode: (r) => r.groupCode || '',
@@ -282,7 +304,7 @@ export default function AccountingPage() {
       { students: 0, expected: 0, paid: 0, debt: 0, matriculados: 0, withDebt: 0, missingBirthDate: 0 }
     );
     return { rows, totals };
-  }, [studentsTuition, levelFilter, profFilter, groupFilter, studentSort]);
+  }, [studentsTuition, levelFilter, profFilter, groupFilter, statusFilter, studentSort]);
 
   return (
     <div className="page page-wide">
@@ -621,7 +643,7 @@ export default function AccountingPage() {
                 <div className="home-kpis">
                   <StatCard icon="🎓" tint={{ bg: 'rgba(63,82,168,0.12)', fg: '#3F52A8' }}
                     label="Valor esperado" value={fmt(studentsView.totals.expected)}
-                    sub={`${studentsView.totals.students} estudiante${studentsView.totals.students !== 1 ? 's' : ''}${hasFilter ? ' (filtrado)' : ' activos'}`} />
+                    sub={`${studentsView.totals.students} estudiante${studentsView.totals.students !== 1 ? 's' : ''}${studentsHasFilter ? ' (filtrado)' : ' activos'}`} />
                   <StatCard icon="💵" tint={{ bg: 'rgba(31,169,113,0.14)', fg: '#1FA971' }}
                     label="Recaudado" value={fmt(studentsView.totals.paid)}
                     sub={`${studentsView.totals.matriculados} matriculados (pago completo)`} subColor="var(--success)" />
@@ -644,6 +666,7 @@ export default function AccountingPage() {
                   level={levelFilter} setLevel={setLevelFilter}
                   prof={profFilter} setProf={setProfFilter}
                   group={groupFilter} setGroup={setGroupFilter}
+                  status={statusFilter} setStatus={setStatusFilter}
                   shown={studentsView.totals.students} total={studentsTuition.rows.length} />
 
                 {studentsTuition.rows.length === 0 ? (
@@ -695,7 +718,7 @@ export default function AccountingPage() {
                       </tbody>
                       <tfoot>
                         <tr>
-                          <td colSpan={6}>{hasFilter ? 'Total filtrado' : 'Total'} · {studentsView.totals.students} estudiante{studentsView.totals.students !== 1 ? 's' : ''}</td>
+                          <td colSpan={6}>{studentsHasFilter ? 'Total filtrado' : 'Total'} · {studentsView.totals.students} estudiante{studentsView.totals.students !== 1 ? 's' : ''}</td>
                           <td className="num">{fmt(studentsView.totals.expected)}</td>
                           <td className="num" style={{ color: 'var(--success)' }}>{fmt(studentsView.totals.paid)}</td>
                           <td className="num" style={{ color: studentsView.totals.debt > 0 ? 'var(--red)' : 'var(--success)' }}>
