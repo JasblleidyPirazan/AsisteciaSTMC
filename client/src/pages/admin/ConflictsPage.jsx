@@ -28,7 +28,7 @@ export default function ConflictsPage() {
     <div className="page">
       <div className="page-header">
         <button className="nav-back" onClick={() => navigate('/admin')}>←</button>
-        <h1>Conflictos de reporte</h1>
+        <h1>Validación profesores</h1>
       </div>
 
       <div className="page-content">

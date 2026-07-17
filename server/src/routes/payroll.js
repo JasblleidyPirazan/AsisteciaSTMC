@@ -130,7 +130,7 @@ router.get('/calendar', requireRole('ADMIN'), async (req, res, next) => {
     const sessions = await prisma.classSession.findMany({
       where: { date: { gte: new Date(from), lte: new Date(to) }, status: { not: 'PROGRAMADA' } },
       include: {
-        group: { select: { code: true, startTime: true, endTime: true, professor: { select: { name: true } } } },
+        group: { select: { id: true, code: true, ballLevel: true, subLevel: true, startTime: true, endTime: true, professor: { select: { name: true } } } },
         substituteProfessor: { select: { name: true } },
         makeupProfessor: { select: { name: true } },
         attendanceRecords: { select: { status: true, attendanceType: true } },
@@ -150,6 +150,9 @@ router.get('/calendar', requireRole('ADMIN'), async (req, res, next) => {
         date: s.date,
         kind: s.kind,
         code: s.group?.code || s.title || (s.kind === 'MAKEUP' ? 'Reposición' : s.kind === 'FESTIVAL' ? 'Festival' : '—'),
+        groupId: s.group?.id || null,
+        ballLevel: s.group?.ballLevel || null,
+        subLevel: s.group?.subLevel || null,
         startTime: s.group?.startTime || null,
         endTime: s.group?.endTime || null,
         professor: s.substituteProfessor?.name || s.group?.professor?.name || s.makeupProfessor?.name || '—',

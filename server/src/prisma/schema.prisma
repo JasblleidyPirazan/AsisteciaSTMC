@@ -614,6 +614,14 @@ enum PayrollLogAction {
   UNMARK_PAID
   UNLOCK_LATE
   CARRY_OVER
+  // Flujo de aprobación por clase (Validar / Retener) — v3
+  APPROVE
+  UNAPPROVE
+  HOLD
+  UNHOLD
+  BULK_APPROVE
+  BULK_UNAPPROVE
+  BULK_HOLD
 }
 
 model PayrollLog {
