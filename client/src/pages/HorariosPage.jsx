@@ -141,9 +141,17 @@ export default function HorariosPage() {
               <div key={time} className="mb-3">
                 <div className="time-slot-header">🕐 {time}</div>
                 <div className="card-grid">
-                  {gs.map((g) => (
+                  {gs.map((g) => {
+                    // Alerta: más de 2 preinscritos en el grupo (cupos "reservados"
+                    // por estudiantes que aún no pagan ni asisten).
+                    const preCount = (g.students || []).filter((s) => s.studentStatus === 'PREINSCRITO').length;
+                    const preAlert = preCount > 2;
+                    return (
                     <div key={g.id} className={`card${canOpenGroup ? ' card-tap' : ''}`}
-                      style={{ borderLeft: `4px solid ${LEVEL_COLOR[g.ballLevel] || 'var(--gray-300)'}` }}
+                      style={{
+                        borderLeft: `4px solid ${LEVEL_COLOR[g.ballLevel] || 'var(--gray-300)'}`,
+                        ...(preAlert ? { boxShadow: 'inset 0 0 0 1px var(--red)' } : {}),
+                      }}
                       onClick={canOpenGroup ? () => navigate('/admin/groups', { state: { focusCode: g.code, from: { label: 'Horarios', to: '/horarios' } } }) : undefined}
                       title={canOpenGroup ? 'Ver este grupo en Grupos' : undefined}>
                       <div className="flex items-center justify-between mb-1">
@@ -161,9 +169,15 @@ export default function HorariosPage() {
                         {' · '}{g.startTime}–{g.endTime}
                       </div>
                       <div className="text-xs text-gray mb-1">{g.studentCount}/{g.capacity ?? 8} estudiantes</div>
+                      {preAlert && (
+                        <div className="badge badge-red mb-1" title="Estudiantes registrados que aún no tienen pagos ni asistencia">
+                          ⚠️ {preCount} preinscritos sin confirmar
+                        </div>
+                      )}
                       <StudentList students={g.students} count={g.studentCount} />
                     </div>
-                  ))}
+                    );
+                  })}
                 </div>
               </div>
             );

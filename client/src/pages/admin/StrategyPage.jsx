@@ -85,7 +85,7 @@ export default function StrategyPage() {
                 sub={`+${d.students.newThisPeriod} nuevos en el período`} subColor="var(--success)" />
               <StatCard icon="🎾" tint={{ bg: 'rgba(79,159,178,0.14)', fg: '#4F9FB2' }}
                 label="Ocupación de grupos" value={d.groups.occupancyPct != null ? `${d.groups.occupancyPct}%` : '—'}
-                sub={`${d.groups.totalEnrolled}/${d.groups.totalCapacity} cupos · ${d.groups.freeSpots} libres`}
+                sub={`${d.groups.totalEnrolled}/${d.groups.totalCapacity} cupos (✅ matric. + 🔵 inscritos) · ${d.groups.freeSpots} libres`}
                 subColor={trafficColor(d.groups.occupancyPct)} />
               <StatCard icon="✓" tint={{ bg: 'rgba(31,169,113,0.14)', fg: '#1FA971' }}
                 label="Asistencia promedio" value={d.operations.avgAttendance != null ? `${d.operations.avgAttendance}%` : '—'}
@@ -162,7 +162,12 @@ export default function StrategyPage() {
                           <div className="text-xs text-gray">{g.ballLevel || ''}{g.subLevel ? ` ${g.subLevel}` : ''}</div>
                         </td>
                         <td className="text-sm">{g.professor}</td>
-                        <td className="num font-medium">{g.students}/{g.capacity}</td>
+                        <td className="num font-medium">
+                          {g.students}/{g.capacity}
+                          {g.preinscritos > 0 && (
+                            <span className="text-xs text-gray" title={`${g.preinscritos} preinscrito(s): aún no ocupan cupo`}> +{g.preinscritos} 📝</span>
+                          )}
+                        </td>
                         <td><PctBar pct={g.occupancyPct} /></td>
                         <td><PctBar pct={g.attendanceRate} /></td>
                         <td className="num">{g.realized}</td>
@@ -188,7 +193,8 @@ export default function StrategyPage() {
             )}
 
             <p className="text-xs text-gray mt-3">
-              Ocupación baja = cupos por vender · Asistencia = presentes vs ausentes (las justificadas no penalizan) ·
+              Ocupación = ✅ matriculados + 🔵 inscritos frente al cupo (los 📝 preinscritos se muestran aparte y no ocupan cupo) ·
+              Asistencia = presentes vs ausentes (las justificadas no penalizan) ·
               Resultado = todos los pagos registrados − gastos causados del período (los retenidos no cuentan hasta habilitarse).
             </p>
           </>

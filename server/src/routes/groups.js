@@ -66,7 +66,9 @@ router.get('/', async (req, res, next) => {
       where,
       include: {
         professor: { select: { id: true, name: true } },
-        _count: { select: { enrollments: true } },
+        // Solo estudiantes ACTIVOS: las matrículas de inactivos no ocupan cupo
+        // (consistente con Horarios y la Visión Estratégica).
+        _count: { select: { enrollments: { where: { student: { active: true } } } } },
       },
     });
     // Orden alfanumérico por código: es lo que muestran los desplegables y
@@ -84,7 +86,7 @@ router.get('/export', requireRole('ADMIN', 'SUPERADMIN', 'PHYSICAL_TRAINER'), as
   try {
     const groups = await prisma.group.findMany({
       where: { active: true },
-      include: { professor: { select: { name: true } }, _count: { select: { enrollments: true } } },
+      include: { professor: { select: { name: true } }, _count: { select: { enrollments: { where: { student: { active: true } } } } } },
     });
     groups.sort(byGroupCode);
     const rows = groups.map((g) => ({

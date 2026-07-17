@@ -453,6 +453,9 @@ router.get('/strategy', requireRole('ADMIN'), async (req, res, next) => {
         select: {
           id: true, active: true, isTrial: true, birthDate: true, classesAcquired: true,
           suspendedFrom: true, suspendedUntil: true, createdAt: true,
+          // Grupos del estudiante: la ocupación se calcula por ESTADO
+          // (matriculados + inscritos ocupan cupo; preinscritos no).
+          enrollments: { select: { groupId: true } },
         },
       }),
       prisma.group.findMany({
@@ -460,7 +463,6 @@ router.get('/strategy', requireRole('ADMIN'), async (req, res, next) => {
         select: {
           id: true, code: true, ballLevel: true, subLevel: true, capacity: true,
           professor: { select: { name: true } },
-          _count: { select: { enrollments: true } },
         },
       }),
       // Solo clases regulares ya resueltas (realizadas/canceladas) dentro del rango.
@@ -502,6 +504,21 @@ router.get('/strategy', requireRole('ADMIN'), async (req, res, next) => {
     }
     const activeStudents = matriculados + inscritos + preinscritos + suspendidos;
 
+    // ---- Ocupación por grupo (base: MATRICULADOS + INSCRITOS) ----
+    // Los preinscritos aún no cuentan como cupo ocupado (se muestran aparte);
+    // prueba/suspendidos/inactivos tampoco. Consistente con Grupos/Horarios,
+    // que cuentan estudiantes activos.
+    const occByGroup = {};
+    for (const s of decoratedStudents) {
+      const occupies = s.studentStatus === 'MATRICULADO' || s.studentStatus === 'INSCRITO';
+      const isPre = s.studentStatus === 'PREINSCRITO';
+      for (const e of s.enrollments || []) {
+        const acc = (occByGroup[e.groupId] ||= { occupied: 0, preinscritos: 0 });
+        if (occupies) acc.occupied += 1;
+        else if (isPre) acc.preinscritos += 1;
+      }
+    }
+
     // ---- Contadores por grupo ----
     const byGroup = {};
     for (const g of groups) {
@@ -532,12 +549,12 @@ router.get('/strategy', requireRole('ADMIN'), async (req, res, next) => {
 
     const groupRows = groups.sort(byGroupCode).map((g) => {
       const acc = byGroup[g.id];
-      const enrolled = g._count.enrollments;
+      const occ = occByGroup[g.id] || { occupied: 0, preinscritos: 0 };
       return {
         id: g.id, code: g.code, ballLevel: g.ballLevel, subLevel: g.subLevel,
         professor: g.professor?.name || '—',
-        students: enrolled, capacity: g.capacity,
-        occupancyPct: g.capacity ? Math.round((enrolled / g.capacity) * 100) : null,
+        students: occ.occupied, preinscritos: occ.preinscritos, capacity: g.capacity,
+        occupancyPct: g.capacity ? Math.round((occ.occupied / g.capacity) * 100) : null,
         attendanceRate: rate(acc.present, acc.absent),
         realized: acc.realized, cancelled: acc.cancelled, cancelledRain: acc.cancelledRain,
       };
