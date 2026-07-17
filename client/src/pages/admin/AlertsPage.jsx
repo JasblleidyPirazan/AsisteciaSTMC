@@ -13,6 +13,7 @@ export default function AlertsPage() {
   const [tab, setTab] = useState('individual');
   const [attendance, setAttendance] = useState(null);
   const [rain, setRain] = useState(null);
+  const [preinscritos, setPreinscritos] = useState(null);
   const [loading, setLoading] = useState(true);
   const [onlyAlerts, setOnlyAlerts] = useState(true);
   const [error, setError] = useState('');
@@ -23,14 +24,17 @@ export default function AlertsPage() {
     Promise.all([
       api.get('/alerts/attendance'),
       api.get('/alerts/rain'),
-    ]).then(([a, r]) => {
+      api.get('/alerts/preinscritos'),
+    ]).then(([a, r, p]) => {
       setAttendance(a);
       setRain(r);
+      setPreinscritos(p);
     }).catch((err) => setError(err.message)).finally(() => setLoading(false));
   }, []);
 
   const students = (attendance?.students || []).filter((s) => !onlyAlerts || s.level);
   const rainGroups = rain?.groups || [];
+  const preGroups = preinscritos?.groups || [];
 
   return (
     <div className="page">
@@ -50,6 +54,11 @@ export default function AlertsPage() {
             style={{ flex: 1, minHeight: 38, fontSize: '0.85rem' }}
             onClick={() => setTab('rain')}>
             Lluvia por grupo
+          </button>
+          <button className={`btn ${tab === 'pre' ? 'btn-primary' : 'btn-outline'}`}
+            style={{ flex: 1, minHeight: 38, fontSize: '0.85rem' }}
+            onClick={() => setTab('pre')}>
+            Preinscritos {preinscritos?.alertCount > 0 && `(${preinscritos.alertCount})`}
           </button>
         </div>
 
@@ -95,7 +104,7 @@ export default function AlertsPage() {
               })
             )}
           </>
-        ) : (
+        ) : tab === 'rain' ? (
           <>
             <p className="text-sm text-gray mb-3">
               Grupos con clases canceladas por lluvia en el semestre activo.
@@ -120,6 +129,44 @@ export default function AlertsPage() {
                         {g.rainCancelled} por lluvia
                       </span>
                     </div>
+                  </div>
+                </div>
+              ))
+            )}
+          </>
+        ) : (
+          <>
+            <p className="text-sm text-gray mb-3">
+              Grupos con estudiantes <strong>📝 preinscritos</strong> (registrados, aún sin pagos ni
+              asistencia). Alerta al llegar a <strong>{preinscritos?.threshold ?? 2}</strong> o más en un grupo.
+            </p>
+            {preGroups.length === 0 ? (
+              <div className="alert alert-success">🎾 Ningún grupo con estudiantes preinscritos.</div>
+            ) : (
+              preGroups.map((g) => (
+                <div key={g.groupId} className="card mb-2"
+                  style={g.alert ? { borderLeft: '4px solid var(--yellow)' } : undefined}>
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <button className="link-name font-medium"
+                        onClick={() => navigate('/admin/groups', { state: { focusCode: g.code, from: { label: 'Alertas', to: '/admin/alerts' } } })}
+                        title="Ver grupo">
+                        {g.code} ›
+                      </button>
+                      <div className="text-xs text-gray">{g.professor?.name}</div>
+                    </div>
+                    <span className={`badge ${g.alert ? 'badge-yellow' : 'badge-gray'}`}>
+                      📝 {g.preinscritos} preinscrito{g.preinscritos !== 1 ? 's' : ''}
+                    </span>
+                  </div>
+                  <div className="flex gap-2 mt-1" style={{ flexWrap: 'wrap' }}>
+                    {g.students.map((s) => (
+                      <button key={s.id} className="btn btn-ghost"
+                        style={{ minHeight: 28, fontSize: '0.75rem', padding: '0 8px' }}
+                        onClick={() => setPanelStudentId(s.id)} title="Ver ficha rápida">
+                        {s.name} ›
+                      </button>
+                    ))}
                   </div>
                 </div>
               ))

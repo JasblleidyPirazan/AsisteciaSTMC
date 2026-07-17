@@ -137,3 +137,28 @@ describe('stripTuition — montos solo para roles con acceso económico', () => 
     expect(stripTuition(list, 'PARENT', ['PARENT'])[0].tuition).toBeDefined();
   });
 });
+
+describe('attachStudentStatus — "al menos una asistencia" = regla canónica de clase vista', () => {
+  it('usa seenAttendanceFilter (PRESENTE o AUSENTE en festival) y deriva INSCRITO', async () => {
+    const { attachStudentStatus } = require('../../src/services/studentStatus.js');
+    const { seenAttendanceFilter } = require('../../src/services/attendanceStats.js');
+    const { prismaMock } = await import('../helpers/mockPrisma.js');
+    const { vi } = await import('vitest');
+
+    prismaMock.systemConfig = { findMany: vi.fn().mockResolvedValue([]) };
+    prismaMock.studentPayment = { groupBy: vi.fn().mockResolvedValue([]) };
+    // El único registro del estudiante es un AUSENTE en festival: cuenta como
+    // clase vista, así que debe quedar INSCRITO (no PREINSCRITO).
+    prismaMock.attendanceRecord = {
+      groupBy: vi.fn().mockResolvedValue([{ studentId: 's1', _count: { _all: 1 } }]),
+    };
+
+    const [out] = await attachStudentStatus([{ ...base }]);
+    expect(out.studentStatus).toBe('INSCRITO');
+
+    // La query debe aplicar la MISMA regla que attendanceStats (no PRESENTE a secas).
+    const where = prismaMock.attendanceRecord.groupBy.mock.calls[0][0].where;
+    expect(where.OR).toEqual(seenAttendanceFilter().OR);
+    expect(where.status).toBeUndefined();
+  });
+});
