@@ -97,11 +97,20 @@ function calendarLabel(period) {
   return `${y}-${m} · ${h === '1' ? '1ª' : '2ª'}`;
 }
 
-// "Quincena 3 (2026-08 · 1ª)"; sin numeración: "2026-06 · 2ª quincena".
+// "1 – 15 jul 2026": fechas de inicio y fin de la quincena.
+export function periodDatesLabel(period) {
+  const { from, to } = periodRange(period);
+  const opts = { day: 'numeric', month: 'short', timeZone: 'UTC' };
+  const f = new Date(`${from}T00:00:00.000Z`).toLocaleDateString('es-CO', opts);
+  const t = new Date(`${to}T00:00:00.000Z`).toLocaleDateString('es-CO', { ...opts, year: 'numeric' });
+  return `${f} – ${t}`;
+}
+
+// "Quincena 3 · 1 – 15 ago 2026"; sin numeración de semestre: solo las fechas.
 export function periodLabel(period, semester) {
   const n = quincenaNumber(period, semester?.startDate);
-  if (n) return `Quincena ${n} (${calendarLabel(period)})`;
-  return `${calendarLabel(period)} quincena`;
+  const dates = periodDatesLabel(period);
+  return n ? `Quincena ${n} · ${dates}` : `Quincena del ${dates}`;
 }
 
 export function quincenaShort(period, semester) {

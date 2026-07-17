@@ -44,18 +44,38 @@ function cardStyle(s) {
 }
 
 export default function PayrollCalendar({ range, semester }) {
-  const [sessions, setSessions] = useState([]);
+  const [allSessions, setAllSessions] = useState([]);
   const [loading, setLoading] = useState(true);
   const [detailId, setDetailId] = useState(null);
+  // Filtros (client-side, sobre las clases ya cargadas)
+  const [profFilter, setProfFilter] = useState('');
+  const [levelFilter, setLevelFilter] = useState('');
+  const [groupFilter, setGroupFilter] = useState('');
 
   useEffect(() => {
     if (!range?.from) return;
     setLoading(true);
     api.get('/payroll/calendar', { from: range.from, to: range.to })
-      .then((d) => setSessions(d || []))
-      .catch(() => setSessions([]))
+      .then((d) => setAllSessions(d || []))
+      .catch(() => setAllSessions([]))
       .finally(() => setLoading(false));
   }, [range?.from, range?.to]);
+
+  // Opciones de filtro a partir de las clases del rango.
+  const professors = useMemo(() => [...new Set(allSessions.map((s) => s.professor).filter((p) => p && p !== '—'))].sort(), [allSessions]);
+  const levels = useMemo(() => [...new Set(allSessions.map((s) => s.ballLevel).filter(Boolean))].sort(), [allSessions]);
+  const groupCodes = useMemo(
+    () => [...new Set(allSessions.filter((s) => s.groupId).map((s) => s.code))]
+      .sort((a, b) => String(a).localeCompare(String(b), 'es', { numeric: true, sensitivity: 'base' })),
+    [allSessions]
+  );
+
+  const sessions = useMemo(() => allSessions.filter((s) => {
+    if (profFilter && s.professor !== profFilter) return false;
+    if (levelFilter && s.ballLevel !== levelFilter) return false;
+    if (groupFilter && s.code !== groupFilter) return false;
+    return true;
+  }), [allSessions, profFilter, levelFilter, groupFilter]);
 
   // Semanas (lunes) cubiertas por las clases, ordenadas.
   const weeks = useMemo(() => {
@@ -73,10 +93,40 @@ export default function PayrollCalendar({ range, semester }) {
   }, [sessions]);
 
   if (loading) return <div className="spinner" />;
-  if (sessions.length === 0) return <div className="alert alert-info">No hay clases en esta quincena.</div>;
+  if (allSessions.length === 0) return <div className="alert alert-info">No hay clases en esta quincena.</div>;
+
+  const hasFilter = profFilter || levelFilter || groupFilter;
 
   return (
     <div>
+      {/* Filtros: profesor / nivel / grupo */}
+      <div className="flex items-center gap-2 mb-3" style={{ flexWrap: 'wrap' }}>
+        <select className="form-input form-select" style={{ minHeight: 36, width: 'auto', fontSize: '0.85rem' }}
+          value={profFilter} onChange={(e) => setProfFilter(e.target.value)}>
+          <option value="">Todos los profes</option>
+          {professors.map((p) => <option key={p} value={p}>{p}</option>)}
+        </select>
+        <select className="form-input form-select" style={{ minHeight: 36, width: 'auto', fontSize: '0.85rem' }}
+          value={levelFilter} onChange={(e) => setLevelFilter(e.target.value)}>
+          <option value="">Todos los niveles</option>
+          {levels.map((l) => <option key={l} value={l}>{l}</option>)}
+        </select>
+        <select className="form-input form-select" style={{ minHeight: 36, width: 'auto', fontSize: '0.85rem' }}
+          value={groupFilter} onChange={(e) => setGroupFilter(e.target.value)}>
+          <option value="">Todos los grupos</option>
+          {groupCodes.map((c) => <option key={c} value={c}>{c}</option>)}
+        </select>
+        {hasFilter && (
+          <button className="btn btn-ghost" style={{ minHeight: 36, fontSize: '0.8rem' }}
+            onClick={() => { setProfFilter(''); setLevelFilter(''); setGroupFilter(''); }}>
+            ✕ Limpiar ({sessions.length} de {allSessions.length})
+          </button>
+        )}
+      </div>
+
+      {sessions.length === 0 && (
+        <div className="alert alert-info">Ninguna clase coincide con los filtros.</div>
+      )}
       {weeks.map((monday, wi) => (
         <div key={monday} className="table-wrap mb-4" style={{ border: '1px solid var(--border)', borderRadius: 12, overflow: 'hidden' }}>
           <div style={{ background: 'var(--brand-indigo, #3F52A8)', color: '#fff', padding: '10px 14px', fontWeight: 700 }}>
@@ -156,11 +206,12 @@ export default function PayrollCalendar({ range, semester }) {
 }
 
 // Modal con el detalle de la clase (reusa GET /reports/class/:sessionId).
+// Exportado: la vista Lista de Liquidación también lo abre al tocar una clase.
 const ATT = { PRESENTE: { l: 'P', c: 'var(--green)' }, AUSENTE: { l: 'A', c: 'var(--red)' }, JUSTIFICADA: { l: 'J', c: 'var(--blue)' } };
 function fmtCOP(n) {
   return new Intl.NumberFormat('es-CO', { style: 'currency', currency: 'COP', maximumFractionDigits: 0 }).format(n || 0);
 }
-function ClassDetailModal({ sessionId, onClose }) {
+export function ClassDetailModal({ sessionId, onClose }) {
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(true);
   useEffect(() => {

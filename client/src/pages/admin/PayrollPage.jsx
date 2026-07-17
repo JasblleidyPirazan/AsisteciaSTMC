@@ -4,7 +4,7 @@ import { api } from '../../api/client';
 import { fmtDate } from '../../utils/dates';
 import { buildPeriodOptions, getCurrentPeriod, periodLabel, periodRange } from '../../utils/periods';
 import { toast } from '../../utils/toast';
-import PayrollCalendar from './PayrollCalendar';
+import PayrollCalendar, { ClassDetailModal } from './PayrollCalendar';
 
 function fmt(n) {
   return new Intl.NumberFormat('es-CO', { style: 'currency', currency: 'COP', maximumFractionDigits: 0 }).format(n || 0);
@@ -80,6 +80,7 @@ export default function PayrollPage() {
   const [closure, setClosure] = useState(null);
   const [semester, setSemester] = useState(null);
   const [view, setView] = useState('list'); // 'list' | 'calendar'
+  const [classDetailId, setClassDetailId] = useState(null); // modal de detalle de clase (vista Lista)
 
   const locked = !!closure?.locked;
 
@@ -266,8 +267,12 @@ export default function PayrollPage() {
             <div key={r.id} style={{ padding: '6px 0 8px', borderLeft: `3px solid ${st.color}`, paddingLeft: 8, marginBottom: 4 }}>
               <div className="cost-row text-sm">
                 <span>
-                  {fmtDate(r.session.date, { day: 'numeric', month: 'short' })}
-                  {' · '}{r.session.group?.code || r.session.title}
+                  {/* Toca la clase para ver su detalle (mismo modal del calendario) */}
+                  <button className="link-name" style={{ font: 'inherit' }} title="Ver detalle de la clase"
+                    onClick={() => setClassDetailId(r.sessionId)}>
+                    {fmtDate(r.session.date, { day: 'numeric', month: 'short' })}
+                    {' · '}{r.session.group?.code || r.session.title} ›
+                  </button>
                   {r.presentCount > 0 && <span className="text-gray"> · {r.presentCount} est.</span>}
                   <span className="badge" style={{ marginLeft: 6, background: st.bg, color: st.color }}>{st.label}</span>
                   {r.carriedFromPeriod && <span className="badge badge-gray" style={{ marginLeft: 6 }}>arrastrada de {r.carriedFromPeriod}</span>}
@@ -594,6 +599,9 @@ export default function PayrollPage() {
             )}
           </>
         ))}
+
+        {/* Detalle de clase (vista Lista) */}
+        {classDetailId && <ClassDetailModal sessionId={classDetailId} onClose={() => setClassDetailId(null)} />}
       </div>
     </div>
   );
