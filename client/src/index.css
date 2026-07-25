@@ -164,6 +164,14 @@ p { line-height: 1.5; }
 .att-btn.present { background: var(--green); color: #fff; border-color: var(--green); }
 .att-btn.absent { background: var(--red); color: #fff; border-color: var(--red); }
 .att-btn.justified { background: var(--yellow); color: #fff; border-color: var(--yellow); }
+.att-btn.na { background: var(--gray-500); color: #fff; border-color: var(--gray-500); font-size: 0.8rem; }
+
+/* 4 botones P/A/J/N-A en pantallas angostas */
+@media (max-width: 380px) {
+  .att-btn { min-width: 42px; min-height: 42px; font-size: 0.875rem; }
+  .att-btn.na { font-size: 0.72rem; }
+  .student-actions { gap: 6px; }
+}
 
 /* Cards */
 .card {
@@ -267,6 +275,7 @@ p { line-height: 1.5; }
 .stat-present .num { color: var(--green); }
 .stat-absent .num { color: var(--red); }
 .stat-justified .num { color: var(--yellow); }
+.stat-na .num { color: var(--gray-500); }
 
 /* Divider */
 .divider { height: 1px; background: var(--gray-200); margin: 16px 0; }

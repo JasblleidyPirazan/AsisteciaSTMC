@@ -94,7 +94,7 @@ export default function AlertsPage() {
                         <div className="font-medium">{s.name} <span className="text-xs text-gray" style={{ fontWeight: 400 }}>›</span></div>
                         <div className="text-xs text-gray">{s.groups.join(' · ') || 'Sin grupo'}</div>
                         <div className="text-xs text-gray">
-                          Vistas {s.seen} / esperadas {s.expected} · desviación {s.deviation}
+                          Vistas {s.seen} / esperadas {s.expected}{s.na > 0 ? ` · N/A ${s.na}` : ''} · desviación {s.deviation}
                         </div>
                       </div>
                       {badge && <span className={`badge ${badge.cls}`}>{badge.label}</span>}

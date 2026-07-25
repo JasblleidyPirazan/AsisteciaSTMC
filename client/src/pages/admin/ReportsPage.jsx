@@ -10,8 +10,8 @@ function fmtCOP(n) {
 
 const STATUS_LABEL = { REALIZADA: 'Realizada', CANCELADA: 'Cancelada', CANCELADA_MITAD: 'Cancelada mitad', PROGRAMADA: 'Programada' };
 const STATUS_COLOR = { REALIZADA: 'var(--green)', CANCELADA: 'var(--red)', CANCELADA_MITAD: 'var(--orange)', PROGRAMADA: 'var(--gray-400)' };
-const ATTENDANCE_LABEL = { PRESENTE: 'P', AUSENTE: 'A', JUSTIFICADA: 'J' };
-const ATTENDANCE_COLOR = { PRESENTE: 'var(--green)', AUSENTE: 'var(--red)', JUSTIFICADA: 'var(--blue)' };
+const ATTENDANCE_LABEL = { PRESENTE: 'P', AUSENTE: 'A', JUSTIFICADA: 'J', NO_APLICA: 'N/A' };
+const ATTENDANCE_COLOR = { PRESENTE: 'var(--green)', AUSENTE: 'var(--red)', JUSTIFICADA: 'var(--blue)', NO_APLICA: 'var(--gray-500)' };
 
 export default function ReportsPage() {
   const navigate = useNavigate();
@@ -339,9 +339,9 @@ function ProfessorReport({ data }) {
 }
 
 function countStates(records = []) {
-  const c = { PRESENTE: 0, AUSENTE: 0, JUSTIFICADA: 0 };
+  const c = { PRESENTE: 0, AUSENTE: 0, JUSTIFICADA: 0, NO_APLICA: 0 };
   records.forEach((r) => { if (c[r.status] !== undefined) c[r.status]++; });
-  return `P:${c.PRESENTE} A:${c.AUSENTE} J:${c.JUSTIFICADA}`;
+  return `P:${c.PRESENTE} A:${c.AUSENTE} J:${c.JUSTIFICADA}${c.NO_APLICA ? ` N/A:${c.NO_APLICA}` : ''}`;
 }
 
 const CANCEL_CATEGORY_LABEL = {

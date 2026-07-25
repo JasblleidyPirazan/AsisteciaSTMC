@@ -6,7 +6,7 @@ const { attachStudentStatus } = require('../services/studentStatus');
 
 const router = express.Router();
 
-const VALID_STATUSES = ['PRESENTE', 'AUSENTE', 'JUSTIFICADA'];
+const VALID_STATUSES = ['PRESENTE', 'AUSENTE', 'JUSTIFICADA', 'NO_APLICA'];
 
 /**
  * Who may report a makeup class:

@@ -12,6 +12,7 @@ const STATUS_BADGE = {
   PRESENTE: ['badge-green', 'Presente'],
   AUSENTE: ['badge-red', 'Ausente'],
   JUSTIFICADA: ['badge-yellow', 'Justificada'],
+  NO_APLICA: ['badge-gray', 'No aplica'],
 };
 
 export default function ReportePage() {

@@ -9,7 +9,7 @@ const router = express.Router();
 
 const LOCKED_MSG = 'La quincena de esta clase está cerrada. Reábrela en Liquidación para poder editar.';
 
-const VALID_STATUSES = ['PRESENTE', 'AUSENTE', 'JUSTIFICADA'];
+const VALID_STATUSES = ['PRESENTE', 'AUSENTE', 'JUSTIFICADA', 'NO_APLICA'];
 const VALID_TYPES = ['REGULAR', 'REPOSICION'];
 const CANCEL_CATEGORIES = ['LLUVIA', 'SIN_ESTUDIANTES', 'OTRA'];
 const CANCEL_AUTO_TEXT = {

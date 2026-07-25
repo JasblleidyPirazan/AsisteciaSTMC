@@ -4,8 +4,8 @@ import { cacheGet, cacheSet, CACHE_KEYS } from '../../utils/offlineCache';
 import { toast } from '../../utils/toast';
 import { StudentStatusIcon } from '../../utils/studentStatus';
 
-const STATUS_LABELS = { PRESENTE: 'P', AUSENTE: 'A', JUSTIFICADA: 'J' };
-const STATUS_CLASS = { PRESENTE: 'present', AUSENTE: 'absent', JUSTIFICADA: 'justified' };
+const STATUS_LABELS = { PRESENTE: 'P', AUSENTE: 'A', JUSTIFICADA: 'J', NO_APLICA: 'N/A' };
+const STATUS_CLASS = { PRESENTE: 'present', AUSENTE: 'absent', JUSTIFICADA: 'justified', NO_APLICA: 'na' };
 
 export default function Step3Students({ groupId, records, onChange, onNext }) {
   const [students, setStudents] = useState([]);
@@ -132,6 +132,7 @@ export default function Step3Students({ groupId, records, onChange, onNext }) {
   const present = records.filter((r) => r.status === 'PRESENTE').length;
   const absent = records.filter((r) => r.status === 'AUSENTE').length;
   const justified = records.filter((r) => r.status === 'JUSTIFICADA').length;
+  const na = records.filter((r) => r.status === 'NO_APLICA').length;
 
   if (loading) return <div className="spinner" />;
 
@@ -143,6 +144,7 @@ export default function Step3Students({ groupId, records, onChange, onNext }) {
         <div className="stat-box stat-present"><div className="num">{present}</div><div className="lbl">Presentes</div></div>
         <div className="stat-box stat-absent"><div className="num">{absent}</div><div className="lbl">Ausentes</div></div>
         <div className="stat-box stat-justified"><div className="num">{justified}</div><div className="lbl">Justificadas</div></div>
+        <div className="stat-box stat-na"><div className="num">{na}</div><div className="lbl">N/A</div></div>
       </div>
 
       {/* Quick actions */}
@@ -185,11 +187,12 @@ export default function Step3Students({ groupId, records, onChange, onNext }) {
             )}
           </div>
           <div className="student-actions">
-            {(['PRESENTE', 'AUSENTE', 'JUSTIFICADA']).map((s) => (
+            {(['PRESENTE', 'AUSENTE', 'JUSTIFICADA', 'NO_APLICA']).map((s) => (
               <button
                 key={s}
                 className={`att-btn ${r.status === s ? `selected ${STATUS_CLASS[s]}` : r.status ? 'dim' : ''}`}
                 aria-pressed={r.status === s}
+                title={s === 'NO_APLICA' ? 'No aplica — no cuenta ni como asistencia ni como ausencia (compró menos días)' : undefined}
                 onClick={() => setStatus(r.studentId, s)}
               >
                 {STATUS_LABELS[s]}

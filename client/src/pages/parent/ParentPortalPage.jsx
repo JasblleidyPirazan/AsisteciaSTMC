@@ -6,8 +6,8 @@ import { fmtDate } from '../../utils/dates';
 import PoliciesModal from '../../components/PoliciesModal';
 import { StudentStatusBadge, fmtCOP } from '../../utils/studentStatus';
 
-const STATUS_LABELS = { PRESENTE: 'Presente', AUSENTE: 'Ausente', JUSTIFICADA: 'Justificada' };
-const STATUS_BADGE = { PRESENTE: 'badge-green', AUSENTE: 'badge-red', JUSTIFICADA: 'badge-yellow' };
+const STATUS_LABELS = { PRESENTE: 'Presente', AUSENTE: 'Ausente', JUSTIFICADA: 'Justificada', NO_APLICA: 'No aplica' };
+const STATUS_BADGE = { PRESENTE: 'badge-green', AUSENTE: 'badge-red', JUSTIFICADA: 'badge-yellow', NO_APLICA: 'badge-gray' };
 
 const ALERT_STYLE = {
   ROJA: { color: 'var(--red)', label: 'Alerta roja' },

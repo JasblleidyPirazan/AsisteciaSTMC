@@ -7,7 +7,7 @@ const { calculateCosts } = require('./costEngine');
 // where `dictatingProfessorId` is the EFFECTIVE professor who taught (already
 // resolved: the group titular when dictatedByOwner, otherwise the substitute).
 //
-// Reports MATCH when, for the union of students, every P/A/J status is equal,
+// Reports MATCH when, for the union of students, every P/A/J/N-A status is equal,
 // the effective dictating professor is the same, and the assistant is the same.
 // Free-text justification is intentionally NOT compared (client rule).
 function diffReports(prof, coord) {

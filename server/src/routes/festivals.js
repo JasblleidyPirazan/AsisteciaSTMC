@@ -6,7 +6,7 @@ const { attachStudentStatus } = require('../services/studentStatus');
 
 const router = express.Router();
 
-const VALID_STATUSES = ['PRESENTE', 'AUSENTE', 'JUSTIFICADA'];
+const VALID_STATUSES = ['PRESENTE', 'AUSENTE', 'JUSTIFICADA', 'NO_APLICA'];
 const CANCEL_CATEGORIES = ['LLUVIA', 'SIN_ESTUDIANTES', 'OTRA'];
 const CANCEL_AUTO_TEXT = {
   LLUVIA: 'Cancelada por lluvia',

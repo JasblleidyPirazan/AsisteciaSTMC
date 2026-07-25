@@ -30,15 +30,17 @@ router.get('/group/:groupId', requireRole('ADMIN', 'PHYSICAL_TRAINER', 'TEACHER'
     });
 
     const data = sessions.map((s) => {
-      const counts = { PRESENTE: 0, AUSENTE: 0, JUSTIFICADA: 0 };
+      const counts = { PRESENTE: 0, AUSENTE: 0, JUSTIFICADA: 0, NO_APLICA: 0 };
       s.attendanceRecords.forEach((r) => counts[r.status]++);
-      const total = s.attendanceRecords.length;
+      // N/A fuera del denominador: no es asistencia ni ausencia.
+      const denom = s.attendanceRecords.length - counts.NO_APLICA;
       return {
         ...s,
         present: counts.PRESENTE,
         absent: counts.AUSENTE,
         justified: counts.JUSTIFICADA,
-        attendanceRate: total > 0 ? Math.round((counts.PRESENTE / total) * 100) : 0,
+        na: counts.NO_APLICA,
+        attendanceRate: denom > 0 ? Math.round((counts.PRESENTE / denom) * 100) : 0,
       };
     });
 
@@ -75,8 +77,11 @@ router.get('/student/:studentId', requireRole('ADMIN', 'PHYSICAL_TRAINER', 'TEAC
 
     const total = records.length;
     const present = records.filter((r) => r.status === 'PRESENTE').length;
+    const na = records.filter((r) => r.status === 'NO_APLICA').length;
     // "Clases vistas": PRESENTE, más AUSENTE en festivales (J se omite)
     const classesSeen = records.filter((r) => isSeenRecord(r, r.session?.kind)).length;
+    // N/A fuera del denominador: no es asistencia ni ausencia.
+    const denom = total - na;
 
     res.json({
       success: true,
@@ -87,8 +92,9 @@ router.get('/student/:studentId', requireRole('ADMIN', 'PHYSICAL_TRAINER', 'TEAC
           present,
           absent: records.filter((r) => r.status === 'AUSENTE').length,
           justified: records.filter((r) => r.status === 'JUSTIFICADA').length,
+          na,
           classesSeen,
-          attendanceRate: total > 0 ? Math.round((present / total) * 100) : 0,
+          attendanceRate: denom > 0 ? Math.round((present / denom) * 100) : 0,
         },
       },
     });
@@ -177,9 +183,10 @@ router.get('/professor/:professorId', requireRole('ADMIN', 'PHYSICAL_TRAINER', '
       : null;
 
     const data = sessions.map((s) => {
-      const counts = { PRESENTE: 0, AUSENTE: 0, JUSTIFICADA: 0 };
+      const counts = { PRESENTE: 0, AUSENTE: 0, JUSTIFICADA: 0, NO_APLICA: 0 };
       s.attendanceRecords.forEach((r) => counts[r.status]++);
-      const total = s.attendanceRecords.length;
+      // N/A fuera del denominador: no es asistencia ni ausencia.
+      const denom = s.attendanceRecords.length - counts.NO_APLICA;
       const pay = includePay ? s.costRecords.reduce((cs, r) => cs + parseFloat(r.total), 0) : null;
       const { costRecords, ...rest } = s;
       return {
@@ -187,7 +194,8 @@ router.get('/professor/:professorId', requireRole('ADMIN', 'PHYSICAL_TRAINER', '
         present: counts.PRESENTE,
         absent: counts.AUSENTE,
         justified: counts.JUSTIFICADA,
-        attendanceRate: total > 0 ? Math.round((counts.PRESENTE / total) * 100) : 0,
+        na: counts.NO_APLICA,
+        attendanceRate: denom > 0 ? Math.round((counts.PRESENTE / denom) * 100) : 0,
         pay,
       };
     });
@@ -281,6 +289,7 @@ router.get('/class-log', requireRole('ADMIN', 'SUPERADMIN', 'PHYSICAL_TRAINER', 
           level: s.group?.ballLevel || null,
           professor: prof,
           present: c.PRESENTE, absent: c.AUSENTE, justified: c.JUSTIFICADA,
+          na: c.NO_APLICA || 0,
           total: s.attendanceRecords.length,
         };
       });
@@ -291,9 +300,10 @@ router.get('/class-log', requireRole('ADMIN', 'SUPERADMIN', 'PHYSICAL_TRAINER', 
         present: t.present + r.present,
         absent: t.absent + r.absent,
         justified: t.justified + r.justified,
+        na: t.na + r.na,
         total: t.total + r.total,
       }),
-      { classes: 0, present: 0, absent: 0, justified: 0, total: 0 }
+      { classes: 0, present: 0, absent: 0, justified: 0, na: 0, total: 0 }
     );
 
     res.json({
@@ -342,7 +352,7 @@ router.get('/class/:sessionId', requireRole('ADMIN', 'PHYSICAL_TRAINER', 'TEACHE
     });
     if (!session) return res.status(404).json({ success: false, error: 'Sesión no encontrada' });
 
-    const counts = { PRESENTE: 0, AUSENTE: 0, JUSTIFICADA: 0 };
+    const counts = { PRESENTE: 0, AUSENTE: 0, JUSTIFICADA: 0, NO_APLICA: 0 };
     session.attendanceRecords.forEach((r) => counts[r.status]++);
 
     // Cost visible only to ADMIN/SUPERADMIN and to the teacher who dictated the class
@@ -369,6 +379,7 @@ router.get('/class/:sessionId', requireRole('ADMIN', 'PHYSICAL_TRAINER', 'TEACHE
         present: counts.PRESENTE,
         absent: counts.AUSENTE,
         justified: counts.JUSTIFICADA,
+        na: counts.NO_APLICA,
         professorCost,
         assistantCost,
         totalCost,
@@ -663,6 +674,7 @@ router.get('/home', requireRole('ADMIN', 'SUPERADMIN', 'PHYSICAL_TRAINER'), asyn
     let presente = 0, ausente = 0, justificado = 0, reposicion = 0;
     for (const r of attByStatus) {
       const c = r._count._all;
+      if (r.status === 'NO_APLICA') continue; // N/A fuera de la distribución: no es asistencia real
       if (r.attendanceType === 'REPOSICION') reposicion += c;
       else if (r.status === 'PRESENTE') presente += c;
       else if (r.status === 'AUSENTE') ausente += c;

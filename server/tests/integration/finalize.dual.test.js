@@ -58,4 +58,23 @@ describe('POST /api/sessions/:id/finalize — guards del doble reporte', () => {
       .send({ attendanceRecords: 'nope' });
     expect(res.status).toBe(400);
   });
+
+  // Whitelist de estados: la validación corre antes de tocar la BD, así que se
+  // puede probar en aislamiento por el mensaje de error específico.
+  it('rechaza un estado de asistencia inventado → 400', async () => {
+    const res = await finalize(authAs('TEACHER'), {
+      attendanceRecords: [{ studentId: 's1', status: 'CUALQUIERA' }],
+    });
+    expect(res.status).toBe(400);
+    expect(res.body.error).toMatch(/Registro de asistencia inválido/);
+  });
+
+  it('acepta NO_APLICA en la whitelist (pasa la validación de estados)', async () => {
+    const res = await finalize(authAs('TEACHER'), {
+      attendanceRecords: [{ studentId: 's1', status: 'NO_APLICA' }],
+    });
+    // Sigue de largo hacia el resto del flujo (mocks incompletos): lo que se
+    // fija aquí es que NO cae en el 400 de estado inválido.
+    expect(res.body.error || '').not.toMatch(/Registro de asistencia inválido/);
+  });
 });

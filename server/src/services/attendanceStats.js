@@ -3,6 +3,8 @@
 //   - PRESENTE in any session (regular, reposición o festival)
 //   - AUSENTE in a FESTIVAL (regla del cliente: en festivales la presencia Y
 //     la ausencia cuentan como clase dictada; las justificadas se omiten)
+// NO_APLICA queda excluido por diseño (allowlist): no es asistencia ni ausencia
+// y no consume paquete.
 function seenAttendanceFilter() {
   return {
     OR: [

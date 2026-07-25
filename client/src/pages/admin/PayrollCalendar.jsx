@@ -207,7 +207,7 @@ export default function PayrollCalendar({ range, semester }) {
 
 // Modal con el detalle de la clase (reusa GET /reports/class/:sessionId).
 // Exportado: la vista Lista de Liquidación también lo abre al tocar una clase.
-const ATT = { PRESENTE: { l: 'P', c: 'var(--green)' }, AUSENTE: { l: 'A', c: 'var(--red)' }, JUSTIFICADA: { l: 'J', c: 'var(--blue)' } };
+const ATT = { PRESENTE: { l: 'P', c: 'var(--green)' }, AUSENTE: { l: 'A', c: 'var(--red)' }, JUSTIFICADA: { l: 'J', c: 'var(--blue)' }, NO_APLICA: { l: 'N/A', c: 'var(--gray-500)' } };
 function fmtCOP(n) {
   return new Intl.NumberFormat('es-CO', { style: 'currency', currency: 'COP', maximumFractionDigits: 0 }).format(n || 0);
 }
