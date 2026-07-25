@@ -35,6 +35,7 @@ const HISTORY_BADGE = {
   PRESENTE: ['badge-green', 'Presente'],
   AUSENTE: ['badge-red', 'Ausente'],
   JUSTIFICADA: ['badge-blue', 'Justificado'],
+  NO_APLICA: ['badge-gray', 'No aplica'],
 };
 function historyBadge(t) {
   if (t.studentStatus === 'CANCELADA') {

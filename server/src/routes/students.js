@@ -670,11 +670,12 @@ router.get('/:id/report', requireRole('ADMIN', 'SUPERADMIN', 'PHYSICAL_TRAINER',
     for (const r of records) if (!seen.has(r.sessionId)) push(r.session, r);
     timeline.sort((a, b) => new Date(b.date) - new Date(a.date));
 
-    let present = 0, absent = 0, justified = 0, cancelledRain = 0, classesSeen = 0;
+    let present = 0, absent = 0, justified = 0, na = 0, cancelledRain = 0, classesSeen = 0;
     for (const r of records) {
       if (r.status === 'PRESENTE') present++;
       else if (r.status === 'AUSENTE') absent++;
       else if (r.status === 'JUSTIFICADA') justified++;
+      else if (r.status === 'NO_APLICA') na++;
       if (isSeenRecord(r, r.session?.kind)) classesSeen++;
     }
     for (const s of groupSessions) if (s.status === 'CANCELADA' && s.cancellationCategory === 'LLUVIA') cancelledRain++;
@@ -687,7 +688,7 @@ router.get('/:id/report', requireRole('ADMIN', 'SUPERADMIN', 'PHYSICAL_TRAINER',
         student: stripTuition([await attachStudentStatusOne(student)], req.user.role)[0],
         timeline,
         summary: {
-          present, absent, justified, cancelledRain, classesSeen, attendanceRate,
+          present, absent, justified, na, cancelledRain, classesSeen, attendanceRate,
           classesAcquired: (student.classesAcquired || 0) + (student.previousClasses || 0),
         },
       },

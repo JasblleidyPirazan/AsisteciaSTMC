@@ -18,6 +18,12 @@ describe('isSeenRecord — regla "clase vista" (P/A/J)', () => {
     expect(isSeenRecord({ status: 'JUSTIFICADA' }, 'REGULAR')).toBe(false);
     expect(isSeenRecord({ status: 'JUSTIFICADA' }, 'FESTIVAL')).toBe(false);
   });
+
+  it('NO_APLICA nunca cuenta como clase vista (no es asistencia ni ausencia)', () => {
+    expect(isSeenRecord({ status: 'NO_APLICA' }, 'REGULAR')).toBe(false);
+    expect(isSeenRecord({ status: 'NO_APLICA' }, 'MAKEUP')).toBe(false);
+    expect(isSeenRecord({ status: 'NO_APLICA' }, 'FESTIVAL')).toBe(false);
+  });
 });
 
 describe('seenAttendanceFilter — filtro Prisma equivalente', () => {

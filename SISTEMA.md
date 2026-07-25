@@ -63,7 +63,7 @@ Modelos: `User`, `Professor`, `Assistant`, `Student`, `Group`, `StudentEnrollmen
 - **`Group`**: `classUnits` siempre `1.0` (los grupos dobles fueron eliminados; la columna se conserva por compatibilidad). `durationMinutes` se calcula del horario pero ya no determina unidades. `code` es único. Soft-delete con motivo igual que Student.
 - **`StudentEnrollment`**: PK compuesta `[studentId, groupId]`. `enrollmentType: PRIMARY | SECONDARY`. Un estudiante puede estar en varios grupos (multigrupo).
 - **`ClassSession`**: `UNIQUE([groupId, date])`. `status: PROGRAMADA | REALIZADA | CANCELADA | CANCELADA_MITAD`. `effectiveUnits` (Decimal). `substituteProfessorId?`, `assistantId?`, `reportedById?`.
-- **`AttendanceRecord`**: `UNIQUE([sessionId, studentId])`. `status: PRESENTE | AUSENTE | JUSTIFICADA`. `attendanceType: REGULAR | REPOSICION`.
+- **`AttendanceRecord`**: `UNIQUE([sessionId, studentId])`. `status: PRESENTE | AUSENTE | JUSTIFICADA | NO_APLICA`. `attendanceType: REGULAR | REPOSICION`.
 - **`CostRecord`**: `professorId?` **XOR** `assistantId?` (solo uno con valor según `payeeType`). `rate` = tarifa de tramo (NO por estudiante). `presentCount` = total de estudiantes presentes (regulares + reposición). `period` formato `"YYYY-MM-N"`.
 - **`SystemConfig`**: tabla key/value. Claves: `rate_2_students`, `rate_3_students`, `rate_4_students`, `rate_5plus_students`, `assistant_fixed_rate`. (Las viejas `rate_per_student` y `reposition_rate` quedaron obsoletas — ver §9.)
 - **`SessionEditLog`**: `previousState`/`newState` en `Json`. Se crea solo cuando se re-finaliza una sesión ya finalizada.

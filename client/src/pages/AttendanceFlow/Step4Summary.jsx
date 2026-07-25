@@ -2,7 +2,8 @@ import { useEffect, useState } from 'react';
 import { api } from '../../api/client';
 import CostSummary from '../../components/CostSummary';
 
-const STATUS_COLORS = { PRESENTE: 'badge-green', AUSENTE: 'badge-red', JUSTIFICADA: 'badge-yellow' };
+const STATUS_COLORS = { PRESENTE: 'badge-green', AUSENTE: 'badge-red', JUSTIFICADA: 'badge-yellow', NO_APLICA: 'badge-gray' };
+const STATUS_TEXT = { NO_APLICA: 'N/A' };
 
 export default function Step4Summary({ group, session, substitute, assistant, records,
   onSubmit, loading, userRole, editing }) {
@@ -24,6 +25,7 @@ export default function Step4Summary({ group, session, substitute, assistant, re
   const present = records.filter((r) => r.status === 'PRESENTE').length;
   const absent = records.filter((r) => r.status === 'AUSENTE').length;
   const justified = records.filter((r) => r.status === 'JUSTIFICADA').length;
+  const na = records.filter((r) => r.status === 'NO_APLICA').length;
   const regularPresent = records.filter((r) => r.status === 'PRESENTE' && r.attendanceType !== 'REPOSICION').length;
   const repositionPresent = records.filter((r) => r.status === 'PRESENTE' && r.attendanceType === 'REPOSICION').length;
   const showCosts = ['ADMIN', 'SUPERADMIN', 'TEACHER'].includes(userRole);
@@ -55,6 +57,7 @@ export default function Step4Summary({ group, session, substitute, assistant, re
         <div className="stat-box stat-present"><div className="num">{present}</div><div className="lbl">Presentes</div></div>
         <div className="stat-box stat-absent"><div className="num">{absent}</div><div className="lbl">Ausentes</div></div>
         <div className="stat-box stat-justified"><div className="num">{justified}</div><div className="lbl">Justificadas</div></div>
+        <div className="stat-box stat-na"><div className="num">{na}</div><div className="lbl">N/A</div></div>
       </div>
 
       {/* Detail */}
@@ -68,7 +71,7 @@ export default function Step4Summary({ group, session, substitute, assistant, re
                 <span className="badge badge-blue" style={{ marginLeft: 6, fontSize: '0.65rem' }}>repo</span>
               )}
             </span>
-            <span className={`badge ${STATUS_COLORS[r.status]}`}>{r.status}</span>
+            <span className={`badge ${STATUS_COLORS[r.status]}`}>{STATUS_TEXT[r.status] || r.status}</span>
           </div>
         ))}
       </div>

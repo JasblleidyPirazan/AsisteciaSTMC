@@ -4,7 +4,7 @@ import { api } from '../../api/client';
 import { useAuth } from '../../hooks/useAuth';
 import { fmtDate } from '../../utils/dates';
 
-const STATUS_LABEL = { PRESENTE: 'P', AUSENTE: 'A', JUSTIFICADA: 'J', null: '—' };
+const STATUS_LABEL = { PRESENTE: 'P', AUSENTE: 'A', JUSTIFICADA: 'J', NO_APLICA: 'N/A', null: '—' };
 
 // Read-only for ADMIN; TEACHER/coordinador can jump to re-report their side.
 export default function ConflictsPage() {

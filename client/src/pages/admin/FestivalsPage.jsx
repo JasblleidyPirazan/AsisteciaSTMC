@@ -221,7 +221,7 @@ export default function FestivalsPage() {
           festivals.map((f) => {
             const badge = STATUS_BADGE[f.status] || STATUS_BADGE.PROGRAMADA;
             const participantCount = f.makeupParticipants?.length || 0;
-            const counted = (f.attendanceRecords || []).filter((r) => r.status !== 'JUSTIFICADA').length;
+            const counted = (f.attendanceRecords || []).filter((r) => r.status === 'PRESENTE' || r.status === 'AUSENTE').length;
             return (
               <div key={f.id} className="card mb-3">
                 <div className="flex items-center justify-between mb-1">

@@ -58,6 +58,13 @@ describe('diffReports — coincidencia profesor vs coordinador', () => {
     expect(d.matched).toBe(true);
   });
 
+  it('NO_APLICA coincide cuando ambos lo marcan; difiere contra PRESENTE', () => {
+    expect(diffReports(rep({ s1: 'NO_APLICA' }), rep({ s1: 'NO_APLICA' })).matched).toBe(true);
+    const d = diffReports(rep({ s1: 'NO_APLICA' }), rep({ s1: 'PRESENTE' }));
+    expect(d.matched).toBe(false);
+    expect(d.students.find((s) => s.studentId === 's1').match).toBe(false);
+  });
+
   it('la justificación NO afecta la coincidencia (no se compara)', () => {
     // diffReports solo recibe status; la justificación nunca llega aquí
     const d = diffReports(rep({ s1: 'JUSTIFICADA' }), rep({ s1: 'JUSTIFICADA' }));

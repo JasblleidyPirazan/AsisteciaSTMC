@@ -388,6 +388,7 @@ enum AttendanceStatus {
   PRESENTE
   AUSENTE
   JUSTIFICADA
+  NO_APLICA // no cuenta ni como asistencia ni como ausencia (compró menos días que el grupo)
 }
 
 enum AttendanceType {

@@ -21,7 +21,10 @@ function levelFor(deviation) {
  * to today (minus exclusions), flooring each group at the student's enrollment
  * date and the group's creation date, so mid-semester joiners aren't penalized.
  * seen = "clases vistas" (PRESENTE anywhere + AUSENTE in festivals).
- * deviation = expected − seen.
+ * na = NO_APLICA records (student bought fewer weekly classes than the group
+ * offers); each one discounts an expected class — it is neither attendance
+ * nor absence, so it must not accumulate deviation.
+ * deviation = expected − seen − na.
  *
  * Returns [] when there is no active semester (no baseline to compare with).
  */
@@ -59,6 +62,19 @@ async function computeAttendanceDeviations({ studentIds } = {}) {
   const seenById = {};
   for (const r of seenRecords) seenById[r.studentId] = (seenById[r.studentId] || 0) + 1;
 
+  // N/A del semestre por estudiante: clases del grupo que no le corresponden
+  // (compró menos días). Se descuentan de las esperadas.
+  const naRecords = await prisma.attendanceRecord.findMany({
+    where: {
+      studentId: { in: students.map((s) => s.id) },
+      status: 'NO_APLICA',
+      session: { date: { gte: new Date(semester.startDate), lte: new Date(semester.endDate) } },
+    },
+    select: { studentId: true },
+  });
+  const naById = {};
+  for (const r of naRecords) naById[r.studentId] = (naById[r.studentId] || 0) + 1;
+
   return students.map((s) => {
     let expected = 0;
     for (const e of s.enrollments) {
@@ -73,13 +89,17 @@ async function computeAttendanceDeviations({ studentIds } = {}) {
       expected += expectedDatesForGroup(e.group, semester, semester.exclusions, today, floor).length;
     }
     const seen = seenById[s.id] || 0;
-    const deviation = expected - seen;
+    const na = naById[s.id] || 0;
+    // Sin piso: una desviación negativa solo significa que va adelantado y
+    // levelFor no dispara alerta.
+    const deviation = expected - seen - na;
     return {
       studentId: s.id,
       name: s.name,
       groups: s.enrollments.map((e) => e.group?.code).filter(Boolean),
       expected,
       seen,
+      na,
       deviation,
       level: levelFor(deviation),
     };

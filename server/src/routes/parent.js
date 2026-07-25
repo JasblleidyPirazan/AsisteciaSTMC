@@ -79,7 +79,10 @@ router.get('/attendance/:studentId', requireRole('PARENT', 'ADMIN', 'TEACHER'), 
 
     const total = records.length;
     const present = records.filter((r) => r.status === 'PRESENTE').length;
+    const na = records.filter((r) => r.status === 'NO_APLICA').length;
     const classesSeen = records.filter((r) => isSeenRecord(r, r.session?.kind)).length;
+    // N/A fuera del denominador: no es asistencia ni ausencia.
+    const denom = total - na;
 
     res.json({
       success: true,
@@ -90,8 +93,9 @@ router.get('/attendance/:studentId', requireRole('PARENT', 'ADMIN', 'TEACHER'), 
           present,
           absent: records.filter((r) => r.status === 'AUSENTE').length,
           justified: records.filter((r) => r.status === 'JUSTIFICADA').length,
+          na,
           classesSeen,
-          attendanceRate: total > 0 ? Math.round((present / total) * 100) : 0,
+          attendanceRate: denom > 0 ? Math.round((present / denom) * 100) : 0,
         },
       },
     });
