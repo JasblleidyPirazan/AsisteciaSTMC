@@ -53,6 +53,12 @@ export default function AttendanceFlow() {
           setEditing(true);
           setDictatedByOwner(mine.dictatedByOwner !== false);
           setNotDictatedNote(mine.notDictatedNote || '');
+          // El reporte propio es la fuente de verdad al editar: la sesión solo
+          // tiene asistente/sustituto cuando ambos reportes ya coincidieron.
+          setAssistant(mine.assistant || null);
+          setSubstitute(mine.dictatedByOwner === false
+            ? (mine.dictatingProfessor || existing.substituteProfessor || null)
+            : null);
           setAttendanceRecords(
             (mine.attendance || []).map((a) => ({
               studentId: a.studentId,
@@ -187,6 +193,24 @@ export default function AttendanceFlow() {
       </div>
 
       {error && <div className="alert alert-error" style={{ margin: '0 20px' }}>{error}</div>}
+
+      {/* En edición se salta el paso 2: mostrar lo reportado con acceso a editarlo */}
+      {editing && step === 3 && (
+        <div className="card" style={{ margin: '0 20px 12px' }}>
+          <div className="flex items-center justify-between" style={{ gap: 8 }}>
+            <div className="text-sm" style={{ minWidth: 0 }}>
+              <div>🤝 Asistente: <strong>{assistant?.name || 'Sin asistente'}</strong></div>
+              {!dictatedByOwner && substitute && (
+                <div className="text-xs text-gray">Dictada por: {substitute.name}</div>
+              )}
+            </div>
+            <button className="btn btn-outline" style={{ minHeight: 34, fontSize: '0.8rem', flexShrink: 0 }}
+              onClick={() => setStep(2)}>
+              ✏️ Editar
+            </button>
+          </div>
+        </div>
+      )}
 
       <div className="page-content">
         {step === 1 && (
