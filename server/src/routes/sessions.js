@@ -77,6 +77,30 @@ router.get('/check', async (req, res, next) => {
         reports: { include: { attendance: { include: { student: { select: { name: true } } } } } },
       },
     });
+
+    // ClassReport guarda assistantId/dictatingProfessorId como ids sueltos (sin
+    // FK), así que Prisma no puede incluirlos: se resuelven los nombres aparte
+    // para que el flujo precargue el asistente/sustituto del reporte al editar.
+    if (session?.reports?.length) {
+      const assistantIds = [...new Set(session.reports.map((r) => r.assistantId).filter(Boolean))];
+      const professorIds = [...new Set(session.reports.map((r) => r.dictatingProfessorId).filter(Boolean))];
+      const [assistants, professors] = await Promise.all([
+        assistantIds.length
+          ? prisma.assistant.findMany({ where: { id: { in: assistantIds } }, select: { id: true, name: true } })
+          : [],
+        professorIds.length
+          ? prisma.professor.findMany({ where: { id: { in: professorIds } }, select: { id: true, name: true } })
+          : [],
+      ]);
+      const assistantById = new Map(assistants.map((a) => [a.id, a]));
+      const professorById = new Map(professors.map((p) => [p.id, p]));
+      session.reports = session.reports.map((r) => ({
+        ...r,
+        assistant: (r.assistantId && assistantById.get(r.assistantId)) || null,
+        dictatingProfessor: (r.dictatingProfessorId && professorById.get(r.dictatingProfessorId)) || null,
+      }));
+    }
+
     res.json({ success: true, data: { exists: !!session, session } });
   } catch (err) {
     next(err);
