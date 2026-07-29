@@ -21,6 +21,9 @@ export default function Step3Students({ groupId, records, onChange, onNext }) {
   const [trialMode, setTrialMode] = useState(false);
   const [trialName, setTrialName] = useState('');
   const [trialSaving, setTrialSaving] = useState(false);
+  // El roster llegó (red o caché): habilita detectar registros del reporte cuyo
+  // estudiante ya no está en el grupo (p. ej. trasladado entre los dos reportes).
+  const [rosterLoaded, setRosterLoaded] = useState(false);
 
   useEffect(() => {
     // Aplica el roster (de red o de caché) al estado de la pantalla.
@@ -41,6 +44,7 @@ export default function Step3Students({ groupId, records, onChange, onNext }) {
       if (records.length === 0) {
         onChange(group.map((s) => ({ studentId: s.id, name: s.name, status: null, attendanceType: 'REGULAR' })));
       }
+      setRosterLoaded(true);
     }
 
     Promise.all([
@@ -87,10 +91,18 @@ export default function Step3Students({ groupId, records, onChange, onNext }) {
     setSearch('');
   }
 
-  // Quitar un estudiante de reposición agregado por error (solo REPOSICION; los
-  // del grupo no se quitan). Al re-finalizar, el reporte queda sin ese registro.
-  function removeReposition(studentId) {
+  // Quitar un registro del reporte: reposiciones agregadas por error, o
+  // estudiantes que ya no están en el grupo (trasladados entre los dos
+  // reportes). Al re-finalizar, el reporte queda sin ese registro.
+  function removeRecord(studentId) {
     onChange(records.filter((r) => r.studentId !== studentId));
+  }
+
+  // Un registro REGULAR cuyo estudiante ya no aparece en el roster actual:
+  // caso de tiempos (lo trasladaron después del primer reporte). Se marca y se
+  // permite quitarlo para que ambos reportes puedan converger.
+  function isGoneFromGroup(r) {
+    return rosterLoaded && r.attendanceType !== 'REPOSICION' && !students.some((s) => s.id === r.studentId);
   }
 
   // Crea el estudiante de clase de prueba (isTrial) y lo agrega a la lista.
@@ -171,12 +183,18 @@ export default function Step3Students({ groupId, records, onChange, onNext }) {
             ) : r.attendanceType === 'REPOSICION' && (
               <span className="badge badge-blue" style={{ marginLeft: 6, fontSize: '0.7rem' }}>repo</span>
             )}
-            {/* Quitar reposición agregada por error */}
-            {r.attendanceType === 'REPOSICION' && (
+            {isGoneFromGroup(r) && (
+              <span className="badge badge-gray" style={{ marginLeft: 6, fontSize: '0.7rem' }}
+                title="Fue movido del grupo después de este reporte. Puedes quitarlo para que ambos reportes coincidan.">
+                📤 ya no en el grupo
+              </span>
+            )}
+            {/* Quitar: reposición agregada por error, o estudiante que ya no está en el grupo */}
+            {(r.attendanceType === 'REPOSICION' || isGoneFromGroup(r)) && (
               <button type="button" className="btn btn-ghost"
                 style={{ marginLeft: 6, minHeight: 22, padding: '0 6px', fontSize: '0.72rem', color: 'var(--red)' }}
                 title="Quitar de la clase"
-                onClick={() => removeReposition(r.studentId)}>
+                onClick={() => removeRecord(r.studentId)}>
                 ✕ quitar
               </button>
             )}

@@ -73,6 +73,7 @@ export default function ConflictsPage() {
 function DiffTable({ diff }) {
   if (!diff) return null;
   const divergent = (diff.students || []).filter((s) => !s.match);
+  const hasLeft = divergent.some((s) => s.leftGroup);
   return (
     <div className="text-sm">
       {!diff.dictating?.match && (
@@ -94,13 +95,27 @@ function DiffTable({ diff }) {
             <tbody>
               {divergent.map((s) => (
                 <tr key={s.studentId} style={{ borderTop: '1px solid var(--gray-200)' }}>
-                  <td style={{ padding: '2px 6px' }}>{s.name || s.studentId}</td>
+                  <td style={{ padding: '2px 6px' }}>
+                    {s.name || s.studentId}
+                    {s.leftGroup && (
+                      <span className="badge badge-gray" style={{ marginLeft: 6, fontSize: '0.68rem' }}
+                        title={s.leftGroup.actionType === 'TRANSFER' ? 'Trasladado a otro grupo' : 'Retirado del grupo'}>
+                        📤 ya no en el grupo ({fmtDate(s.leftGroup.changedAt, { day: 'numeric', month: 'short' })})
+                      </span>
+                    )}
+                  </td>
                   <td style={{ padding: '2px 6px' }}>{STATUS_LABEL[s.professor ?? 'null']}</td>
                   <td style={{ padding: '2px 6px' }}>{STATUS_LABEL[s.coordinator ?? 'null']}</td>
                 </tr>
               ))}
             </tbody>
           </table>
+        </div>
+      )}
+      {hasLeft && (
+        <div className="alert alert-info mt-2" style={{ fontSize: '0.78rem', padding: '8px 10px' }}>
+          📤 Un estudiante fue movido del grupo después del primer reporte. Quien lo tenga en su
+          reporte puede <strong>quitarlo</strong> (botón ✕ al editar) para que ambos coincidan.
         </div>
       )}
     </div>

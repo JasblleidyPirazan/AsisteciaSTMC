@@ -109,13 +109,62 @@ router.get('/report-conflicts', requireRole('ADMIN', 'PHYSICAL_TRAINER', 'TEACHE
       orderBy: { date: 'asc' },
     });
 
-    const conflicts = sessions.map((s) => ({
-      sessionId: s.id,
-      groupId: s.groupId,
-      group: s.group,
-      date: s.date,
-      diff: s.consolidationDiff,
-    }));
+    // Caso de tiempos: un estudiante divergente que YA NO está inscrito en el
+    // grupo (lo trasladaron/quitaron entre los dos reportes) explica el
+    // conflicto. Se anota en la respuesta (no se muta el diff almacenado) con
+    // la última salida registrada en StudentGroupHistory.
+    const divergent = [];
+    for (const s of sessions) {
+      for (const st of s.consolidationDiff?.students || []) {
+        if (!st.match && st.studentId && s.groupId) divergent.push({ groupId: s.groupId, studentId: st.studentId });
+      }
+    }
+    let enrolledSet = new Set();
+    let departures = [];
+    if (divergent.length > 0) {
+      const groupIds = [...new Set(divergent.map((d) => d.groupId))];
+      const studentIds = [...new Set(divergent.map((d) => d.studentId))];
+      const [enrollments, history] = await Promise.all([
+        prisma.studentEnrollment.findMany({
+          where: { groupId: { in: groupIds }, studentId: { in: studentIds } },
+          select: { groupId: true, studentId: true },
+        }),
+        prisma.studentGroupHistory.findMany({
+          where: {
+            fromGroupId: { in: groupIds },
+            studentId: { in: studentIds },
+            actionType: { in: ['TRANSFER', 'REMOVE_GROUP'] },
+          },
+          orderBy: { changedAt: 'desc' },
+          select: { fromGroupId: true, studentId: true, actionType: true, changedAt: true },
+        }),
+      ]);
+      enrolledSet = new Set(enrollments.map((e) => `${e.groupId}|${e.studentId}`));
+      departures = history;
+    }
+    const departureFor = (groupId, studentId) =>
+      departures.find((h) => h.fromGroupId === groupId && h.studentId === studentId) || null;
+
+    const conflicts = sessions.map((s) => {
+      let diff = s.consolidationDiff;
+      if (diff?.students?.length) {
+        diff = {
+          ...diff,
+          students: diff.students.map((st) => {
+            if (st.match || !st.studentId || enrolledSet.has(`${s.groupId}|${st.studentId}`)) return st;
+            const left = departureFor(s.groupId, st.studentId);
+            return left ? { ...st, leftGroup: { actionType: left.actionType, changedAt: left.changedAt } } : st;
+          }),
+        };
+      }
+      return {
+        sessionId: s.id,
+        groupId: s.groupId,
+        group: s.group,
+        date: s.date,
+        diff,
+      };
+    });
 
     res.json({ success: true, data: { conflicts, total: conflicts.length } });
   } catch (err) {
