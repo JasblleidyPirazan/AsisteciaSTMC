@@ -5,7 +5,7 @@ const { requireRole } = require('../middleware/auth');
 const { bogotaToday } = require('../lib/dates');
 const { notSuspended } = require('../lib/filters');
 const { importFromBuffer } = require('../services/enrollmentImport');
-const { isSeenRecord } = require('../services/attendanceStats');
+const { isSeenRecord, absenceCounts } = require('../services/attendanceStats');
 const { attachStudentStatus, attachStudentStatusOne, stripTuition } = require('../services/studentStatus');
 
 const router = express.Router();
@@ -72,6 +72,8 @@ router.get('/export', requireRole('ADMIN', 'SUPERADMIN', 'PHYSICAL_TRAINER', 'RE
         'Inicio de clases': s.classesStartDate ? new Date(s.classesStartDate).toISOString().slice(0, 10) : '',
         'Clase de prueba': s.isTrial ? 'Sí' : 'No',
         'Clases adquiridas': s.classesAcquired || 0,
+        'Clases semestre anterior': s.previousClasses || 0,
+        'Total clases': (s.classesAcquired || 0) + (s.previousClasses || 0),
         ...(withMoney ? {
           'Valor esperado': s.tuition.expectedTotal ?? '',
           'Pagos registrados': s.payments.length,
@@ -155,20 +157,28 @@ router.get('/', async (req, res, next) => {
 
 // Resumen de asistencia por estudiante para la lista (1 sola query).
 // rate = present/(present+absent): las justificadas no penalizan.
+// Las AUSENTE anteriores a la fecha de inicio de clases del estudiante no son
+// faltas reales (aún no empezaba) y se excluyen del conteo y del denominador.
 router.get('/attendance-summary', requireRole('ADMIN', 'SUPERADMIN', 'PHYSICAL_TRAINER', 'RECEPTION'), async (req, res, next) => {
   try {
     const semester = await prisma.semester.findFirst({ where: { active: true } });
     const where = { status: { in: ['PRESENTE', 'AUSENTE'] } };
     if (semester) where.session = { date: { gte: semester.startDate, lte: semester.endDate } };
 
-    const rows = await prisma.attendanceRecord.groupBy({
-      by: ['studentId', 'status'], where, _count: { _all: true },
+    const rows = await prisma.attendanceRecord.findMany({
+      where,
+      select: {
+        studentId: true, status: true,
+        session: { select: { date: true } },
+        student: { select: { classesStartDate: true } },
+      },
     });
     const map = {};
     for (const r of rows) {
+      if (r.status === 'AUSENTE' && !absenceCounts(r.session?.date, r.student?.classesStartDate)) continue;
       const s = (map[r.studentId] ||= { present: 0, absent: 0 });
-      if (r.status === 'PRESENTE') s.present += r._count._all;
-      else if (r.status === 'AUSENTE') s.absent += r._count._all;
+      if (r.status === 'PRESENTE') s.present += 1;
+      else if (r.status === 'AUSENTE') s.absent += 1;
     }
     for (const id of Object.keys(map)) {
       const s = map[id];
@@ -673,10 +683,11 @@ router.get('/:id/report', requireRole('ADMIN', 'SUPERADMIN', 'PHYSICAL_TRAINER',
     let present = 0, absent = 0, justified = 0, na = 0, cancelledRain = 0, classesSeen = 0;
     for (const r of records) {
       if (r.status === 'PRESENTE') present++;
-      else if (r.status === 'AUSENTE') absent++;
+      // Las faltas cuentan solo desde la fecha de inicio de clases del estudiante
+      else if (r.status === 'AUSENTE' && absenceCounts(r.session?.date, student.classesStartDate)) absent++;
       else if (r.status === 'JUSTIFICADA') justified++;
       else if (r.status === 'NO_APLICA') na++;
-      if (isSeenRecord(r, r.session?.kind)) classesSeen++;
+      if (isSeenRecord(r, r.session?.kind, r.session?.date, student.classesStartDate)) classesSeen++;
     }
     for (const s of groupSessions) if (s.status === 'CANCELADA' && s.cancellationCategory === 'LLUVIA') cancelledRain++;
     const attendanceRate = (present + absent) > 0 ? Math.round((present / (present + absent)) * 100) : null;
@@ -698,9 +709,10 @@ router.get('/:id/report', requireRole('ADMIN', 'SUPERADMIN', 'PHYSICAL_TRAINER',
   }
 });
 
-// Sumar clases de semestre anterior (solo administradores). Se acumulan aparte
-// para no ser pisadas por la importación del semestre actual.
-router.post('/:id/previous-classes', requireRole('ADMIN', 'SUPERADMIN', 'PHYSICAL_TRAINER'), async (req, res, next) => {
+// Sumar clases pendientes del semestre anterior — SOLO ADMIN/SUPERADMIN
+// (el Coordinador no puede). Se acumulan aparte para no ser pisadas por la
+// importación del semestre actual y suman al total de adquiridas.
+router.post('/:id/previous-classes', requireRole('ADMIN'), async (req, res, next) => {
   try {
     const amount = parseInt(req.body?.amount, 10);
     if (!Number.isFinite(amount) || amount === 0) {

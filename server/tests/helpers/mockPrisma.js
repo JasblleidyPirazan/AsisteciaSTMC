@@ -35,5 +35,11 @@ export async function mockStudentStatusDeps() {
   const { vi } = await import('vitest');
   prismaMock.systemConfig = { findMany: vi.fn().mockResolvedValue([]), ...(prismaMock.systemConfig || {}) };
   prismaMock.studentPayment = { groupBy: vi.fn().mockResolvedValue([]), ...(prismaMock.studentPayment || {}) };
-  prismaMock.attendanceRecord = { groupBy: vi.fn().mockResolvedValue([]), ...(prismaMock.attendanceRecord || {}) };
+  // attachStudentStatus: groupBy de PRESENTE + findMany de AUSENTE en festival
+  // (para quienes no tienen PRESENTE, filtrado por fecha de inicio de clases).
+  prismaMock.attendanceRecord = {
+    groupBy: vi.fn().mockResolvedValue([]),
+    findMany: vi.fn().mockResolvedValue([]),
+    ...(prismaMock.attendanceRecord || {}),
+  };
 }

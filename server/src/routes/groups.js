@@ -5,7 +5,7 @@ const { requireRole } = require('../middleware/auth');
 const { notSuspended } = require('../lib/filters');
 const { byGroupCode } = require('../lib/sort');
 const { bogotaDayOfWeek } = require('../lib/dates');
-const { seenAttendanceFilter } = require('../services/attendanceStats');
+const { seenAttendanceFilter, absenceCounts } = require('../services/attendanceStats');
 const { attachStudentStatus, stripTuition } = require('../services/studentStatus');
 
 const router = express.Router();
@@ -250,9 +250,14 @@ router.get('/:id/students', async (req, res, next) => {
             ...(dateFilter ? [{ session: { date: dateFilter } }] : []),
           ],
         },
-        select: { studentId: true },
+        select: { studentId: true, status: true, session: { select: { date: true } } },
       });
-      for (const r of present) seenById[r.studentId] = (seenById[r.studentId] || 0) + 1;
+      const startById = Object.fromEntries(students.map((s) => [s.id, s.classesStartDate]));
+      for (const r of present) {
+        // AUSENTE de festival anterior al inicio de clases: no consume paquete
+        if (r.status === 'AUSENTE' && !absenceCounts(r.session?.date, startById[r.studentId])) continue;
+        seenById[r.studentId] = (seenById[r.studentId] || 0) + 1;
+      }
     }
 
     // Estado derivado + error de fecha de nacimiento, visibles en el roster
@@ -264,7 +269,8 @@ router.get('/:id/students', async (req, res, next) => {
       data: decorated.map((s) => ({
         ...s,
         classesSeen: seenById[s.id] || 0,
-        classesAcquired: s.classesAcquired,
+        // Las clases pendientes del semestre anterior suman al total adquirido
+        classesAcquired: (s.classesAcquired || 0) + (s.previousClasses || 0),
       })),
     });
   } catch (err) {

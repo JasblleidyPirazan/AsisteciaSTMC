@@ -1,6 +1,6 @@
 const prisma = require('../lib/prisma');
 const { expectedDatesForGroup } = require('./schedule');
-const { seenAttendanceFilter } = require('./attendanceStats');
+const { seenAttendanceFilter, absenceCounts } = require('./attendanceStats');
 const { notSuspended } = require('../lib/filters');
 const { bogotaToday } = require('../lib/dates');
 
@@ -57,10 +57,15 @@ async function computeAttendanceDeviations({ studentIds } = {}) {
         { session: { date: { gte: new Date(semester.startDate), lte: new Date(semester.endDate) } } },
       ],
     },
-    select: { studentId: true },
+    select: { studentId: true, status: true, session: { select: { date: true } } },
   });
+  const startById = Object.fromEntries(students.map((s) => [s.id, s.classesStartDate]));
   const seenById = {};
-  for (const r of seenRecords) seenById[r.studentId] = (seenById[r.studentId] || 0) + 1;
+  for (const r of seenRecords) {
+    // AUSENTE de festival anterior al inicio de clases: no cuenta como vista
+    if (r.status === 'AUSENTE' && !absenceCounts(r.session?.date, startById[r.studentId])) continue;
+    seenById[r.studentId] = (seenById[r.studentId] || 0) + 1;
+  }
 
   // N/A del semestre por estudiante: clases del grupo que no le corresponden
   // (compró menos días). Se descuentan de las esperadas.

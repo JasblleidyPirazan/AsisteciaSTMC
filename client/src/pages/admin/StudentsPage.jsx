@@ -76,7 +76,8 @@ export default function StudentsPage() {
   const navigate = useNavigate();
   const { user } = useAuth();
   const isReception = user?.role === 'RECEPTION';
-  const isAdmin = user?.role === 'ADMIN';
+  // Clases de semestre anterior: solo Admin y Superadmin (no Coordinador).
+  const isAdmin = ['ADMIN', 'SUPERADMIN'].includes(user?.role);
   // Gestión avanzada (suspender / desactivar / grupos): ADMIN / SUPERADMIN / Coordinador.
   const canManage = ['ADMIN', 'SUPERADMIN', 'PHYSICAL_TRAINER'].includes(user?.role);
   // Crear y editar datos básicos: la anterior + Recepción.

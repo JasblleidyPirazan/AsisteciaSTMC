@@ -69,6 +69,26 @@ describe('computeAttendanceDeviations — el N/A descuenta clases esperadas', ()
     expect(beto.level).toBe('ROJA');
   });
 
+  it('la AUSENTE de festival previa al inicio de clases no cuenta como vista', async () => {
+    prismaMock.student.findMany = vi.fn().mockResolvedValue([
+      { ...student('s3', 'Cami'), classesStartDate: new Date('2026-02-16T00:00:00.000Z') },
+    ]);
+    prismaMock.attendanceRecord.findMany = vi.fn().mockImplementation(({ where }) => {
+      if (where.status === 'NO_APLICA') return Promise.resolve([]);
+      return Promise.resolve([
+        // Festival anterior al inicio de clases: NO consume paquete
+        { studentId: 's3', status: 'AUSENTE', session: { date: new Date('2026-02-06T00:00:00.000Z') } },
+        // Posterior al inicio: sí cuenta
+        { studentId: 's3', status: 'AUSENTE', session: { date: new Date('2026-02-20T00:00:00.000Z') } },
+        { studentId: 's3', status: 'PRESENTE', session: { date: new Date('2026-02-18T00:00:00.000Z') } },
+      ]);
+    });
+
+    const rows = await computeAttendanceDeviations();
+    const cami = rows.find((r) => r.studentId === 's3');
+    expect(cami.seen).toBe(2);
+  });
+
   it('la query de N/A filtra por status NO_APLICA dentro de la ventana del semestre', async () => {
     await computeAttendanceDeviations();
     const calls = prismaMock.attendanceRecord.findMany.mock.calls.map(([args]) => args.where);

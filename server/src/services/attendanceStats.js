@@ -14,10 +14,23 @@ function seenAttendanceFilter() {
   };
 }
 
-// Client-side variant for record arrays already loaded with their session kind
-function isSeenRecord(record, sessionKind) {
-  if (record.status === 'PRESENTE') return true;
-  return record.status === 'AUSENTE' && sessionKind === 'FESTIVAL';
+// Las inasistencias solo cuentan a partir de la fecha de inicio de clases del
+// estudiante (classesStartDate): una AUSENTE anterior no es una falta real —
+// el estudiante aún no empezaba clases — así que no suma faltas, no entra al
+// denominador de asistencia y no consume paquete (AUSENTE en festival). Sin
+// fecha de inicio (o sin fecha de sesión) la falta cuenta normal.
+function absenceCounts(sessionDate, classesStartDate) {
+  if (!classesStartDate || !sessionDate) return true;
+  return new Date(sessionDate).getTime() >= new Date(classesStartDate).getTime();
 }
 
-module.exports = { seenAttendanceFilter, isSeenRecord };
+// Client-side variant for record arrays already loaded with their session kind.
+// sessionDate/classesStartDate son opcionales: si se pasan, la AUSENTE de
+// festival solo cuenta desde el inicio de clases del estudiante.
+function isSeenRecord(record, sessionKind, sessionDate, classesStartDate) {
+  if (record.status === 'PRESENTE') return true;
+  if (record.status !== 'AUSENTE' || sessionKind !== 'FESTIVAL') return false;
+  return absenceCounts(sessionDate, classesStartDate);
+}
+
+module.exports = { seenAttendanceFilter, isSeenRecord, absenceCounts };
