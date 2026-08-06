@@ -20,7 +20,7 @@
 // a MATRICULADO hasta que se ingrese la fecha.
 const prisma = require('../lib/prisma');
 const { bogotaToday } = require('../lib/dates');
-const { seenAttendanceFilter } = require('./attendanceStats');
+const { absenceCounts } = require('./attendanceStats');
 
 const TUITION_KEYS = ['tuition_adult_total', 'tuition_child_total', 'tuition_plan_classes', 'tuition_adult_age'];
 
@@ -127,20 +127,43 @@ async function attachStudentStatus(students) {
       _sum: { amount: true },
     }),
     // "Al menos una asistencia" usa la regla canónica de clase vista
-    // (attendanceStats): PRESENTE en cualquier sesión, o AUSENTE en festival.
-    // Así el estado INSCRITO coincide con las "clases vistas" del resto del sistema.
+    // (attendanceStats): PRESENTE en cualquier sesión (agregado en BD)...
     prisma.attendanceRecord.groupBy({
       by: ['studentId'],
-      where: { studentId: { in: ids }, ...seenAttendanceFilter() },
+      where: { studentId: { in: ids }, status: 'PRESENTE' },
       _count: { _all: true },
     }),
   ]);
   const paidById = Object.fromEntries(paySums.map((p) => [p.studentId, parseFloat(p._sum.amount) || 0]));
   const presentById = Object.fromEntries(presentCounts.map((p) => [p.studentId, p._count._all]));
+
+  // ...o AUSENTE en festival, que también cuenta como clase vista pero SOLO
+  // desde la fecha de inicio de clases del estudiante (una inasistencia
+  // anterior al inicio no cuenta). Solo se consulta para quienes no tienen
+  // ningún PRESENTE (los demás ya quedaron con asistencia).
+  const withoutPresent = ids.filter((id) => !presentById[id]);
+  const festivalSeen = new Set();
+  if (withoutPresent.length > 0) {
+    const festAbs = await prisma.attendanceRecord.findMany({
+      where: { studentId: { in: withoutPresent }, status: 'AUSENTE', session: { kind: 'FESTIVAL' } },
+      select: { studentId: true, session: { select: { date: true } } },
+    });
+    if (festAbs.length > 0) {
+      const starts = await prisma.student.findMany({
+        where: { id: { in: [...new Set(festAbs.map((r) => r.studentId))] } },
+        select: { id: true, classesStartDate: true },
+      });
+      const startById = Object.fromEntries(starts.map((s) => [s.id, s.classesStartDate]));
+      for (const r of festAbs) {
+        if (absenceCounts(r.session?.date, startById[r.studentId])) festivalSeen.add(r.studentId);
+      }
+    }
+  }
+
   const today = bogotaToday();
   return students.map((s) => decorateStudent(s, {
     totalPaid: paidById[s.id] || 0,
-    hasAttendance: (presentById[s.id] || 0) > 0,
+    hasAttendance: (presentById[s.id] || 0) > 0 || festivalSeen.has(s.id),
     cfg,
     today,
   }));

@@ -139,26 +139,46 @@ describe('stripTuition — montos solo para roles con acceso económico', () => 
 });
 
 describe('attachStudentStatus — "al menos una asistencia" = regla canónica de clase vista', () => {
-  it('usa seenAttendanceFilter (PRESENTE o AUSENTE en festival) y deriva INSCRITO', async () => {
+  async function setup({ presentRows = [], festivalRows = [], starts = [] } = {}) {
     const { attachStudentStatus } = require('../../src/services/studentStatus.js');
-    const { seenAttendanceFilter } = require('../../src/services/attendanceStats.js');
     const { prismaMock } = await import('../helpers/mockPrisma.js');
     const { vi } = await import('vitest');
 
     prismaMock.systemConfig = { findMany: vi.fn().mockResolvedValue([]) };
     prismaMock.studentPayment = { groupBy: vi.fn().mockResolvedValue([]) };
-    // El único registro del estudiante es un AUSENTE en festival: cuenta como
-    // clase vista, así que debe quedar INSCRITO (no PREINSCRITO).
     prismaMock.attendanceRecord = {
-      groupBy: vi.fn().mockResolvedValue([{ studentId: 's1', _count: { _all: 1 } }]),
+      groupBy: vi.fn().mockResolvedValue(presentRows),
+      findMany: vi.fn().mockResolvedValue(festivalRows),
     };
+    prismaMock.student = { findMany: vi.fn().mockResolvedValue(starts) };
+    return { attachStudentStatus, prismaMock };
+  }
 
+  it('PRESENTE en cualquier sesión deriva INSCRITO', async () => {
+    const { attachStudentStatus, prismaMock } = await setup({
+      presentRows: [{ studentId: 's1', _count: { _all: 3 } }],
+    });
     const [out] = await attachStudentStatus([{ ...base }]);
     expect(out.studentStatus).toBe('INSCRITO');
+    // El agregado en BD debe contar solo PRESENTE
+    expect(prismaMock.attendanceRecord.groupBy.mock.calls[0][0].where.status).toBe('PRESENTE');
+  });
 
-    // La query debe aplicar la MISMA regla que attendanceStats (no PRESENTE a secas).
-    const where = prismaMock.attendanceRecord.groupBy.mock.calls[0][0].where;
-    expect(where.OR).toEqual(seenAttendanceFilter().OR);
-    expect(where.status).toBeUndefined();
+  it('AUSENTE en festival cuenta como asistencia (INSCRITO) desde el inicio de clases', async () => {
+    const { attachStudentStatus } = await setup({
+      festivalRows: [{ studentId: 's1', session: { date: new Date('2026-03-10') } }],
+      starts: [{ id: 's1', classesStartDate: new Date('2026-03-01') }],
+    });
+    const [out] = await attachStudentStatus([{ ...base }]);
+    expect(out.studentStatus).toBe('INSCRITO');
+  });
+
+  it('AUSENTE en festival ANTERIOR al inicio de clases NO cuenta (sigue PREINSCRITO)', async () => {
+    const { attachStudentStatus } = await setup({
+      festivalRows: [{ studentId: 's1', session: { date: new Date('2026-02-10') } }],
+      starts: [{ id: 's1', classesStartDate: new Date('2026-03-01') }],
+    });
+    const [out] = await attachStudentStatus([{ ...base }]);
+    expect(out.studentStatus).toBe('PREINSCRITO');
   });
 });

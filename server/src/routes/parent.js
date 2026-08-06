@@ -1,7 +1,7 @@
 const express = require('express');
 const prisma = require('../lib/prisma');
 const { requireRole } = require('../middleware/auth');
-const { isSeenRecord } = require('../services/attendanceStats');
+const { isSeenRecord, absenceCounts } = require('../services/attendanceStats');
 const { computeAttendanceDeviations } = require('../services/attendanceAlerts');
 const { attachStudentStatus } = require('../services/studentStatus');
 
@@ -49,12 +49,14 @@ router.get('/children', requireRole('PARENT', 'ADMIN'), async (req, res, next) =
 
 router.get('/attendance/:studentId', requireRole('PARENT', 'ADMIN', 'TEACHER'), async (req, res, next) => {
   try {
+    const student = await prisma.student.findUnique({
+      where: { id: req.params.studentId },
+      select: { parentUserId: true, classesStartDate: true },
+    });
+    if (!student) return res.status(404).json({ success: false, error: 'Estudiante no encontrado' });
     // Parents can only access their own children
-    if (req.user.role === 'PARENT') {
-      const student = await prisma.student.findFirst({
-        where: { id: req.params.studentId, parentUserId: req.user.id },
-      });
-      if (!student) return res.status(403).json({ success: false, error: 'Acceso no autorizado' });
+    if (req.user.role === 'PARENT' && student.parentUserId !== req.user.id) {
+      return res.status(403).json({ success: false, error: 'Acceso no autorizado' });
     }
 
     const { from, to } = req.query;
@@ -80,9 +82,16 @@ router.get('/attendance/:studentId', requireRole('PARENT', 'ADMIN', 'TEACHER'), 
     const total = records.length;
     const present = records.filter((r) => r.status === 'PRESENTE').length;
     const na = records.filter((r) => r.status === 'NO_APLICA').length;
-    const classesSeen = records.filter((r) => isSeenRecord(r, r.session?.kind)).length;
-    // N/A fuera del denominador: no es asistencia ni ausencia.
-    const denom = total - na;
+    // Las faltas cuentan solo desde la fecha de inicio de clases del estudiante
+    const absent = records.filter((r) =>
+      r.status === 'AUSENTE' && absenceCounts(r.session?.date, student.classesStartDate)
+    ).length;
+    const justified = records.filter((r) => r.status === 'JUSTIFICADA').length;
+    const classesSeen = records.filter((r) =>
+      isSeenRecord(r, r.session?.kind, r.session?.date, student.classesStartDate)
+    ).length;
+    // Denominador: P + A + J (N/A y faltas previas al inicio quedan fuera).
+    const denom = present + absent + justified;
 
     res.json({
       success: true,
@@ -91,8 +100,8 @@ router.get('/attendance/:studentId', requireRole('PARENT', 'ADMIN', 'TEACHER'), 
         summary: {
           total,
           present,
-          absent: records.filter((r) => r.status === 'AUSENTE').length,
-          justified: records.filter((r) => r.status === 'JUSTIFICADA').length,
+          absent,
+          justified,
           na,
           classesSeen,
           attendanceRate: denom > 0 ? Math.round((present / denom) * 100) : 0,

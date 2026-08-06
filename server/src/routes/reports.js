@@ -2,7 +2,7 @@ const express = require('express');
 const prisma = require('../lib/prisma');
 const { requireRole } = require('../middleware/auth');
 const { getCurrentPeriod } = require('../services/costEngine');
-const { isSeenRecord, seenAttendanceFilter } = require('../services/attendanceStats');
+const { isSeenRecord, absenceCounts } = require('../services/attendanceStats');
 const { computeAttendanceDeviations } = require('../services/attendanceAlerts');
 const { byGroupCode } = require('../lib/sort');
 const { bogotaToday, bogotaDateStr, bogotaMinutesOfDay } = require('../lib/dates');
@@ -23,7 +23,7 @@ router.get('/group/:groupId', requireRole('ADMIN', 'PHYSICAL_TRAINER', 'TEACHER'
     const sessions = await prisma.classSession.findMany({
       where,
       include: {
-        attendanceRecords: { select: { status: true, attendanceType: true } },
+        attendanceRecords: { select: { status: true, attendanceType: true, student: { select: { classesStartDate: true } } } },
         group: { select: { id: true, code: true, name: true } },
       },
       orderBy: { date: 'desc' },
@@ -31,9 +31,13 @@ router.get('/group/:groupId', requireRole('ADMIN', 'PHYSICAL_TRAINER', 'TEACHER'
 
     const data = sessions.map((s) => {
       const counts = { PRESENTE: 0, AUSENTE: 0, JUSTIFICADA: 0, NO_APLICA: 0 };
-      s.attendanceRecords.forEach((r) => counts[r.status]++);
+      // Las AUSENTE anteriores al inicio de clases del estudiante no cuentan
+      s.attendanceRecords.forEach((r) => {
+        if (r.status === 'AUSENTE' && !absenceCounts(s.date, r.student?.classesStartDate)) return;
+        counts[r.status]++;
+      });
       // N/A fuera del denominador: no es asistencia ni ausencia.
-      const denom = s.attendanceRecords.length - counts.NO_APLICA;
+      const denom = counts.PRESENTE + counts.AUSENTE + counts.JUSTIFICADA;
       return {
         ...s,
         present: counts.PRESENTE,
@@ -52,11 +56,13 @@ router.get('/group/:groupId', requireRole('ADMIN', 'PHYSICAL_TRAINER', 'TEACHER'
 
 router.get('/student/:studentId', requireRole('ADMIN', 'PHYSICAL_TRAINER', 'TEACHER', 'PARENT'), async (req, res, next) => {
   try {
-    if (req.user.role === 'PARENT') {
-      const student = await prisma.student.findFirst({
-        where: { id: req.params.studentId, parentUserId: req.user.id },
-      });
-      if (!student) return res.status(403).json({ success: false, error: 'Acceso no autorizado' });
+    const student = await prisma.student.findUnique({
+      where: { id: req.params.studentId },
+      select: { id: true, parentUserId: true, classesStartDate: true },
+    });
+    if (!student) return res.status(404).json({ success: false, error: 'Estudiante no encontrado' });
+    if (req.user.role === 'PARENT' && student.parentUserId !== req.user.id) {
+      return res.status(403).json({ success: false, error: 'Acceso no autorizado' });
     }
 
     const { from, to } = req.query;
@@ -78,10 +84,17 @@ router.get('/student/:studentId', requireRole('ADMIN', 'PHYSICAL_TRAINER', 'TEAC
     const total = records.length;
     const present = records.filter((r) => r.status === 'PRESENTE').length;
     const na = records.filter((r) => r.status === 'NO_APLICA').length;
+    // Las faltas cuentan solo desde la fecha de inicio de clases del estudiante
+    const absent = records.filter((r) =>
+      r.status === 'AUSENTE' && absenceCounts(r.session?.date, student.classesStartDate)
+    ).length;
+    const justified = records.filter((r) => r.status === 'JUSTIFICADA').length;
     // "Clases vistas": PRESENTE, más AUSENTE en festivales (J se omite)
-    const classesSeen = records.filter((r) => isSeenRecord(r, r.session?.kind)).length;
-    // N/A fuera del denominador: no es asistencia ni ausencia.
-    const denom = total - na;
+    const classesSeen = records.filter((r) =>
+      isSeenRecord(r, r.session?.kind, r.session?.date, student.classesStartDate)
+    ).length;
+    // Denominador: P + A + J (N/A y faltas previas al inicio quedan fuera).
+    const denom = present + absent + justified;
 
     res.json({
       success: true,
@@ -90,8 +103,8 @@ router.get('/student/:studentId', requireRole('ADMIN', 'PHYSICAL_TRAINER', 'TEAC
         summary: {
           total,
           present,
-          absent: records.filter((r) => r.status === 'AUSENTE').length,
-          justified: records.filter((r) => r.status === 'JUSTIFICADA').length,
+          absent,
+          justified,
           na,
           classesSeen,
           attendanceRate: denom > 0 ? Math.round((present / denom) * 100) : 0,
@@ -167,7 +180,7 @@ router.get('/professor/:professorId', requireRole('ADMIN', 'PHYSICAL_TRAINER', '
       where,
       include: {
         group: { select: { id: true, code: true, name: true } },
-        attendanceRecords: { select: { status: true, attendanceType: true } },
+        attendanceRecords: { select: { status: true, attendanceType: true, student: { select: { classesStartDate: true } } } },
         costRecords: includePay
           ? {
               where: { professorId: req.params.professorId },
@@ -184,9 +197,13 @@ router.get('/professor/:professorId', requireRole('ADMIN', 'PHYSICAL_TRAINER', '
 
     const data = sessions.map((s) => {
       const counts = { PRESENTE: 0, AUSENTE: 0, JUSTIFICADA: 0, NO_APLICA: 0 };
-      s.attendanceRecords.forEach((r) => counts[r.status]++);
+      // Las AUSENTE anteriores al inicio de clases del estudiante no cuentan
+      s.attendanceRecords.forEach((r) => {
+        if (r.status === 'AUSENTE' && !absenceCounts(s.date, r.student?.classesStartDate)) return;
+        counts[r.status]++;
+      });
       // N/A fuera del denominador: no es asistencia ni ausencia.
-      const denom = s.attendanceRecords.length - counts.NO_APLICA;
+      const denom = counts.PRESENTE + counts.AUSENTE + counts.JUSTIFICADA;
       const pay = includePay ? s.costRecords.reduce((cs, r) => cs + parseFloat(r.total), 0) : null;
       const { costRecords, ...rest } = s;
       return {
@@ -483,7 +500,7 @@ router.get('/strategy', requireRole('ADMIN'), async (req, res, next) => {
       }),
       prisma.attendanceRecord.findMany({
         where: { session: { kind: 'REGULAR', date: dateRange } },
-        select: { status: true, session: { select: { groupId: true } } },
+        select: { status: true, session: { select: { groupId: true, date: true } }, student: { select: { classesStartDate: true } } },
       }),
       // Ingresos: TODOS los pagos registrados en el sistema, sin filtrar por
       // fecha. Los pagos pertenecen al semestre en curso aunque se hayan
@@ -554,7 +571,11 @@ router.get('/strategy', requireRole('ADMIN'), async (req, res, next) => {
     for (const r of attRows) {
       const acc = byGroup[r.session?.groupId];
       if (r.status === 'PRESENTE') { presentAll += 1; if (acc) acc.present += 1; }
-      else if (r.status === 'AUSENTE') { absentAll += 1; if (acc) acc.absent += 1; }
+      else if (r.status === 'AUSENTE') {
+        // Las faltas anteriores al inicio de clases del estudiante no cuentan
+        if (!absenceCounts(r.session?.date, r.student?.classesStartDate)) continue;
+        absentAll += 1; if (acc) acc.absent += 1;
+      }
     }
     const rate = (p, a) => (p + a > 0 ? Math.round((p / (p + a)) * 100) : null);
 
@@ -649,17 +670,29 @@ router.get('/home', requireRole('ADMIN', 'SUPERADMIN', 'PHYSICAL_TRAINER'), asyn
       prisma.group.count({ where: { active: false } }),
       prisma.professor.count({ where: { active: true } }),
       prisma.assistant.count({ where: { active: true } }),
-      // Total de asistencias adquiridas (clases pagadas) por estudiantes activos.
-      prisma.student.aggregate({ where: { active: true }, _sum: { classesAcquired: true } }),
+      // Total de asistencias adquiridas (clases pagadas) por estudiantes activos,
+      // incluyendo las clases pendientes del semestre anterior.
+      prisma.student.aggregate({ where: { active: true }, _sum: { classesAcquired: true, previousClasses: true } }),
     ]);
-    const classesAcquired = classesAcquiredAgg._sum.classesAcquired || 0;
+    const classesAcquired = (classesAcquiredAgg._sum.classesAcquired || 0)
+      + (classesAcquiredAgg._sum.previousClasses || 0);
 
     // Asistencias efectivas: "clases vistas" del semestre (PRESENTE en cualquier
     // sesión + AUSENTE en festivales; las justificadas no cuentan). Sin semestre,
-    // el histórico total. Avance = efectivas / adquiridas.
-    const effectiveWhere = { AND: [seenAttendanceFilter()] };
-    if (semester) effectiveWhere.AND.push({ session: { date: { gte: semester.startDate, lte: semester.endDate } } });
-    const effectiveAttendances = await prisma.attendanceRecord.count({ where: effectiveWhere });
+    // el histórico total. Avance = efectivas / adquiridas. Las AUSENTE de festival
+    // solo cuentan desde la fecha de inicio de clases del estudiante.
+    const semesterRange = semester ? { gte: semester.startDate, lte: semester.endDate } : undefined;
+    const [presentSeen, festivalAbsRows] = await Promise.all([
+      prisma.attendanceRecord.count({
+        where: { status: 'PRESENTE', ...(semesterRange ? { session: { date: semesterRange } } : {}) },
+      }),
+      prisma.attendanceRecord.findMany({
+        where: { status: 'AUSENTE', session: { kind: 'FESTIVAL', ...(semesterRange ? { date: semesterRange } : {}) } },
+        select: { session: { select: { date: true } }, student: { select: { classesStartDate: true } } },
+      }),
+    ]);
+    const effectiveAttendances = presentSeen + festivalAbsRows
+      .filter((r) => absenceCounts(r.session?.date, r.student?.classesStartDate)).length;
     const attendanceProgress = classesAcquired > 0
       ? Math.round((effectiveAttendances / classesAcquired) * 100)
       : null;
@@ -679,6 +712,17 @@ router.get('/home', requireRole('ADMIN', 'SUPERADMIN', 'PHYSICAL_TRAINER'), asyn
       else if (r.status === 'PRESENTE') presente += c;
       else if (r.status === 'AUSENTE') ausente += c;
       else if (r.status === 'JUSTIFICADA') justificado += c;
+    }
+    // Descontar las AUSENTE anteriores al inicio de clases del estudiante (no
+    // son faltas reales). Solo se consultan estudiantes con fecha de inicio.
+    const preStartAbs = await prisma.attendanceRecord.findMany({
+      where: { status: 'AUSENTE', student: { classesStartDate: { not: null } }, ...attWhere },
+      select: { attendanceType: true, session: { select: { date: true } }, student: { select: { classesStartDate: true } } },
+    });
+    for (const r of preStartAbs) {
+      if (absenceCounts(r.session?.date, r.student?.classesStartDate)) continue;
+      if (r.attendanceType === 'REPOSICION') reposicion = Math.max(0, reposicion - 1);
+      else ausente = Math.max(0, ausente - 1);
     }
     const totalAtt = presente + ausente + justificado + reposicion || 1;
     const pct = (n) => Math.round((n / totalAtt) * 100);
