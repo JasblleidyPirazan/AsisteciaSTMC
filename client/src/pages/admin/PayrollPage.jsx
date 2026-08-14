@@ -81,6 +81,7 @@ export default function PayrollPage() {
   const [semester, setSemester] = useState(null);
   const [view, setView] = useState('list'); // 'list' | 'calendar'
   const [classDetailId, setClassDetailId] = useState(null); // modal de detalle de clase (vista Lista)
+  const [payingAll, setPayingAll] = useState(false); // "Pagar todo" de la quincena completa
 
   const locked = !!closure?.locked;
 
@@ -190,6 +191,49 @@ export default function PayrollPage() {
       toast.success(`${r.updated} pago(s) aprobado(s).`);
     } catch (err) {
       toast.error(err.message);
+    }
+  }
+
+  // "Pagar todo" de un beneficiario: marca como pagadas todas sus clases ya
+  // aprobadas y aún no pagadas. Necesita el detalle cargado; si no, lo trae.
+  async function handlePayAllPayee(payeeId) {
+    let detail = detailMap[payeeId];
+    if (!detail) { await refreshDetail(payeeId); detail = (await api.get('/payroll', { period, payeeId })).find?.((d) => d.payeeId === payeeId); }
+    const ids = (detail?.records || [])
+      .filter((r) => r.payStatus === 'PAYABLE' && r.approvedAt && !r.paidAt)
+      .map((r) => r.id);
+    if (ids.length === 0) { toast.info('No hay pagos aprobados pendientes de pago de este beneficiario.'); return; }
+    try {
+      const r = await api.post('/payroll/records/bulk', { ids, action: 'pay' });
+      await refreshDetail(payeeId);
+      await load();
+      toast.success(`${r.updated} pago(s) marcado(s) como realizado(s).`);
+    } catch (err) {
+      toast.error(err.message);
+    }
+  }
+
+  // "Pagar todo" de la quincena: marca como pagadas TODAS las clases ya
+  // aprobadas (de cualquier profesor/asistente) que aún no se han pagado.
+  async function handlePayAllPeriod() {
+    const pending = summaryData?.progress?.approved || 0;
+    if (pending === 0) return;
+    if (!confirm(`¿Marcar como pagados los ${pending} registro(s) ya aprobados de esta quincena?`)) return;
+    setPayingAll(true);
+    try {
+      const all = await api.get('/payroll', { period });
+      const ids = (Array.isArray(all) ? all : [])
+        .flatMap((d) => (d.records || []).filter((r) => r.payStatus === 'PAYABLE' && r.approvedAt && !r.paidAt).map((r) => r.id));
+      if (ids.length === 0) { toast.info('No hay pagos aprobados pendientes de pago.'); return; }
+      const r = await api.post('/payroll/records/bulk', { ids, action: 'pay' });
+      setDetailMap({});
+      setExpanded(null);
+      await load();
+      toast.success(`${r.updated} pago(s) marcado(s) como realizado(s).`);
+    } catch (err) {
+      toast.error(err.message);
+    } finally {
+      setPayingAll(false);
     }
   }
 
@@ -344,11 +388,22 @@ export default function PayrollPage() {
             <div className="text-xs text-gray">{isOpen ? '▲ ocultar' : '▼ detalle'}</div>
           </div>
         </div>
-        {(s.pendingApprovalCount || 0) > 0 && !locked && (
-          <div className="flex items-center justify-between mt-2" onClick={(e) => e.stopPropagation()}>
-            <span className="badge badge-yellow">{s.pendingApprovalCount} por validar</span>
-            <button className="btn btn-outline" style={{ minHeight: 30, fontSize: '0.75rem', padding: '0 10px' }}
-              onClick={() => handleValidateAll(s.payeeId)}>Validar todo</button>
+        {!locked && ((s.pendingApprovalCount || 0) > 0 || (s.approvedUnpaidCount || 0) > 0) && (
+          <div className="flex items-center gap-2 mt-2" style={{ flexWrap: 'wrap' }} onClick={(e) => e.stopPropagation()}>
+            {(s.pendingApprovalCount || 0) > 0 && (
+              <>
+                <span className="badge badge-yellow">{s.pendingApprovalCount} por validar</span>
+                <button className="btn btn-outline" style={{ minHeight: 30, fontSize: '0.75rem', padding: '0 10px' }}
+                  onClick={() => handleValidateAll(s.payeeId)}>Validar todo</button>
+              </>
+            )}
+            {(s.approvedUnpaidCount || 0) > 0 && (
+              <>
+                <span className="badge badge-green">{s.approvedUnpaidCount} por pagar</span>
+                <button className="btn btn-success" style={{ minHeight: 30, fontSize: '0.75rem', padding: '0 10px' }}
+                  onClick={() => handlePayAllPayee(s.payeeId)}>💵 Pagar todo</button>
+              </>
+            )}
           </div>
         )}
         {isOpen && detail && (
@@ -384,6 +439,7 @@ export default function PayrollPage() {
               const retained = (s.suspendedTotal || 0) + (s.pendingTotal || 0);
               const isOpen = expanded === s.payeeId;
               const pend = s.pendingApprovalCount || 0;
+              const payReady = s.approvedUnpaidCount || 0;
               return (
                 <Fragment key={s.payeeId}>
                   <tr className="clickable" onClick={() => loadDetail(s.payeeId)}>
@@ -400,11 +456,22 @@ export default function PayrollPage() {
                       {retained > 0 ? fmt(retained) : '—'}
                     </td>
                     <td style={{ textAlign: 'right' }} onClick={(e) => e.stopPropagation()}>
-                      {pend > 0 ? (
-                        <div className="flex items-center gap-2" style={{ justifyContent: 'flex-end' }}>
-                          <span className="badge badge-yellow">{pend} por validar</span>
-                          {!locked && <button className="btn btn-outline" style={{ minHeight: 28, fontSize: '0.72rem', padding: '0 8px' }}
-                            onClick={() => handleValidateAll(s.payeeId)}>Validar todo</button>}
+                      {pend > 0 || payReady > 0 ? (
+                        <div className="flex items-center gap-2" style={{ justifyContent: 'flex-end', flexWrap: 'wrap' }}>
+                          {pend > 0 && (
+                            <>
+                              <span className="badge badge-yellow">{pend} por validar</span>
+                              {!locked && <button className="btn btn-outline" style={{ minHeight: 28, fontSize: '0.72rem', padding: '0 8px' }}
+                                onClick={() => handleValidateAll(s.payeeId)}>Validar todo</button>}
+                            </>
+                          )}
+                          {payReady > 0 && (
+                            <>
+                              <span className="badge badge-green">{payReady} por pagar</span>
+                              {!locked && <button className="btn btn-success" style={{ minHeight: 28, fontSize: '0.72rem', padding: '0 8px' }}
+                                onClick={() => handlePayAllPayee(s.payeeId)}>💵 Pagar todo</button>}
+                            </>
+                          )}
                         </div>
                       ) : (
                         <span className="badge badge-green">✓ Todo validado</span>
@@ -475,6 +542,13 @@ export default function PayrollPage() {
               onClick={handleExport} disabled={exporting}>
               {exporting ? 'Exportando…' : '⬇ Excel'}
             </button>
+            {/* Pagar de una vez todo lo ya aprobado de la quincena (profesores y asistentes) */}
+            {view === 'list' && !locked && (summaryData?.progress?.approved || 0) > 0 && (
+              <button className="btn btn-success" style={{ minHeight: 40 }}
+                onClick={handlePayAllPeriod} disabled={payingAll}>
+                {payingAll ? 'Pagando…' : `💵 Pagar todo (${summaryData.progress.approved})`}
+              </button>
+            )}
           </div>
         </div>
 

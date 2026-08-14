@@ -90,6 +90,35 @@ describe('Flujo de aprobación de pagos (Aprobado → Pagado)', () => {
     expect(prismaMock.costRecord.updateMany).toHaveBeenCalledWith(expect.objectContaining({ where: { id: { in: ['a'] } } }));
   });
 
+  it('acción masiva pay solo toca los PAYABLE ya aprobados y no pagados ("Pagar todo")', async () => {
+    prismaMock.costRecord.findMany.mockResolvedValue([
+      { id: 'a', period: '2026-07-2', payStatus: 'PAYABLE', approvedAt: new Date(), paidAt: null }, // elegible
+      { id: 'b', period: '2026-07-2', payStatus: 'PAYABLE', approvedAt: null, paidAt: null },        // sin aprobar, se ignora
+      { id: 'c', period: '2026-07-2', payStatus: 'PENDING_MATCH', approvedAt: null, paidAt: null },   // conflicto, se ignora
+      { id: 'd', period: '2026-07-2', payStatus: 'PAYABLE', approvedAt: new Date(), paidAt: new Date() }, // ya pagado, se ignora
+    ]);
+    const res = await request(app).post('/api/payroll/records/bulk').send({ ids: ['a', 'b', 'c', 'd'], action: 'pay' })
+      .set('Authorization', `Bearer ${token()}`);
+    expect(res.status).toBe(200);
+    expect(res.body.data).toEqual({ updated: 1, skipped: 3 });
+    expect(prismaMock.costRecord.updateMany).toHaveBeenCalledWith(expect.objectContaining({
+      where: { id: { in: ['a'] } },
+      data: expect.objectContaining({ paidAt: expect.any(Date), paidById: 'u1' }),
+    }));
+  });
+
+  it('no paga en una quincena cerrada → excluida como no elegible', async () => {
+    prismaMock.costRecord.findMany.mockResolvedValue([
+      { id: 'a', period: '2026-07-2', payStatus: 'PAYABLE', approvedAt: new Date(), paidAt: null },
+    ]);
+    prismaMock.payrollClosure.findMany.mockResolvedValue([{ period: '2026-07-2', locked: true }]);
+    const res = await request(app).post('/api/payroll/records/bulk').send({ ids: ['a'], action: 'pay' })
+      .set('Authorization', `Bearer ${token()}`);
+    expect(res.status).toBe(200);
+    expect(res.body.data).toEqual({ updated: 0, skipped: 1 });
+    expect(prismaMock.costRecord.updateMany).not.toHaveBeenCalled();
+  });
+
   it('no aprueba en una quincena cerrada → 409', async () => {
     prismaMock.costRecord.findUnique.mockResolvedValue({ id: 'c1', period: '2026-07-2', payStatus: 'PAYABLE', total: '38000' });
     prismaMock.payrollClosure.findUnique.mockResolvedValue({ period: '2026-07-2', locked: true });
