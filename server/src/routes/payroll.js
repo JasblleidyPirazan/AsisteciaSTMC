@@ -252,7 +252,7 @@ router.get('/summary', requireRole('ADMIN'), async (req, res, next) => {
         summary[key] = {
           payeeId: id, payeeType: r.payeeType, name,
           total: 0, payableTotal: 0, suspendedTotal: 0, pendingTotal: 0, classCount: 0,
-          approvedCount: 0, pendingApprovalCount: 0,
+          approvedCount: 0, pendingApprovalCount: 0, approvedUnpaidCount: 0,
         };
       }
       const amount = parseFloat(r.total);
@@ -271,8 +271,11 @@ router.get('/summary', requireRole('ADMIN'), async (req, res, next) => {
       else progress.pending++;
 
       if (r.payStatus === 'PAYABLE') {
-        if (r.approvedAt) summary[key].approvedCount++;
-        else if (!r.heldAt) summary[key].pendingApprovalCount++;
+        if (r.approvedAt) {
+          summary[key].approvedCount++;
+          // Aprobado pero aún no pagado: elegible para "Pagar todo".
+          if (!r.paidAt) summary[key].approvedUnpaidCount++;
+        } else if (!r.heldAt) summary[key].pendingApprovalCount++;
       }
     }
     // "Validados" = aprobados + pagados (ya pasaron la aprobación).
@@ -623,13 +626,14 @@ router.patch('/records/:id/held', requireRole('ADMIN'), async (req, res, next) =
   }
 });
 
-// Acción masiva: aprobar / quitar aprobación / retener sobre una lista de ids
-// (para "Validar todo" de un beneficiario y "Seleccionar pendientes").
+// Acción masiva: aprobar / quitar aprobación / retener / pagar sobre una lista
+// de ids (para "Validar todo" y "Pagar todo" de un beneficiario, "Pagar todo"
+// de la quincena completa, y "Seleccionar pendientes").
 router.post('/records/bulk', requireRole('ADMIN'), async (req, res, next) => {
   try {
     const { ids, action } = req.body || {};
     if (!Array.isArray(ids) || ids.length === 0) return res.status(400).json({ success: false, error: 'ids requerido' });
-    if (!['approve', 'unapprove', 'hold'].includes(action)) return res.status(400).json({ success: false, error: 'acción inválida' });
+    if (!['approve', 'unapprove', 'hold', 'pay'].includes(action)) return res.status(400).json({ success: false, error: 'acción inválida' });
 
     const records = await prisma.costRecord.findMany({ where: { id: { in: ids } } });
     const periods = [...new Set(records.map((r) => r.period))];
@@ -641,6 +645,7 @@ router.post('/records/bulk', requireRole('ADMIN'), async (req, res, next) => {
       if (lockedPeriods.has(r.period)) return false;
       if (r.paidAt) return false;                         // no tocar pagos ya hechos
       if (action === 'approve' && r.payStatus !== 'PAYABLE') return false; // no aprobar conflictos
+      if (action === 'pay' && (r.payStatus !== 'PAYABLE' || !r.approvedAt)) return false; // solo pagar lo ya aprobado
       return true;
     });
 
@@ -649,7 +654,9 @@ router.post('/records/bulk', requireRole('ADMIN'), async (req, res, next) => {
       ? { approvedAt: now, approvedById: req.user.id, heldAt: null, heldById: null }
       : action === 'hold'
         ? { heldAt: now, heldById: req.user.id, approvedAt: null, approvedById: null }
-        : { approvedAt: null, approvedById: null };
+        : action === 'pay'
+          ? { paidAt: now, paidById: req.user.id }
+          : { approvedAt: null, approvedById: null };
 
     if (eligible.length > 0) {
       await prisma.costRecord.updateMany({ where: { id: { in: eligible.map((r) => r.id) } }, data });

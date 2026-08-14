@@ -623,6 +623,7 @@ enum PayrollLogAction {
   BULK_APPROVE
   BULK_UNAPPROVE
   BULK_HOLD
+  BULK_PAY
 }
 
 model PayrollLog {
