@@ -1,5 +1,9 @@
 # Estructura de Base de Datos - Sistema de Asistencia de Tenis
 
+> ⚠️ **Documento histórico.** Describe la estructura en **Google Sheets** de la versión 1 del
+> sistema, anterior a la migración a PostgreSQL. El diccionario de la base de datos actual está
+> en [`database-dictionary.md`](./database-dictionary.md).
+
 ## Archivo Principal en Google Sheets
 **Nombre sugerido:** `SistemaAsistenciaTenis_2025`
 

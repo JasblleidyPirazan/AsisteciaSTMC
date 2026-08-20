@@ -33,6 +33,34 @@ export default function ConfigPage() {
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
 
+  // Export completo de la base de datos (Excel o JSON)
+  const [exporting, setExporting] = useState(null);
+
+  async function handleExportDatabase(format) {
+    setExporting(format);
+    try {
+      const token = localStorage.getItem('stmc_token');
+      const res = await fetch(`/api/system/export/database?format=${format}`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      if (!res.ok) throw new Error('No se pudo exportar la base de datos');
+      const blob = await res.blob();
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `base-de-datos-${new Date().toISOString().slice(0, 10)}.${format}`;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      URL.revokeObjectURL(url);
+      toast.success('Descarga lista.');
+    } catch (err) {
+      toast.error(err.message);
+    } finally {
+      setExporting(null);
+    }
+  }
+
   // Zona de peligro: reinicio de datos de clases (solo Superadmin)
   const [wipeText, setWipeText] = useState('');
   const [wiping, setWiping] = useState(false);
@@ -388,6 +416,31 @@ export default function ConfigPage() {
             )}
           </div>
         ))}
+
+        {/* ── Base de datos ─────────────────────────────────────── */}
+        <h2 style={{ marginTop: 28 }} className="mb-3">Base de datos</h2>
+        <div className="card mb-3">
+          <div className="text-sm font-medium">Exportar base de datos completa</div>
+          <div className="text-xs text-gray mb-3" style={{ marginTop: 4 }}>
+            Descarga <strong>todas</strong> las tablas del sistema — estudiantes, grupos, clases,
+            asistencia, pagos, liquidación, auditoría y configuración. El Excel trae una hoja por
+            tabla, un resumen con el número de filas y el <strong>diccionario de datos</strong> con la
+            descripción de cada columna. Las contraseñas nunca se exportan.
+          </div>
+          <div className="flex gap-2" style={{ flexWrap: 'wrap' }}>
+            <button className="btn btn-primary" style={{ flex: 1, minWidth: 200 }}
+              disabled={!!exporting} onClick={() => handleExportDatabase('xlsx')}>
+              {exporting === 'xlsx' ? 'Preparando…' : '⬇️ Exportar base de datos (Excel)'}
+            </button>
+            <button className="btn btn-outline" style={{ minWidth: 120 }}
+              disabled={!!exporting} onClick={() => handleExportDatabase('json')}>
+              {exporting === 'json' ? 'Preparando…' : 'JSON'}
+            </button>
+          </div>
+          <div className="text-xs text-gray" style={{ marginTop: 8 }}>
+            El diccionario también está en el repositorio: <code>docs/database-dictionary.md</code>.
+          </div>
+        </div>
 
         {/* Zona de peligro — reinicio de datos de clases (solo Superadmin) */}
         {isSuperadmin && (
