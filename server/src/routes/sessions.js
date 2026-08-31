@@ -478,6 +478,10 @@ router.post('/:id/assist', async (req, res, next) => {
 
     const existing = await prisma.classSession.findUnique({ where: { id: req.params.id } });
     if (!existing) return res.status(404).json({ success: false, error: 'Sesión no encontrada' });
+    // La quincena cerrada no se edita (igual que en /sessions/assist por grupo+fecha).
+    if (await isSessionPeriodLocked(existing.date)) {
+      return res.status(409).json({ success: false, error: LOCKED_MSG });
+    }
 
     // remove: true → clear the confirmation (only if it belongs to this assistant)
     if (req.body.remove) {
@@ -492,6 +496,12 @@ router.post('/:id/assist', async (req, res, next) => {
         await calculateCosts(req.params.id);
       }
       return res.json({ success: true, data: session });
+    }
+
+    // Una clase la acompaña un solo asistente: no se pisa la confirmación de otro
+    // (mismo criterio que /sessions/assist por grupo+fecha).
+    if (existing.assistantConfirmedId && existing.assistantConfirmedId !== assistant.id) {
+      return res.status(409).json({ success: false, error: 'Otra persona ya está registrada como asistente de esta clase' });
     }
 
     const session = await prisma.classSession.update({

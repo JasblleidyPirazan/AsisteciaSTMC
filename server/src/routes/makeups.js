@@ -3,10 +3,16 @@ const prisma = require('../lib/prisma');
 const { requireRole } = require('../middleware/auth');
 const { calculateCosts } = require('../services/costEngine');
 const { attachStudentStatus } = require('../services/studentStatus');
+const { isSessionPeriodLocked } = require('../lib/payrollLock');
 
 const router = express.Router();
 
 const VALID_STATUSES = ['PRESENTE', 'AUSENTE', 'JUSTIFICADA', 'NO_APLICA'];
+const LOCKED_MSG = 'La quincena de esta reposición está cerrada. Reábrela en Liquidación para poder editar.';
+
+// Roles que declaran la información del coordinador: lo que ellos asignan o
+// reportan ES el dato del coordinador para la triple coincidencia del asistente.
+const COORDINATOR_ROLES = ['ADMIN', 'SUPERADMIN', 'PHYSICAL_TRAINER'];
 
 /**
  * Who may report a makeup class:
@@ -69,8 +75,10 @@ async function decorateParticipants(session) {
   };
 }
 
-// List makeup classes (optionally filter by date / status)
-router.get('/', requireRole('ADMIN', 'PHYSICAL_TRAINER', 'TEACHER'), async (req, res, next) => {
+// List makeup classes (optionally filter by date / status).
+// El ASISTENTE también las lista: necesita verlas para marcar su acompañamiento,
+// igual que ve todos los grupos del día (no se filtran por profesor).
+router.get('/', requireRole('ADMIN', 'PHYSICAL_TRAINER', 'TEACHER', 'ASSISTANT'), async (req, res, next) => {
   try {
     const { date, status, from, to } = req.query;
     const where = { kind: 'MAKEUP' };
@@ -96,12 +104,28 @@ router.get('/', requireRole('ADMIN', 'PHYSICAL_TRAINER', 'TEACHER'), async (req,
       include: makeupInclude(),
       orderBy: { date: 'desc' },
     });
+
+    // El asistente solo necesita ubicar la reposición y cuántos estudiantes tiene:
+    // no se le envía la ficha de cada estudiante.
+    if (req.user.role === 'ASSISTANT') {
+      return res.json({
+        success: true,
+        data: sessions.map((s) => ({
+          ...s,
+          makeupParticipants: (s.makeupParticipants || []).map((p) => ({ id: p.id, studentId: p.studentId })),
+          attendanceRecords: undefined,
+        })),
+      });
+    }
+
     res.json({ success: true, data: sessions });
   } catch (err) {
     next(err);
   }
 });
 
+// El detalle (con la ficha de cada estudiante) es para quien reporta la clase;
+// el asistente marca su acompañamiento desde el listado.
 router.get('/:id', requireRole('ADMIN', 'PHYSICAL_TRAINER', 'TEACHER'), async (req, res, next) => {
   try {
     const session = await prisma.classSession.findUnique({
@@ -136,6 +160,14 @@ router.post('/', requireRole('ADMIN', 'PHYSICAL_TRAINER'), async (req, res, next
     const professor = await prisma.professor.findUnique({ where: { id: professorId } });
     if (!professor) return res.status(404).json({ success: false, error: 'Profesor no encontrado' });
 
+    // Auto-validación: al asignar el asistente, el coordinador/admin YA declaró
+    // su parte de la triple coincidencia. Se estampa desde la creación para que
+    // el pago se habilite solo cuando el profesor reporte ese mismo asistente y
+    // el asistente confirme (si el profesor lo cambia, el finalize la limpia).
+    const coordinatorStamp = (assistantId && COORDINATOR_ROLES.includes(req.user.role))
+      ? { coordinatorValidatedById: req.user.id, coordinatorValidatedAt: new Date() }
+      : {};
+
     const session = await prisma.classSession.create({
       data: {
         kind: 'MAKEUP',
@@ -146,6 +178,7 @@ router.post('/', requireRole('ADMIN', 'PHYSICAL_TRAINER'), async (req, res, next
         effectiveUnits: units,
         makeupProfessorId: professorId,
         assistantId: assistantId || null,
+        ...coordinatorStamp,
         reportedById: req.user.id,
         makeupParticipants: {
           create: [...new Set(studentIds)].map((studentId) => ({ studentId })),
@@ -168,12 +201,23 @@ router.put('/:id', requireRole('ADMIN', 'PHYSICAL_TRAINER'), async (req, res, ne
     if (!existing || existing.kind !== 'MAKEUP') {
       return res.status(404).json({ success: false, error: 'Reposición no encontrada' });
     }
+    if (await isSessionPeriodLocked(existing.date)) {
+      return res.status(409).json({ success: false, error: LOCKED_MSG });
+    }
 
     const data = {};
     if (date !== undefined) data.date = new Date(date);
     if (title !== undefined) data.title = title?.slice(0, 200) || 'Reposición grupal';
     if (professorId !== undefined) data.makeupProfessorId = professorId;
-    if (assistantId !== undefined) data.assistantId = assistantId || null;
+    if (assistantId !== undefined) {
+      data.assistantId = assistantId || null;
+      // Cambiar el asistente es una nueva declaración del coordinador: se vuelve
+      // a estampar su validación (o se limpia si lo dejó sin asistente).
+      if ((assistantId || null) !== (existing.assistantId || null)) {
+        data.coordinatorValidatedById = assistantId ? req.user.id : null;
+        data.coordinatorValidatedAt = assistantId ? new Date() : null;
+      }
+    }
     if (countsAsUnits !== undefined) {
       const units = parseFloat(countsAsUnits);
       if (!units || units <= 0 || units > 10) {
@@ -216,6 +260,9 @@ router.delete('/:id', requireRole('ADMIN', 'PHYSICAL_TRAINER'), async (req, res,
     if (!existing || existing.kind !== 'MAKEUP') {
       return res.status(404).json({ success: false, error: 'Reposición no encontrada' });
     }
+    if (await isSessionPeriodLocked(existing.date)) {
+      return res.status(409).json({ success: false, error: LOCKED_MSG });
+    }
     await prisma.costRecord.deleteMany({ where: { sessionId: req.params.id } });
     await prisma.attendanceRecord.deleteMany({ where: { sessionId: req.params.id } });
     await prisma.sessionEditLog.deleteMany({ where: { sessionId: req.params.id } });
@@ -247,6 +294,9 @@ router.post('/:id/finalize', async (req, res, next) => {
     }
     if (!(await canReportMakeup(req.user, session))) {
       return res.status(403).json({ success: false, error: 'No tienes permiso para reportar esta reposición' });
+    }
+    if (await isSessionPeriodLocked(session.date)) {
+      return res.status(409).json({ success: false, error: LOCKED_MSG });
     }
 
     // Re-finalizing is an edit: snapshot the previous state into an edit log
@@ -294,7 +344,7 @@ router.post('/:id/finalize', async (req, res, next) => {
     // su reporte ES la información del coordinador sobre el asistente — lo que
     // coincide se valida solo, sin clic extra en la cola. Si reporta el
     // profesor y CAMBIA el asistente, la validación previa deja de aplicar.
-    if (['ADMIN', 'SUPERADMIN', 'PHYSICAL_TRAINER'].includes(req.user.role)) {
+    if (COORDINATOR_ROLES.includes(req.user.role)) {
       sessionData.coordinatorValidatedById = req.user.id;
       sessionData.coordinatorValidatedAt = new Date();
     } else if (assistantId !== undefined && (assistantId || null) !== (session.assistantId || null)) {
@@ -354,6 +404,9 @@ router.post('/:id/cancel', async (req, res, next) => {
     }
     if (!(await canReportMakeup(req.user, session))) {
       return res.status(403).json({ success: false, error: 'No tienes permiso para cancelar esta reposición' });
+    }
+    if (await isSessionPeriodLocked(session.date)) {
+      return res.status(409).json({ success: false, error: LOCKED_MSG });
     }
 
     const reasonText = (cancellationReason && cancellationReason.trim())

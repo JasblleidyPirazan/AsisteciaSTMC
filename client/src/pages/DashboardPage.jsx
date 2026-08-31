@@ -143,7 +143,9 @@ export default function DashboardPage() {
         )}
 
         {isAssistant ? (
-          isExcluded ? null : <AssistantDayView groups={groups} loading={loading} date={date} />
+          // En un día excluido no hay clases regulares, pero sí puede haber
+          // reposiciones — el asistente igual debe poder marcar su acompañamiento.
+          <AssistantDayView groups={groups} loading={loading} date={date} showRegular={!isExcluded} />
         ) : (
           <>
             <PendingReportsAlert />
@@ -184,13 +186,13 @@ export default function DashboardPage() {
             )}
 
             {/* Rol dual: sección de acompañamiento como asistente */}
-            {alsoAssistant && !isExcluded && (
+            {alsoAssistant && (
               <div style={{ marginTop: 24, borderTop: '2px solid var(--gray-200)', paddingTop: 16 }}>
                 <h2 className="mb-1">🤝 Acompañamiento (asistente)</h2>
                 <p className="text-xs text-gray mb-3">
                   Además de tus grupos, marca aquí las clases del día que acompañaste como asistente.
                 </p>
-                <AssistantDayView groups={allGroups} loading={loading} date={date} />
+                <AssistantDayView groups={allGroups} loading={loading} date={date} showRegular={!isExcluded} />
               </div>
             )}
           </>
@@ -307,27 +309,55 @@ function PendingMakeups() {
 
   if (makeups.length === 0) return null;
 
+  // Una reposición ya dictada está pendiente de reporte (y su pago se suspende si
+  // no se reporta el mismo día); una futura solo se anuncia, todavía no se reporta.
+  const today = bogotaTodayStr();
+  const toReport = makeups.filter((m) => String(m.date).slice(0, 10) <= today);
+  const upcoming = makeups.filter((m) => String(m.date).slice(0, 10) > today);
+
+  function card(m, accent) {
+    return (
+      <div key={m.id} className="card card-tap mb-2" style={{ borderLeft: `3px solid ${accent}` }}
+        onClick={() => navigate(`/makeups/${m.id}/attendance`)}>
+        <div className="flex items-center justify-between">
+          <div>
+            <div className="font-medium">🔁 {m.title || 'Reposición grupal'}</div>
+            <div className="text-sm text-gray">
+              {fmtDate(m.date)} · {m.makeupProfessor?.name || '—'} · {m.makeupParticipants?.length || 0} est.
+              {m.assistant ? ` · 🤝 ${m.assistant.name}` : ''}
+            </div>
+          </div>
+          <span style={{ fontSize: '1.2rem' }}>›</span>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="mb-4">
-      <div className="flex items-center justify-between mb-3">
-        <h2>Reposiciones pendientes</h2>
-        <span className="badge badge-blue">{makeups.length}</span>
-      </div>
-      {makeups.map((m) => (
-        <div key={m.id} className="card card-tap mb-2" style={{ borderLeft: '3px solid var(--blue)' }}
-          onClick={() => navigate(`/makeups/${m.id}/attendance`)}>
-          <div className="flex items-center justify-between">
-            <div>
-              <div className="font-medium">🔁 {m.title || 'Reposición grupal'}</div>
-              <div className="text-sm text-gray">
-                {fmtDate(m.date)} · {m.makeupProfessor?.name || '—'} · {m.makeupParticipants?.length || 0} est.
-              </div>
-            </div>
-            <span style={{ fontSize: '1.2rem' }}>›</span>
+      {toReport.length > 0 && (
+        <>
+          <div className="flex items-center justify-between mb-3">
+            <h2>Reposiciones por reportar</h2>
+            <span className="badge badge-blue">{toReport.length}</span>
           </div>
-        </div>
-      ))}
+          <p className="text-xs text-gray mb-2">
+            Repórtalas el mismo día en que se dictaron: una reposición reportada tarde queda con el
+            pago suspendido, igual que una clase regular.
+          </p>
+          {toReport.map((m) => card(m, 'var(--blue)'))}
+        </>
+      )}
+
+      {upcoming.length > 0 && (
+        <>
+          <div className="flex items-center justify-between mb-3" style={{ marginTop: toReport.length ? 16 : 0 }}>
+            <h2>Próximas reposiciones</h2>
+            <span className="badge badge-gray">{upcoming.length}</span>
+          </div>
+          {upcoming.map((m) => card(m, 'var(--gray-300)'))}
+        </>
+      )}
     </div>
   );
 }
-
