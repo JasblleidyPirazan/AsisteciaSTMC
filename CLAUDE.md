@@ -236,14 +236,15 @@ Desde la base de datos o el seed, crear un `User` con `role: 'PHYSICAL_TRAINER'`
 - `GET /api/sessions` excluye reposiciones por defecto (`kind=REGULAR`); pasar `?kind=MAKEUP` para incluirlas
 
 ### Reposiciones grupales
-- `GET /api/makeups` — lista reposiciones (TEACHER solo las propias). Filtros: `status`, `date`, `from`, `to`
+- `GET /api/makeups` — lista reposiciones (TEACHER solo las propias; **ASSISTANT todas**, para marcar acompañamiento — sin la ficha de los estudiantes). Filtros: `status`, `date`, `from`, `to`
 - `GET /api/makeups/:id` — detalle con participantes y asistencia
 - `POST /api/makeups` (ADMIN, PHYSICAL_TRAINER) — crear: `{ date, title?, professorId, assistantId?, countsAsUnits, studentIds[] }`. Crea un `ClassSession` `kind=MAKEUP` con `effectiveUnits=countsAsUnits`
 - `PUT /api/makeups/:id` (ADMIN, PF) — editar meta/participantes (recalcula costos si ya estaba reportada)
 - `DELETE /api/makeups/:id` (ADMIN, PF) — eliminar (borra asistencia, costos, participantes)
 - `POST /api/makeups/:id/finalize` — reportar asistencia (ADMIN/PF cualquiera, TEACHER solo si es el profesor asignado/sustituto). Reemplaza registros, recalcula costos, guarda `SessionEditLog` en ediciones
 - `POST /api/makeups/:id/cancel` — cancelar con motivo
-- Los asistentes acompañan reposiciones vía el mismo `POST /api/sessions/:id/assist`
+- Los asistentes acompañan reposiciones vía el mismo `POST /api/sessions/:id/assist` (que ahora rechaza pisar la confirmación de otro asistente, 409, igual que la variante por grupo+fecha)
+- `finalize`/`cancel`/`PUT`/`DELETE` respetan el cierre de quincena (`isSessionPeriodLocked` → 409), igual que las clases regulares
 
 ### Estudiantes — gestión de grupos
 - `POST /api/students/:id/transfer` — cambiar grupo (registra historial). Body: `{ fromGroupId?, toGroupId, reason? }`
@@ -489,7 +490,7 @@ cd client && npm run build
 
 14. **Botones P/A/J:** las clases CSS de estado son en inglés (`.present/.absent/.justified`) — el mapeo está en `STATUS_CLASS` de Step3Students.jsx. La opción seleccionada lleva además `.selected` (escala + sombra) y las no seleccionadas `.dim`.
 
-15. **Reposiciones grupales (módulo):** Una reposición es un `ClassSession` con `kind=MAKEUP` y `groupId=null`. El admin o PF la crea en `/admin/makeups` asignando fecha, profesor, asistente (opcional), estudiantes (`MakeupParticipant`) y **"por cuántas asistencias cuenta"** (`effectiveUnits`). Luego se reporta su asistencia con el mismo motor de costos (`MakeupAttendancePage` → `POST /makeups/:id/finalize`). El pago al profesor = `getBracketRate(presentes) × effectiveUnits` (todos los participantes cuentan como REGULAR, no reposición). Como genera `CostRecord`, aparece automáticamente en liquidación quincenal y en el reporte de profesor (que ahora incluye sesiones con `makeupProfessorId`/`substituteProfessorId`). Aparecen en el Dashboard de profesor/PF como "Reposiciones pendientes". El `GET /sessions` normal las **excluye** (filtra `kind=REGULAR`).
+15. **Reposiciones grupales (módulo):** Una reposición es un `ClassSession` con `kind=MAKEUP` y `groupId=null`. El admin o PF la crea en `/admin/makeups` asignando fecha, profesor, asistente (opcional), estudiantes (`MakeupParticipant`) y **"por cuántas asistencias cuenta"** (`effectiveUnits`). Luego se reporta su asistencia con el mismo motor de costos (`MakeupAttendancePage` → `POST /makeups/:id/finalize`). El pago al profesor = `getBracketRate(presentes) × effectiveUnits` (todos los participantes cuentan como REGULAR, no reposición). Como genera `CostRecord`, aparece automáticamente en liquidación quincenal y en el reporte de profesor (que ahora incluye sesiones con `makeupProfessorId`/`substituteProfessorId`). El `GET /sessions` normal las **excluye** (filtra `kind=REGULAR`). **Flujo completo (como una clase normal):** el **coordinador** la crea → le aparece al **profesor titular** en su Dashboard, separada en "Reposiciones por reportar" (fecha ≤ hoy, con aviso de pago suspendido por reporte tardío) y "Próximas reposiciones" (informativas) → le aparece al **asistente** en su vista del día, en la sección "🔁 Reposiciones del día" con el mismo toggle de acompañamiento (badge "Asignada a ti" si el coordinador lo asignó; visible también en días excluidos del semestre, donde no hay clases regulares) → el profesor la reporta y corre el motor de costos. **Auto-validación del asistente:** al asignarlo en la creación/edición, el coordinador ya declaró su parte de la triple coincidencia, así que se estampa `coordinatorValidated*` desde ahí; si el profesor reporta ese mismo asistente el pago queda PAYABLE en cuanto el asistente confirme, y si lo cambia la validación se limpia y vuelve a la cola de Validación.
 
 16. **Pago en Dashboard admin:** muestra el **pago de la quincena actual** (`totalPayableThisPeriod`, agregado por `period` = `getCurrentPeriod()`), no el total mensual. La liquidación es quincenal en todo el sistema.
 

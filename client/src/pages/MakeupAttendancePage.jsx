@@ -167,6 +167,12 @@ export default function MakeupAttendancePage() {
             <option value="">Sin asistente</option>
             {assistants.map((a) => <option key={a.id} value={a.id}>{a.name}</option>)}
           </select>
+          {makeup.assistant && (
+            <p className="text-xs text-gray mt-1">
+              🤝 {makeup.assistant.name} fue asignado por el coordinador. Si acompañó otra persona,
+              cámbialo aquí: el pago del asistente quedará pendiente hasta que el coordinador lo valide.
+            </p>
+          )}
         </div>
 
         {/* Stats */}
