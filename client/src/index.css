@@ -875,3 +875,10 @@ input.form-input, select.form-select, textarea.form-input {
   padding: 10px 14px; border-radius: 10px; font-weight: 600; font-size: 0.85rem;
   margin-bottom: 12px; box-shadow: 0 4px 14px rgba(0,0,0,0.15);
 }
+
+/* Seguimiento de Estudiantes (Reportes → Estudiantes): tabla densa — son
+   muchas columnas numéricas y deben caber sin desplazamiento horizontal. */
+.tracking-table th, .tracking-table td { padding: 8px 9px; }
+.tracking-table thead th { font-size: 0.68rem; letter-spacing: 0.02em; }
+.tracking-table tbody td { font-size: 0.85rem; }
+.tracking-table tfoot td { padding: 10px 9px; font-size: 0.85rem; }

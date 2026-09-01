@@ -1,4 +1,5 @@
 const express = require('express');
+const XLSX = require('xlsx');
 const prisma = require('../lib/prisma');
 const { requireRole } = require('../middleware/auth');
 const { getCurrentPeriod } = require('../services/costEngine');
@@ -7,6 +8,7 @@ const { computeAttendanceDeviations } = require('../services/attendanceAlerts');
 const { byGroupCode } = require('../lib/sort');
 const { bogotaToday, bogotaDateStr, bogotaMinutesOfDay } = require('../lib/dates');
 const { attachStudentStatus } = require('../services/studentStatus');
+const { buildTrackingRows, consumedTotal, progressPct } = require('../services/studentTracking');
 
 const router = express.Router();
 
@@ -111,6 +113,131 @@ router.get('/student/:studentId', requireRole('ADMIN', 'PHYSICAL_TRAINER', 'TEAC
         },
       },
     });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// ─── Seguimiento de estudiantes (Reportes → Estudiantes) ──────────────────
+// Una fila por estudiante activo con el consumo de su paquete de clases en el
+// rango (por defecto, el semestre activo): adquiridas, asistencias, faltas,
+// justificadas, N/A, reposiciones, clases caídas por lluvia y % de avance.
+// La lógica de conteo vive en services/studentTracking.js (unit-testeada).
+
+const TRACKING_STATUS_LABEL = {
+  MATRICULADO: 'Matriculado',
+  INSCRITO: 'Inscrito',
+  PREINSCRITO: 'Preinscrito',
+  PRUEBA: 'Prueba',
+  SUSPENDIDO: 'Suspendido',
+  INACTIVO: 'Inactivo',
+};
+
+async function loadStudentTracking(query = {}) {
+  const semester = await prisma.semester.findFirst({ where: { active: true } });
+  const from = query.from ? new Date(query.from) : (semester?.startDate || null);
+  const to = query.to ? new Date(query.to) : (semester?.endDate || null);
+  const range = {};
+  if (from) range.gte = from;
+  if (to) range.lte = to;
+  const dateFilter = Object.keys(range).length ? range : undefined;
+
+  const students = await prisma.student.findMany({
+    where: { active: true },
+    select: {
+      id: true, name: true, document: true, isTrial: true, active: true, birthDate: true,
+      classesAcquired: true, previousClasses: true, classesStartDate: true,
+      suspendedFrom: true, suspendedUntil: true,
+      enrollments: {
+        select: {
+          enrollmentType: true,
+          group: { select: { id: true, code: true, ballLevel: true, professor: { select: { name: true } } } },
+        },
+        orderBy: { enrollmentType: 'asc' }, // PRIMARY antes que SECONDARY
+      },
+    },
+    orderBy: { name: 'asc' },
+  });
+
+  const ids = students.map((s) => s.id);
+  const groupIds = [...new Set(students.flatMap((s) => s.enrollments.map((e) => e.group?.id).filter(Boolean)))];
+
+  const [records, rainSessions, decorated] = await Promise.all([
+    ids.length
+      ? prisma.attendanceRecord.findMany({
+          where: { studentId: { in: ids }, ...(dateFilter ? { session: { date: dateFilter } } : {}) },
+          select: {
+            studentId: true, status: true, attendanceType: true,
+            session: { select: { date: true, kind: true } },
+          },
+        })
+      : [],
+    groupIds.length
+      ? prisma.classSession.findMany({
+          where: {
+            groupId: { in: groupIds }, status: 'CANCELADA', cancellationCategory: 'LLUVIA',
+            ...(dateFilter ? { date: dateFilter } : {}),
+          },
+          select: { groupId: true, date: true },
+        })
+      : [],
+    attachStudentStatus(students), // estado derivado (✅/🔵/📝/🧪/⏸️) — sin montos
+  ]);
+
+  const rainDatesByGroup = {};
+  for (const s of rainSessions) (rainDatesByGroup[s.groupId] ||= []).push(s.date);
+
+  const rows = buildTrackingRows({ students: decorated, records, rainDatesByGroup });
+  return {
+    semester: semester ? { id: semester.id, name: semester.name, startDate: semester.startDate, endDate: semester.endDate } : null,
+    from, to, rows,
+  };
+}
+
+router.get('/students-tracking', requireRole('ADMIN', 'PHYSICAL_TRAINER'), async (req, res, next) => {
+  try {
+    res.json({ success: true, data: await loadStudentTracking(req.query) });
+  } catch (err) {
+    next(err);
+  }
+});
+
+router.get('/students-tracking/export', requireRole('ADMIN', 'PHYSICAL_TRAINER'), async (req, res, next) => {
+  try {
+    // Mismo criterio que la vista: la ausencia consume clase salvo que se pida
+    // lo contrario (?countAbsences=false).
+    const countAbsences = req.query.countAbsences !== 'false';
+    const { rows, semester } = await loadStudentTracking(req.query);
+
+    const data = rows.map((r) => ({
+      Documento: r.document || '',
+      Nombre: r.name,
+      Grupo: r.groupCode || 'Sin grupo',
+      'Otros grupos': r.otherGroups.join(', '),
+      Nivel: r.groupLevel || '',
+      Profesor: r.professor || '',
+      Estado: TRACKING_STATUS_LABEL[r.studentStatus] || r.studentStatus || '',
+      'Inicio de clases': r.classesStartDate ? new Date(r.classesStartDate).toISOString().slice(0, 10) : '',
+      Adquiridas: r.acquired,
+      'Clases semestre anterior': r.previousClasses,
+      Asistencias: r.present,
+      Ausencias: r.absent,
+      Justificadas: r.justified,
+      'N/A': r.na,
+      Reposiciones: r.makeup,
+      Lluvia: r.rain,
+      Total: consumedTotal(r, countAbsences),
+      '% Avance': progressPct(r, countAbsences),
+    }));
+
+    const ws = XLSX.utils.json_to_sheet(data.length ? data : [{ Nombre: 'Sin estudiantes' }]);
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, 'Seguimiento');
+    const buffer = XLSX.write(wb, { type: 'buffer', bookType: 'xlsx' });
+    const tag = semester?.name ? `-${String(semester.name).replace(/[^\w-]+/g, '_')}` : '';
+    res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+    res.setHeader('Content-Disposition', `attachment; filename="seguimiento-estudiantes${tag}.xlsx"`);
+    res.send(buffer);
   } catch (err) {
     next(err);
   }

@@ -2,8 +2,9 @@ import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { api } from '../../api/client';
 import { fmtDate as fmt } from '../../utils/dates';
+import StudentTracking from './StudentTracking';
 
-const TABS = ['Grupo', 'Estudiante', 'Asistente', 'Profesor', 'Clase'];
+const TABS = ['Grupo', 'Estudiantes', 'Asistente', 'Profesor', 'Clase'];
 function fmtCOP(n) {
   return new Intl.NumberFormat('es-CO', { style: 'currency', currency: 'COP', maximumFractionDigits: 0 }).format(n || 0);
 }
@@ -17,14 +18,12 @@ export default function ReportsPage() {
   const navigate = useNavigate();
   const [tab, setTab] = useState(0);
   const [groups, setGroups] = useState([]);
-  const [students, setStudents] = useState([]);
   const [assistants, setAssistants] = useState([]);
   const [professors, setProfessors] = useState([]);
   const [sessions, setSessions] = useState([]);
   const [loadingLists, setLoadingLists] = useState(true);
 
   const [groupId, setGroupId] = useState('');
-  const [studentId, setStudentId] = useState('');
   const [assistantId, setAssistantId] = useState('');
   const [professorId, setProfessorId] = useState('');
   const [sessionId, setSessionId] = useState('');
@@ -39,10 +38,9 @@ export default function ReportsPage() {
   useEffect(() => {
     Promise.all([
       api.get('/groups', { active: 'true' }),
-      api.get('/students', { active: 'true' }),
       api.get('/assistants', { active: 'true' }),
       api.get('/professors', { active: 'true' }),
-    ]).then(([g, s, a, p]) => { setGroups(g); setStudents(s); setAssistants(a); setProfessors(p); })
+    ]).then(([g, a, p]) => { setGroups(g); setAssistants(a); setProfessors(p); })
       .finally(() => setLoadingLists(false));
   }, []);
 
@@ -78,7 +76,6 @@ export default function ReportsPage() {
 
       let result;
       if (tab === 0) result = await api.get(`/reports/group/${groupId}`, params);
-      else if (tab === 1) result = await api.get(`/reports/student/${studentId}`, params);
       else if (tab === 2) result = await api.get(`/reports/assistant/${assistantId}`, params);
       else if (tab === 3) result = await api.get(`/reports/professor/${professorId}`, params);
       else result = await api.get(`/reports/class/${sessionId}`);
@@ -93,13 +90,12 @@ export default function ReportsPage() {
 
   const canSearch =
     (tab === 0 && groupId) ||
-    (tab === 1 && studentId) ||
     (tab === 2 && assistantId) ||
     (tab === 3 && professorId) ||
     (tab === 4 && sessionId);
 
   return (
-    <div className="page">
+    <div className="page page-wide">
       <div className="page-header">
         <button className="nav-back" onClick={() => navigate('/admin')}>←</button>
         <h1>Reportes</h1>
@@ -119,6 +115,8 @@ export default function ReportsPage() {
           ))}
         </div>
 
+        {tab === 1 ? <StudentTracking /> : (
+        <>
         <form onSubmit={handleSearch}>
           {!loadingLists && (
             <div className="form-group">
@@ -128,15 +126,6 @@ export default function ReportsPage() {
                   <select className="form-input form-select" value={groupId} onChange={(e) => setGroupId(e.target.value)}>
                     <option value="">Seleccionar grupo</option>
                     {groups.map((g) => <option key={g.id} value={g.id}>{g.code}</option>)}
-                  </select>
-                </>
-              )}
-              {tab === 1 && (
-                <>
-                  <label className="form-label">Estudiante</label>
-                  <select className="form-input form-select" value={studentId} onChange={(e) => setStudentId(e.target.value)}>
-                    <option value="">Seleccionar estudiante</option>
-                    {students.map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}
                   </select>
                 </>
               )}
@@ -204,10 +193,11 @@ export default function ReportsPage() {
         {error && <div className="alert alert-error mt-3">{error}</div>}
 
         {data && tab === 0 && <GroupReport data={data} />}
-        {data && tab === 1 && <StudentReport data={data} />}
         {data && tab === 2 && <AssistantReport data={data} />}
         {data && tab === 3 && <ProfessorReport data={data} />}
         {data && tab === 4 && <ClassReport data={data} />}
+        </>
+        )}
       </div>
     </div>
   );
@@ -246,39 +236,6 @@ function GroupReport({ data }) {
         </div>
       ))}
       {sessions.length === 0 && <div className="alert alert-info">Sin sesiones en el período.</div>}
-    </div>
-  );
-}
-
-function StudentReport({ data }) {
-  const { records = [], summary = {} } = data;
-  return (
-    <div className="mt-4">
-      <div className="stats-row mb-3">
-        <div className="stat-box"><div className="num">{summary.total || 0}</div><div className="lbl">Total</div></div>
-        <div className="stat-box"><div className="num">{summary.present || 0}</div><div className="lbl">Presentes</div></div>
-        <div className="stat-box"><div className="num">{summary.absent || 0}</div><div className="lbl">Ausentes</div></div>
-        <div className="stat-box"><div className="num">{summary.attendanceRate || 0}%</div><div className="lbl">Asistencia</div></div>
-      </div>
-      {records.map((r) => (
-        <div key={r.id} className="card mb-2">
-          <div className="flex items-center justify-between">
-            <div>
-              <div className="text-sm font-medium">{fmt(r.session?.date)}</div>
-              <div className="text-xs text-gray">{r.session?.group?.code}</div>
-              {r.justification && <div className="text-xs text-gray">{r.justification}</div>}
-            </div>
-            <span style={{
-              fontWeight: 700, fontSize: '1rem', width: 32, height: 32, borderRadius: '50%',
-              display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0,
-              background: ATTENDANCE_COLOR[r.status] + '20', color: ATTENDANCE_COLOR[r.status],
-            }}>
-              {ATTENDANCE_LABEL[r.status]}
-            </span>
-          </div>
-        </div>
-      ))}
-      {records.length === 0 && <div className="alert alert-info">Sin registros en el período.</div>}
     </div>
   );
 }
