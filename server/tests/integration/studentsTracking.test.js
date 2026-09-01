@@ -13,7 +13,7 @@ function authAs(role, id = 'u1') {
   return tokenFor({ id, role });
 }
 
-const group = (id, code) => ({ id, code, ballLevel: 'Verde', professor: { name: 'Ana' } });
+const group = (id, code) => ({ id, code, ballLevel: 'Verde', professor: { name: 'Ana' }, lunes: true, miercoles: true });
 
 // Dos estudiantes: uno con paquete consumido, otro recién preinscrito.
 const STUDENTS = [
@@ -53,6 +53,7 @@ beforeEach(async () => {
     findMany: vi.fn().mockResolvedValue([{ groupId: 'g1', date: new Date('2026-03-16') }]),
   };
   prismaMock.attendanceRecord = { findMany: vi.fn().mockResolvedValue(RECORDS) };
+  prismaMock.semesterExclusion = { findMany: vi.fn().mockResolvedValue([]) };
   await mockStudentStatusDeps();
   // attachStudentStatus vuelve a leer attendanceRecord.findMany (AUSENTE en
   // festival); el mock de arriba sirve para ambas llamadas.
@@ -79,10 +80,43 @@ describe('GET /reports/students-tracking — Seguimiento de Estudiantes', () => 
 
     expect(a).toMatchObject({
       name: 'Alana Cortés', document: '1001', groupCode: 'MJ1522', professor: 'Ana',
-      acquired: 40, present: 1, absent: 1, justified: 1, na: 1, makeup: 1, rain: 1,
+      acquired: 40, present: 1, absent: 1, justified: 1, na: 1, makeup: 1, rain: 1, holiday: 0,
     });
     expect(a.studentStatus).toBe('INSCRITO'); // tiene asistencia
     expect(b).toMatchObject({ name: 'Benjamín Ossa', groupCode: null, acquired: 0, present: 0, rain: 0 });
+  });
+
+  it('sin semestre activo no cuenta festivos (no hay calendario de exclusiones)', async () => {
+    const res = await request(app).get('/api/reports/students-tracking')
+      .set('Authorization', `Bearer ${authAs('ADMIN')}`);
+    expect(prismaMock.semesterExclusion.findMany).not.toHaveBeenCalled();
+    expect(res.body.data.rows[0].holiday).toBe(0);
+  });
+
+  it('cuenta los festivos del semestre que caen en un día de clase del grupo', async () => {
+    prismaMock.semester.findFirst = vi.fn().mockResolvedValue({
+      id: 'sem1', name: '2026-1', startDate: new Date('2026-01-15'), endDate: new Date('2026-06-30'),
+    });
+    // 2026-03-09 lunes (sí es día del grupo) y 2026-03-13 viernes (no lo es).
+    prismaMock.semesterExclusion.findMany = vi.fn().mockResolvedValue([
+      { date: new Date('2026-03-09') }, { date: new Date('2026-03-13') },
+    ]);
+    const res = await request(app).get('/api/reports/students-tracking')
+      .set('Authorization', `Bearer ${authAs('ADMIN')}`);
+    const [a, b] = res.body.data.rows;
+    expect(a.holiday).toBe(1);
+    expect(b.holiday).toBe(0); // sin grupos, no pierde clases
+  });
+
+  it('los festivos se cortan en el día de hoy (uno futuro no es clase perdida)', async () => {
+    prismaMock.semester.findFirst = vi.fn().mockResolvedValue({
+      id: 'sem1', name: '2026-1', startDate: new Date('2026-01-15'), endDate: new Date('2026-06-30'),
+    });
+    await request(app).get('/api/reports/students-tracking')
+      .set('Authorization', `Bearer ${authAs('ADMIN')}`);
+    const where = prismaMock.semesterExclusion.findMany.mock.calls[0][0].where;
+    expect(where.semesterId).toBe('sem1');
+    expect(where.date.lte.getTime()).toBeLessThanOrEqual(Date.now());
   });
 
   it('nunca expone montos de matrícula en la tabla', async () => {

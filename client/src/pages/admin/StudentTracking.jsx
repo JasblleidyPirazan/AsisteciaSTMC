@@ -120,8 +120,8 @@ export default function StudentTracking() {
   const totals = useMemo(() => visible.reduce((t, r) => ({
     acquired: t.acquired + r.acquired, present: t.present + r.present, absent: t.absent + r.absent,
     justified: t.justified + r.justified, na: t.na + r.na, makeup: t.makeup + r.makeup,
-    rain: t.rain + r.rain, total: t.total + r.total,
-  }), { acquired: 0, present: 0, absent: 0, justified: 0, na: 0, makeup: 0, rain: 0, total: 0 }), [visible]);
+    rain: t.rain + r.rain, holiday: t.holiday + r.holiday, total: t.total + r.total,
+  }), { acquired: 0, present: 0, absent: 0, justified: 0, na: 0, makeup: 0, rain: 0, holiday: 0, total: 0 }), [visible]);
   const totalsPct = totals.acquired ? Math.round((totals.total / totals.acquired) * 1000) / 10 : null;
 
   const rangeLabel = data?.semester
@@ -256,7 +256,7 @@ export default function StudentTracking() {
             <table className="data-table tracking-table">
               <thead>
                 <tr>
-                  <SortTh label="Documento" col="document" sort={sort} setSort={setSort} />
+                  <SortTh label="Doc." col="document" sort={sort} setSort={setSort} title="Documento de identidad — ordenar" />
                   <SortTh label="Nombre" col="name" sort={sort} setSort={setSort} />
                   <SortTh label="Grupo" col="groupCode" sort={sort} setSort={setSort} />
                   <SortTh label="Adq." col="acquired" sort={sort} setSort={setSort} numeric className="num" title="Clases adquiridas (incluye las pendientes del semestre anterior)" />
@@ -266,6 +266,7 @@ export default function StudentTracking() {
                   <SortTh label="N/A" col="na" sort={sort} setSort={setSort} numeric className="num" title="No aplica: el día no le corresponde (no consume clase)" />
                   <SortTh label="Rep." col="makeup" sort={sort} setSort={setSort} numeric className="num" title="Reposiciones a las que asistió" />
                   <SortTh label="Lluvia" col="rain" sort={sort} setSort={setSort} numeric className="num" title="Clases de sus grupos canceladas por lluvia" />
+                  <SortTh label="Festivos" col="holiday" sort={sort} setSort={setSort} numeric className="num" title="Clases que no se dictaron porque el día cayó en una fecha excluida del semestre (festivo o vacaciones)" />
                   <SortTh label="Total" col="total" sort={sort} setSort={setSort} numeric className="num" title="Clases consumidas del paquete" />
                   <SortTh label="% Avance" col="pct" sort={sort} setSort={setSort} numeric title="Total consumido sobre clases adquiridas" />
                   <th style={{ textAlign: 'center' }}>Ficha</th>
@@ -290,8 +291,9 @@ export default function StudentTracking() {
                     <td className="num text-gray">{r.na || '—'}</td>
                     <td className="num" style={{ color: r.makeup > 0 ? 'var(--brand-violet)' : 'var(--gray-400)' }}>{r.makeup || '—'}</td>
                     <td className="num" style={{ color: r.rain > 0 ? 'var(--brand-aqua)' : 'var(--gray-400)' }}>{r.rain || '—'}</td>
+                    <td className="num" style={{ color: r.holiday > 0 ? 'var(--orange)' : 'var(--gray-400)' }}>{r.holiday || '—'}</td>
                     <td className="num font-medium">{r.total}</td>
-                    <td style={{ minWidth: 108 }}><PctBar pct={r.pct} /></td>
+                    <td style={{ minWidth: 100 }}><PctBar pct={r.pct} /></td>
                     <td style={{ textAlign: 'center' }}>
                       <button className="btn btn-ghost" style={{ minHeight: 30, padding: '0 8px', fontSize: '0.9rem' }}
                         title={`Ficha PDF de ${r.name}`}
@@ -314,6 +316,7 @@ export default function StudentTracking() {
                   <td className="num">{totals.na}</td>
                   <td className="num">{totals.makeup}</td>
                   <td className="num">{totals.rain}</td>
+                  <td className="num">{totals.holiday}</td>
                   <td className="num">{totals.total}</td>
                   <td><PctBar pct={totalsPct} /></td>
                   <td></td>
@@ -345,6 +348,7 @@ export default function StudentTracking() {
                 <div className="text-xs text-gray mt-2">
                   Adq. {r.acquired || '—'} · Asist. {r.present} · Aus. {r.absent} · Just. {r.justified}
                   {r.na > 0 && ` · N/A ${r.na}`} · Rep. {r.makeup} · 🌧️ {r.rain}
+                  {r.holiday > 0 && ` · 📅 ${r.holiday} festivos`}
                 </div>
                 <div className="mt-2">
                   <div className="text-xs text-gray mb-1">{r.total} de {r.acquired || '—'} clases consumidas</div>
@@ -360,6 +364,7 @@ export default function StudentTracking() {
         Adq. = clases adquiridas (incluye las pendientes del semestre anterior) · Asist. = asistencias ·
         Aus. = faltas sin justificar, contadas solo desde su fecha de inicio de clases · Just. = justificadas (no consumen clase) ·
         N/A = el día no le corresponde · Rep. = reposiciones a las que asistió · Lluvia = clases de sus grupos canceladas por lluvia ·
+        Festivos = clases que no se dictaron porque el día cayó en una fecha excluida del semestre (festivo o vacaciones) ·
         Total = clases consumidas del paquete{countAbsences ? ' (asistencias + faltas + reposiciones)' : ' (asistencias + reposiciones)'} ·
         % Avance = Total / Adq.
       </p>
@@ -475,12 +480,13 @@ function fichaHtml(r, rangeLabel, countAbsences) {
       ${cell('No aplica', r.na, '#7C8BA8')}
       ${cell('Reposiciones', r.makeup, '#7A5AF8')}
       ${cell('Por lluvia', r.rain, '#4F9FB2')}
+      ${cell('Por festivos', r.holiday, '#E8A23B')}
       ${cell('Total consumidas', r.total, '#141E45')}
     </div>
     <p class="note">
       Total consumidas = asistencias${countAbsences ? ' + faltas' : ''} + reposiciones.
       Las justificadas y los días marcados "no aplica" no consumen clase.
-      Las clases canceladas por lluvia no se cobran del paquete.
+      Las clases canceladas por lluvia y las que caen en festivos no se cobran del paquete.
     </p>
     <footer>Generado el ${new Date().toLocaleDateString('es-CO', { day: '2-digit', month: 'long', year: 'numeric' })}</footer>
   </section>`;
@@ -507,7 +513,7 @@ export function printFichas(rows, { rangeLabel = '', countAbsences = true } = {}
   .bar { height: 10px; border-radius: 99px; background: #E6EAF3; overflow: hidden; }
   .bar > span { display: block; height: 100%; border-radius: 99px; }
   .pfoot { font-size: 13px; margin-top: 8px; color: #3F4A6B; }
-  .metrics { display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; }
+  .metrics { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; }
   .m { border: 1px solid #E6EAF3; border-radius: 10px; padding: 12px 10px; text-align: center; }
   .mv { font-size: 20px; font-weight: 700; line-height: 1; }
   .ml { font-size: 10px; color: #6F7BA6; margin-top: 5px; text-transform: uppercase; letter-spacing: 0.04em; }

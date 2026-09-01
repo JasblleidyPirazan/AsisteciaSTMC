@@ -11,6 +11,9 @@
 //   Rep.    PRESENTE en reposición (sesión kind=MAKEUP o registro REPOSICION)
 //   Lluvia  clases de sus grupos canceladas por lluvia (informativa: no las vio
 //           ni las consumió, pero explican por qué va atrasado)
+//   Festivos clases que no se dictaron porque el día cayó en una fecha excluida
+//           del semestre (festivo o vacaciones). Igual que Lluvia: informativa,
+//           no consume paquete — la Escuela no dictó esa clase
 //   Total   clases consumidas del paquete
 //   % Av.   Total / Adq.
 //
@@ -22,6 +25,11 @@
 // En ambos casos las AUSENTE de festival ya vienen dentro de `absent`, que es
 // donde attendanceStats las cuenta como clase vista.
 const { absenceCounts } = require('./attendanceStats');
+const { dbDateStr } = require('../lib/dates');
+
+// Banderas de día del grupo indexadas por getUTCDay() (0 = domingo), igual que
+// en services/schedule.js.
+const DAY_FIELDS = ['domingo', 'lunes', 'martes', 'miercoles', 'jueves', 'viernes', 'sabado'];
 
 // Una reposición es una sesión kind=MAKEUP (reposición grupal) o un registro
 // marcado REPOSICION dentro de una clase regular (estudiante invitado).
@@ -30,7 +38,7 @@ function isMakeupRecord(record) {
 }
 
 function emptyCounts() {
-  return { present: 0, absent: 0, justified: 0, na: 0, makeup: 0, rain: 0 };
+  return { present: 0, absent: 0, justified: 0, na: 0, makeup: 0, rain: 0, holiday: 0 };
 }
 
 // Agrega los registros de asistencia de UN estudiante.
@@ -65,12 +73,30 @@ function countRain(groupIds, rainDatesByGroup, classesStartDate) {
   return n;
 }
 
+// Clases no dictadas por festivos: fechas excluidas del semestre (festivos y
+// vacaciones) que caían en un día de clase de alguno de sus grupos. No hay
+// ClassSession que contar — la clase nunca se programó — así que se cruza el
+// calendario del grupo contra las exclusiones, igual que hace
+// services/schedule.js para las clases esperadas. Se cuenta desde la fecha de
+// inicio de clases del estudiante; un estudiante en dos grupos que coinciden
+// el mismo festivo pierde dos clases.
+function countHolidays(groups, exclusionDates = [], classesStartDate) {
+  if (groups.length === 0 || exclusionDates.length === 0) return 0;
+  let n = 0;
+  for (const date of exclusionDates) {
+    if (!absenceCounts(date, classesStartDate)) continue;
+    const dayField = DAY_FIELDS[new Date(`${dbDateStr(date)}T00:00:00.000Z`).getUTCDay()];
+    for (const g of groups) if (g && g[dayField]) n += 1;
+  }
+  return n;
+}
+
 function primaryEnrollment(enrollments = []) {
   return enrollments.find((e) => e.enrollmentType === 'PRIMARY') || enrollments[0] || null;
 }
 
 // Función pura: recibe los datos ya leídos de la BD y arma las filas.
-function buildTrackingRows({ students = [], records = [], rainDatesByGroup = {} }) {
+function buildTrackingRows({ students = [], records = [], rainDatesByGroup = {}, exclusionDates = [] }) {
   const byStudent = {};
   for (const r of records) (byStudent[r.studentId] ||= []).push(r);
 
@@ -79,6 +105,7 @@ function buildTrackingRows({ students = [], records = [], rainDatesByGroup = {} 
     const enrollments = s.enrollments || [];
     const primary = primaryEnrollment(enrollments);
     const groupIds = enrollments.map((e) => e.group?.id).filter(Boolean);
+    const groups = enrollments.map((e) => e.group).filter(Boolean);
     // Adquiridas = las del semestre + las que quedaron pendientes del anterior.
     const acquired = (s.classesAcquired || 0) + (s.previousClasses || 0);
 
@@ -99,6 +126,7 @@ function buildTrackingRows({ students = [], records = [], rainDatesByGroup = {} 
       previousClasses: s.previousClasses || 0,
       ...counts,
       rain: countRain(groupIds, rainDatesByGroup, s.classesStartDate),
+      holiday: countHolidays(groups, exclusionDates, s.classesStartDate),
     };
   });
 }
@@ -113,4 +141,4 @@ function progressPct(row, countAbsences = true) {
   return Math.round((consumedTotal(row, countAbsences) / row.acquired) * 1000) / 10;
 }
 
-module.exports = { buildTrackingRows, countRecords, countRain, consumedTotal, progressPct, isMakeupRecord };
+module.exports = { buildTrackingRows, countRecords, countRain, countHolidays, consumedTotal, progressPct, isMakeupRecord };

@@ -151,7 +151,15 @@ async function loadStudentTracking(query = {}) {
       enrollments: {
         select: {
           enrollmentType: true,
-          group: { select: { id: true, code: true, ballLevel: true, professor: { select: { name: true } } } },
+          group: {
+            select: {
+              id: true, code: true, ballLevel: true, professor: { select: { name: true } },
+              // Banderas de día: cruzan el calendario del grupo con los
+              // festivos del semestre (clases que no se dictaron).
+              lunes: true, martes: true, miercoles: true, jueves: true,
+              viernes: true, sabado: true, domingo: true,
+            },
+          },
         },
         orderBy: { enrollmentType: 'asc' }, // PRIMARY antes que SECONDARY
       },
@@ -187,7 +195,21 @@ async function loadStudentTracking(query = {}) {
   const rainDatesByGroup = {};
   for (const s of rainSessions) (rainDatesByGroup[s.groupId] ||= []).push(s.date);
 
-  const rows = buildTrackingRows({ students: decorated, records, rainDatesByGroup });
+  // Festivos: fechas excluidas del semestre. Se cortan en el día de hoy para
+  // que la columna cuente lo que YA pasó, igual que el resto de la tabla (un
+  // festivo de diciembre no es todavía una clase perdida).
+  const today = bogotaToday();
+  const exclusionDates = semester
+    ? (await prisma.semesterExclusion.findMany({
+        where: {
+          semesterId: semester.id,
+          date: { ...(from ? { gte: from } : {}), lte: to && to < today ? to : today },
+        },
+        select: { date: true },
+      })).map((e) => e.date)
+    : [];
+
+  const rows = buildTrackingRows({ students: decorated, records, rainDatesByGroup, exclusionDates });
   return {
     semester: semester ? { id: semester.id, name: semester.name, startDate: semester.startDate, endDate: semester.endDate } : null,
     from, to, rows,
@@ -226,6 +248,7 @@ router.get('/students-tracking/export', requireRole('ADMIN', 'PHYSICAL_TRAINER')
       'N/A': r.na,
       Reposiciones: r.makeup,
       Lluvia: r.rain,
+      Festivos: r.holiday,
       Total: consumedTotal(r, countAbsences),
       '% Avance': progressPct(r, countAbsences),
     }));
