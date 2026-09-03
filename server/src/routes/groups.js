@@ -5,7 +5,7 @@ const { requireRole } = require('../middleware/auth');
 const { notSuspended } = require('../lib/filters');
 const { byGroupCode } = require('../lib/sort');
 const { bogotaDayOfWeek } = require('../lib/dates');
-const { seenAttendanceFilter, absenceCounts } = require('../services/attendanceStats');
+const { seenAttendanceFilter, absenceCounts, attendanceUnits, roundUnits } = require('../services/attendanceStats');
 const { attachStudentStatus, stripTuition } = require('../services/studentStatus');
 
 const router = express.Router();
@@ -235,6 +235,8 @@ router.get('/:id/students', async (req, res, next) => {
 
     // Attach "classes seen / acquired": seen = PRESENTE attendance records within
     // the active semester (falls back to all-time if no semester is active).
+    // Cada registro suma las unidades de su sesión: una reposición doble
+    // (effectiveUnits = 2) recupera 2 clases del paquete, no 1.
     const studentIds = students.map((s) => s.id);
     const seenById = {};
     if (studentIds.length > 0) {
@@ -250,14 +252,18 @@ router.get('/:id/students', async (req, res, next) => {
             ...(dateFilter ? [{ session: { date: dateFilter } }] : []),
           ],
         },
-        select: { studentId: true, status: true, session: { select: { date: true } } },
+        select: {
+          studentId: true, status: true,
+          session: { select: { date: true, effectiveUnits: true } },
+        },
       });
       const startById = Object.fromEntries(students.map((s) => [s.id, s.classesStartDate]));
       for (const r of present) {
         // AUSENTE de festival anterior al inicio de clases: no consume paquete
         if (r.status === 'AUSENTE' && !absenceCounts(r.session?.date, startById[r.studentId])) continue;
-        seenById[r.studentId] = (seenById[r.studentId] || 0) + 1;
+        seenById[r.studentId] = (seenById[r.studentId] || 0) + attendanceUnits(r.session);
       }
+      for (const id of Object.keys(seenById)) seenById[id] = roundUnits(seenById[id]);
     }
 
     // Estado derivado + error de fecha de nacimiento, visibles en el roster

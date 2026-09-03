@@ -113,3 +113,43 @@ describe('consumedTotal / progressPct — avance del paquete', () => {
     expect(progressPct({ present: 3, absent: 0, makeup: 0, acquired: 0 })).toBe(null);
   });
 });
+
+describe('countRecords — la reposición doble cuenta por 2 asistencias', () => {
+  const sm = (date, effectiveUnits) => ({ date: new Date(date), kind: 'MAKEUP', effectiveUnits });
+
+  it('una reposición doble suma 2 a Rep., una sencilla suma 1', () => {
+    const c = countRecords([
+      rec('PRESENTE', sm('2026-03-02', 1)),
+      rec('PRESENTE', sm('2026-03-09', 2)),
+    ], null);
+    expect(c.makeup).toBe(3);
+    expect(c.present).toBe(0);
+  });
+
+  it('el ausente a una reposición doble no recupera nada', () => {
+    const c = countRecords([rec('AUSENTE', sm('2026-03-09', 2))], null);
+    expect(c.makeup).toBe(0);
+    expect(c.absent).toBe(1);
+  });
+
+  it('el estudiante invitado a una clase regular sigue valiendo 1', () => {
+    const c = countRecords([rec('PRESENTE', s('2026-03-16'), 'REPOSICION')], null);
+    expect(c.makeup).toBe(1);
+  });
+
+  it('sin effectiveUnits (sesiones legadas) la reposición vale 1', () => {
+    const c = countRecords([rec('PRESENTE', s('2026-03-13', 'MAKEUP'))], null);
+    expect(c.makeup).toBe(1);
+  });
+
+  it('el Total consumido incluye las asistencias dobles', () => {
+    const row = { present: 10, absent: 2, makeup: 4, acquired: 40 }; // 2 reposiciones dobles
+    expect(consumedTotal(row)).toBe(16);
+    expect(consumedTotal(row, false)).toBe(14);
+    expect(progressPct(row)).toBe(40);
+  });
+
+  it('las medias unidades no producen decimales largos', () => {
+    expect(consumedTotal({ present: 1, absent: 0, makeup: 0.5, acquired: 10 })).toBe(1.5);
+  });
+});

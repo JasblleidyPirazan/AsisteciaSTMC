@@ -98,3 +98,37 @@ describe('computeAttendanceDeviations — el N/A descuenta clases esperadas', ()
     expect(naWhere.session.date.lte).toEqual(new Date(SEMESTER.endDate));
   });
 });
+
+describe('computeAttendanceDeviations — la reposición doble descuenta 2 clases', () => {
+  beforeEach(() => {
+    resetPrisma();
+    prismaMock.semester = { findFirst: vi.fn().mockResolvedValue(SEMESTER) };
+    prismaMock.student = { findMany: vi.fn().mockResolvedValue([student('s1', 'Ana')]) };
+  });
+
+  it('una reposición doble vale por dos clases vistas', async () => {
+    prismaMock.attendanceRecord = {
+      findMany: vi.fn().mockImplementation(({ where }) => {
+        if (where.status === 'NO_APLICA') return Promise.resolve([]);
+        return Promise.resolve([
+          // 8 clases regulares vistas + una reposición DOBLE
+          ...Array.from({ length: 8 }, () => ({
+            studentId: 's1', status: 'PRESENTE',
+            session: { date: new Date('2026-02-09T00:00:00.000Z'), effectiveUnits: 1 },
+          })),
+          {
+            studentId: 's1', status: 'PRESENTE',
+            session: { date: new Date('2026-02-20T00:00:00.000Z'), effectiveUnits: 2 },
+          },
+        ]);
+      }),
+    };
+
+    const [ana] = await computeAttendanceDeviations();
+    // 12 esperadas − (8 + 2) vistas = 2 → sin alerta.
+    // Contando la reposición como 1 daría 3 y dispararía alerta amarilla.
+    expect(ana.seen).toBe(10);
+    expect(ana.deviation).toBe(2);
+    expect(ana.level).toBe(null);
+  });
+});

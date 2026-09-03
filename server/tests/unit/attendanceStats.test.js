@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest';
-import { isSeenRecord, seenAttendanceFilter, absenceCounts } from '../../src/services/attendanceStats.js';
+import { isSeenRecord, seenAttendanceFilter, absenceCounts, attendanceUnits, seenUnits, roundUnits }
+  from '../../src/services/attendanceStats.js';
 
 describe('isSeenRecord — regla "clase vista" (P/A/J)', () => {
   it('PRESENTE siempre cuenta como clase vista', () => {
@@ -60,5 +61,60 @@ describe('seenAttendanceFilter — filtro Prisma equivalente', () => {
         { status: 'AUSENTE', session: { kind: 'FESTIVAL' } },
       ],
     });
+  });
+});
+
+describe('attendanceUnits — reposición sencilla vs doble', () => {
+  it('la sesión vale lo que declara su programación', () => {
+    expect(attendanceUnits({ kind: 'MAKEUP', effectiveUnits: 1 })).toBe(1);
+    expect(attendanceUnits({ kind: 'MAKEUP', effectiveUnits: 2 })).toBe(2);
+    expect(attendanceUnits({ kind: 'MAKEUP', effectiveUnits: 0.5 })).toBe(0.5);
+  });
+
+  it('Prisma entrega Decimal como string: se interpreta igual', () => {
+    expect(attendanceUnits({ kind: 'MAKEUP', effectiveUnits: '2.0' })).toBe(2);
+  });
+
+  it('sin dato válido vale 1 (clases regulares, festivales, sesiones legadas)', () => {
+    expect(attendanceUnits({ kind: 'REGULAR', effectiveUnits: 1 })).toBe(1);
+    expect(attendanceUnits({ kind: 'FESTIVAL' })).toBe(1);
+    expect(attendanceUnits(undefined)).toBe(1);
+    expect(attendanceUnits({ effectiveUnits: 0 })).toBe(1);
+  });
+});
+
+describe('seenUnits — clases que el registro consume del paquete', () => {
+  const doble = { kind: 'MAKEUP', effectiveUnits: 2, date: new Date('2026-03-10') };
+
+  it('el presente en una reposición doble recupera 2 clases', () => {
+    expect(seenUnits({ status: 'PRESENTE' }, doble)).toBe(2);
+  });
+
+  it('el presente en una reposición sencilla recupera 1', () => {
+    expect(seenUnits({ status: 'PRESENTE' }, { kind: 'MAKEUP', effectiveUnits: 1 })).toBe(1);
+  });
+
+  it('quien no asiste a la reposición doble no consume nada', () => {
+    expect(seenUnits({ status: 'AUSENTE' }, doble)).toBe(0);
+    expect(seenUnits({ status: 'JUSTIFICADA' }, doble)).toBe(0);
+    expect(seenUnits({ status: 'NO_APLICA' }, doble)).toBe(0);
+  });
+
+  it('la clase regular sigue valiendo 1', () => {
+    expect(seenUnits({ status: 'PRESENTE' }, { kind: 'REGULAR', effectiveUnits: 1 })).toBe(1);
+  });
+
+  it('respeta la fecha de inicio de clases en la AUSENTE de festival', () => {
+    const festival = { kind: 'FESTIVAL', effectiveUnits: 1, date: new Date('2026-02-06') };
+    expect(seenUnits({ status: 'AUSENTE' }, festival, new Date('2026-02-16'))).toBe(0);
+    expect(seenUnits({ status: 'AUSENTE' }, festival, new Date('2026-02-01'))).toBe(1);
+  });
+});
+
+describe('roundUnits — las medias unidades no arrastran ruido', () => {
+  it('redondea a un decimal', () => {
+    expect(roundUnits(0.5 + 0.5 + 0.5)).toBe(1.5);
+    expect(roundUnits(0.1 + 0.2)).toBe(0.3);
+    expect(roundUnits(4)).toBe(4);
   });
 });

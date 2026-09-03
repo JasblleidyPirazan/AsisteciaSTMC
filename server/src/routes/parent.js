@@ -1,7 +1,7 @@
 const express = require('express');
 const prisma = require('../lib/prisma');
 const { requireRole } = require('../middleware/auth');
-const { isSeenRecord, absenceCounts } = require('../services/attendanceStats');
+const { absenceCounts, seenUnits, roundUnits } = require('../services/attendanceStats');
 const { computeAttendanceDeviations } = require('../services/attendanceAlerts');
 const { attachStudentStatus } = require('../services/studentStatus');
 
@@ -87,9 +87,11 @@ router.get('/attendance/:studentId', requireRole('PARENT', 'ADMIN', 'TEACHER'), 
       r.status === 'AUSENTE' && absenceCounts(r.session?.date, student.classesStartDate)
     ).length;
     const justified = records.filter((r) => r.status === 'JUSTIFICADA').length;
-    const classesSeen = records.filter((r) =>
-      isSeenRecord(r, r.session?.kind, r.session?.date, student.classesStartDate)
-    ).length;
+    // Cada clase vista vale las unidades de su sesión: una reposición doble
+    // (effectiveUnits = 2) recupera 2 clases del paquete.
+    const classesSeen = roundUnits(records.reduce(
+      (acc, r) => acc + seenUnits(r, r.session, student.classesStartDate), 0
+    ));
     // Denominador: P + A + J (N/A y faltas previas al inicio quedan fuera).
     const denom = present + absent + justified;
 

@@ -17,6 +17,20 @@ const STATUS_BADGE = {
   CANCELADA_MITAD: { cls: 'badge-yellow', label: 'Cancelada a la mitad' },
 };
 
+// Una reposición se programa sencilla (recupera 1 clase) o doble (recupera 2).
+const UNIT_PRESETS = [
+  { value: 1, label: 'Sencilla (1)' },
+  { value: 2, label: 'Doble (2)' },
+];
+
+// Etiqueta legible de la programación: sencilla, doble o el valor exacto.
+function unitsLabel(effectiveUnits) {
+  const u = parseFloat(effectiveUnits);
+  if (u === 1) return 'Sencilla · cuenta por 1 asistencia';
+  if (u === 2) return 'Doble · cuenta por 2 asistencias';
+  return `Cuenta por ${u} asistencia${u === 1 ? '' : 's'}`;
+}
+
 const EMPTY_FORM = {
   date: todayStr(),
   title: '',
@@ -166,11 +180,23 @@ export default function MakeupsPage() {
 
             <div className="form-group">
               <label className="form-label">¿Por cuántas asistencias cuenta? *</label>
+              {/* Los dos casos habituales — sencilla y doble — a un toque; el
+                  campo numérico queda para valores excepcionales (0.5, 3...). */}
+              <div className="flex gap-2 mb-2">
+                {UNIT_PRESETS.map((u) => (
+                  <button key={u.value} type="button"
+                    className={`btn ${parseFloat(form.countsAsUnits) === u.value ? 'btn-primary' : 'btn-outline'}`}
+                    style={{ flex: 1, minHeight: 40 }}
+                    onClick={() => update('countsAsUnits', String(u.value))}>
+                    {u.label}
+                  </button>
+                ))}
+              </div>
               <input type="number" className="form-input" value={form.countsAsUnits}
                 min="0.5" step="0.5" max="10"
                 onChange={(e) => update('countsAsUnits', e.target.value)} />
               <span className="text-xs text-gray">
-                Cada estudiante presente recupera este número de clases. También define el pago al profesor (×{form.countsAsUnits || '?'}).
+                Cada estudiante presente recupera este número de clases de su paquete. También define el pago al profesor (×{form.countsAsUnits || '?'}).
               </span>
             </div>
 
@@ -243,7 +269,7 @@ export default function MakeupsPage() {
                   👥 {participantCount} estudiante{participantCount !== 1 ? 's' : ''}
                   {m.status === 'REALIZADA' && ` · ${presentCount} presentes`}
                 </div>
-                <div className="text-xs text-gray">Cuenta por {parseFloat(m.effectiveUnits)} asistencia(s)</div>
+                <div className="text-xs text-gray">{unitsLabel(m.effectiveUnits)}</div>
 
                 <div className="flex gap-2 mt-3">
                   {m.status === 'PROGRAMADA' && (

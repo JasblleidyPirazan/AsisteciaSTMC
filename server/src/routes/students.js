@@ -5,7 +5,7 @@ const { requireRole } = require('../middleware/auth');
 const { bogotaToday } = require('../lib/dates');
 const { notSuspended } = require('../lib/filters');
 const { importFromBuffer } = require('../services/enrollmentImport');
-const { isSeenRecord, absenceCounts } = require('../services/attendanceStats');
+const { absenceCounts, seenUnits, roundUnits } = require('../services/attendanceStats');
 const { attachStudentStatus, attachStudentStatusOne, stripTuition } = require('../services/studentStatus');
 
 const router = express.Router();
@@ -656,7 +656,7 @@ router.get('/:id/report', requireRole('ADMIN', 'SUPERADMIN', 'PHYSICAL_TRAINER',
 
     const records = await prisma.attendanceRecord.findMany({
       where: { studentId: student.id, ...(dateRange ? { session: { date: dateRange } } : {}) },
-      include: { session: { select: { id: true, date: true, kind: true, status: true, cancellationCategory: true, title: true, group: { select: { code: true, professor: { select: { name: true } } } } } } },
+      include: { session: { select: { id: true, date: true, kind: true, effectiveUnits: true, status: true, cancellationCategory: true, title: true, group: { select: { code: true, professor: { select: { name: true } } } } } } },
     });
     const recBySession = Object.fromEntries(records.map((r) => [r.sessionId, r]));
 
@@ -687,8 +687,11 @@ router.get('/:id/report', requireRole('ADMIN', 'SUPERADMIN', 'PHYSICAL_TRAINER',
       else if (r.status === 'AUSENTE' && absenceCounts(r.session?.date, student.classesStartDate)) absent++;
       else if (r.status === 'JUSTIFICADA') justified++;
       else if (r.status === 'NO_APLICA') na++;
-      if (isSeenRecord(r, r.session?.kind, r.session?.date, student.classesStartDate)) classesSeen++;
+      // Las clases vistas suman las unidades de la sesión: una reposición
+      // doble (effectiveUnits = 2) recupera 2 clases del paquete.
+      classesSeen += seenUnits(r, r.session, student.classesStartDate);
     }
+    classesSeen = roundUnits(classesSeen);
     for (const s of groupSessions) if (s.status === 'CANCELADA' && s.cancellationCategory === 'LLUVIA') cancelledRain++;
     const attendanceRate = (present + absent) > 0 ? Math.round((present / (present + absent)) * 100) : null;
 

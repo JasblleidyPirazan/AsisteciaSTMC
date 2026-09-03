@@ -3,7 +3,7 @@ const XLSX = require('xlsx');
 const prisma = require('../lib/prisma');
 const { requireRole } = require('../middleware/auth');
 const { getCurrentPeriod } = require('../services/costEngine');
-const { isSeenRecord, absenceCounts } = require('../services/attendanceStats');
+const { absenceCounts, seenUnits, attendanceUnits, roundUnits } = require('../services/attendanceStats');
 const { computeAttendanceDeviations } = require('../services/attendanceAlerts');
 const { byGroupCode } = require('../lib/sort');
 const { bogotaToday, bogotaDateStr, bogotaMinutesOfDay } = require('../lib/dates');
@@ -91,10 +91,11 @@ router.get('/student/:studentId', requireRole('ADMIN', 'PHYSICAL_TRAINER', 'TEAC
       r.status === 'AUSENTE' && absenceCounts(r.session?.date, student.classesStartDate)
     ).length;
     const justified = records.filter((r) => r.status === 'JUSTIFICADA').length;
-    // "Clases vistas": PRESENTE, más AUSENTE en festivales (J se omite)
-    const classesSeen = records.filter((r) =>
-      isSeenRecord(r, r.session?.kind, r.session?.date, student.classesStartDate)
-    ).length;
+    // "Clases vistas": PRESENTE, más AUSENTE en festivales (J se omite). Cada
+    // una vale las unidades de su sesión — una reposición doble cuenta por 2.
+    const classesSeen = roundUnits(records.reduce(
+      (acc, r) => acc + seenUnits(r, r.session, student.classesStartDate), 0
+    ));
     // Denominador: P + A + J (N/A y faltas previas al inicio quedan fuera).
     const denom = present + absent + justified;
 
@@ -168,7 +169,9 @@ async function loadStudentTracking(query = {}) {
           where: { studentId: { in: ids }, ...(dateFilter ? { session: { date: dateFilter } } : {}) },
           select: {
             studentId: true, status: true, attendanceType: true,
-            session: { select: { date: true, kind: true } },
+            // effectiveUnits: por cuántas asistencias cuenta la sesión
+            // (reposición sencilla = 1, doble = 2).
+            session: { select: { date: true, kind: true, effectiveUnits: true } },
           },
         })
       : [],
@@ -809,17 +812,33 @@ router.get('/home', requireRole('ADMIN', 'SUPERADMIN', 'PHYSICAL_TRAINER'), asyn
     // el histórico total. Avance = efectivas / adquiridas. Las AUSENTE de festival
     // solo cuentan desde la fecha de inicio de clases del estudiante.
     const semesterRange = semester ? { gte: semester.startDate, lte: semester.endDate } : undefined;
-    const [presentSeen, festivalAbsRows] = await Promise.all([
+    const [presentSeen, makeupPresentRows, festivalAbsRows] = await Promise.all([
       prisma.attendanceRecord.count({
         where: { status: 'PRESENTE', ...(semesterRange ? { session: { date: semesterRange } } : {}) },
+      }),
+      // Las reposiciones se programan "por cuántas asistencias cuentan": una
+      // doble vale 2. El count anterior ya sumó 1 por registro, así que aquí
+      // solo se agregan las unidades EXTRA de las sesiones que valen más de 1.
+      prisma.attendanceRecord.findMany({
+        where: {
+          status: 'PRESENTE',
+          session: {
+            effectiveUnits: { gt: 1 },
+            ...(semesterRange ? { date: semesterRange } : {}),
+          },
+        },
+        select: { session: { select: { effectiveUnits: true } } },
       }),
       prisma.attendanceRecord.findMany({
         where: { status: 'AUSENTE', session: { kind: 'FESTIVAL', ...(semesterRange ? { date: semesterRange } : {}) } },
         select: { session: { select: { date: true } }, student: { select: { classesStartDate: true } } },
       }),
     ]);
-    const effectiveAttendances = presentSeen + festivalAbsRows
-      .filter((r) => absenceCounts(r.session?.date, r.student?.classesStartDate)).length;
+    const extraMakeupUnits = makeupPresentRows.reduce(
+      (acc, r) => acc + (attendanceUnits(r.session) - 1), 0
+    );
+    const effectiveAttendances = roundUnits(presentSeen + extraMakeupUnits + festivalAbsRows
+      .filter((r) => absenceCounts(r.session?.date, r.student?.classesStartDate)).length);
     const attendanceProgress = classesAcquired > 0
       ? Math.round((effectiveAttendances / classesAcquired) * 100)
       : null;

@@ -1,6 +1,6 @@
 const prisma = require('../lib/prisma');
 const { expectedDatesForGroup } = require('./schedule');
-const { seenAttendanceFilter, absenceCounts } = require('./attendanceStats');
+const { seenAttendanceFilter, absenceCounts, attendanceUnits, roundUnits } = require('./attendanceStats');
 const { notSuspended } = require('../lib/filters');
 const { bogotaToday } = require('../lib/dates');
 
@@ -20,7 +20,9 @@ function levelFor(deviation) {
  * expected = class dates of the student's groups inside the active semester up
  * to today (minus exclusions), flooring each group at the student's enrollment
  * date and the group's creation date, so mid-semester joiners aren't penalized.
- * seen = "clases vistas" (PRESENTE anywhere + AUSENTE in festivals).
+ * seen = "clases vistas" (PRESENTE anywhere + AUSENTE in festivals), cada una
+ * contada por las unidades de su sesión: una reposición doble recupera 2 clases
+ * y por tanto descuenta 2 de la desviación.
  * na = NO_APLICA records (student bought fewer weekly classes than the group
  * offers); each one discounts an expected class — it is neither attendance
  * nor absence, so it must not accumulate deviation.
@@ -57,14 +59,17 @@ async function computeAttendanceDeviations({ studentIds } = {}) {
         { session: { date: { gte: new Date(semester.startDate), lte: new Date(semester.endDate) } } },
       ],
     },
-    select: { studentId: true, status: true, session: { select: { date: true } } },
+    select: {
+      studentId: true, status: true,
+      session: { select: { date: true, effectiveUnits: true } },
+    },
   });
   const startById = Object.fromEntries(students.map((s) => [s.id, s.classesStartDate]));
   const seenById = {};
   for (const r of seenRecords) {
     // AUSENTE de festival anterior al inicio de clases: no cuenta como vista
     if (r.status === 'AUSENTE' && !absenceCounts(r.session?.date, startById[r.studentId])) continue;
-    seenById[r.studentId] = (seenById[r.studentId] || 0) + 1;
+    seenById[r.studentId] = (seenById[r.studentId] || 0) + attendanceUnits(r.session);
   }
 
   // N/A del semestre por estudiante: clases del grupo que no le corresponden
@@ -93,11 +98,11 @@ async function computeAttendanceDeviations({ studentIds } = {}) {
       ));
       expected += expectedDatesForGroup(e.group, semester, semester.exclusions, today, floor).length;
     }
-    const seen = seenById[s.id] || 0;
+    const seen = roundUnits(seenById[s.id] || 0);
     const na = naById[s.id] || 0;
     // Sin piso: una desviación negativa solo significa que va adelantado y
     // levelFor no dispara alerta.
-    const deviation = expected - seen - na;
+    const deviation = roundUnits(expected - seen - na);
     return {
       studentId: s.id,
       name: s.name,

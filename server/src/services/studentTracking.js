@@ -8,7 +8,9 @@
 //   Aus.    AUSENTE que cuenta como falta (solo desde classesStartDate, nota 46)
 //   Just.   JUSTIFICADA (nunca consume paquete)
 //   N/A     NO_APLICA (ni asistencia ni ausencia — no consume paquete, nota 45)
-//   Rep.    PRESENTE en reposición (sesión kind=MAKEUP o registro REPOSICION)
+//   Rep.    PRESENTE en reposición (sesión kind=MAKEUP o registro REPOSICION),
+//           contada por las asistencias que declara su programación: una
+//           reposición doble (effectiveUnits = 2) suma 2, una sencilla 1
 //   Lluvia  clases de sus grupos canceladas por lluvia (informativa: no las vio
 //           ni las consumió, pero explican por qué va atrasado)
 //   Total   clases consumidas del paquete
@@ -21,7 +23,7 @@
 //         "clase vista" de attendanceStats (PRESENTE, o AUSENTE en festival).
 // En ambos casos las AUSENTE de festival ya vienen dentro de `absent`, que es
 // donde attendanceStats las cuenta como clase vista.
-const { absenceCounts } = require('./attendanceStats');
+const { absenceCounts, attendanceUnits, roundUnits } = require('./attendanceStats');
 
 // Una reposición es una sesión kind=MAKEUP (reposición grupal) o un registro
 // marcado REPOSICION dentro de una clase regular (estudiante invitado).
@@ -39,7 +41,9 @@ function countRecords(records, classesStartDate) {
   for (const r of records) {
     const date = r.session?.date;
     if (r.status === 'PRESENTE') {
-      if (isMakeupRecord(r)) c.makeup += 1;
+      // Una reposición vale las asistencias que declara su programación
+      // (sencilla = 1, doble = 2). Las clases regulares siempre valen 1.
+      if (isMakeupRecord(r)) c.makeup += attendanceUnits(r.session);
       else c.present += 1;
     } else if (r.status === 'AUSENTE') {
       // Una falta anterior al inicio de clases no es una falta real (nota 46).
@@ -50,6 +54,7 @@ function countRecords(records, classesStartDate) {
       c.na += 1;
     }
   }
+  c.makeup = roundUnits(c.makeup);
   return c;
 }
 
@@ -105,7 +110,7 @@ function buildTrackingRows({ students = [], records = [], rainDatesByGroup = {} 
 
 // Total consumido y % de avance. `countAbsences` decide si la falta quema clase.
 function consumedTotal(row, countAbsences = true) {
-  return row.present + row.makeup + (countAbsences ? row.absent : 0);
+  return roundUnits(row.present + row.makeup + (countAbsences ? row.absent : 0));
 }
 
 function progressPct(row, countAbsences = true) {

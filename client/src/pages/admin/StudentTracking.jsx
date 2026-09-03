@@ -89,8 +89,10 @@ export default function StudentTracking() {
 
   // Total consumido y avance se derivan en el cliente para que el interruptor
   // de "las faltas consumen clase" no obligue a volver al servidor.
+  // Rep. puede traer medias unidades (una reposición se programa por 0.5, 1 o 2
+  // asistencias), así que el total se redondea a un decimal.
   const decorated = useMemo(() => rows.map((r) => {
-    const total = r.present + r.makeup + (countAbsences ? r.absent : 0);
+    const total = Math.round((r.present + r.makeup + (countAbsences ? r.absent : 0)) * 10) / 10;
     return { ...r, total, pct: r.acquired ? Math.round((total / r.acquired) * 1000) / 10 : null };
   }), [rows, countAbsences]);
 
@@ -122,6 +124,7 @@ export default function StudentTracking() {
     justified: t.justified + r.justified, na: t.na + r.na, makeup: t.makeup + r.makeup,
     rain: t.rain + r.rain, total: t.total + r.total,
   }), { acquired: 0, present: 0, absent: 0, justified: 0, na: 0, makeup: 0, rain: 0, total: 0 }), [visible]);
+  const round1 = (n) => Math.round(n * 10) / 10;
   const totalsPct = totals.acquired ? Math.round((totals.total / totals.acquired) * 1000) / 10 : null;
 
   const rangeLabel = data?.semester
@@ -312,9 +315,9 @@ export default function StudentTracking() {
                   <td className="num">{totals.absent}</td>
                   <td className="num">{totals.justified}</td>
                   <td className="num">{totals.na}</td>
-                  <td className="num">{totals.makeup}</td>
+                  <td className="num">{round1(totals.makeup)}</td>
                   <td className="num">{totals.rain}</td>
-                  <td className="num">{totals.total}</td>
+                  <td className="num">{round1(totals.total)}</td>
                   <td><PctBar pct={totalsPct} /></td>
                   <td></td>
                 </tr>

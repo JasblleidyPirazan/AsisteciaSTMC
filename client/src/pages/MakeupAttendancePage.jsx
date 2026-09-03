@@ -143,6 +143,13 @@ export default function MakeupAttendancePage() {
           </div>
         )}
 
+        {/* Cuántas clases recupera cada presente: lo definió el coordinador al
+            programarla (sencilla = 1, doble = 2). */}
+        <div className="alert alert-info mb-3">
+          🔁 {effectiveUnits === 1 ? 'Reposición sencilla' : `Reposición de ${effectiveUnits} asistencias`}:
+          {' '}cada estudiante presente recupera {effectiveUnits} clase{effectiveUnits === 1 ? '' : 's'} de su paquete.
+        </div>
+
         {/* Professor */}
         <div className="card mb-3">
           <label className="form-label">Profesor</label>

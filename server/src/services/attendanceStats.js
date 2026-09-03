@@ -33,4 +33,28 @@ function isSeenRecord(record, sessionKind, sessionDate, classesStartDate) {
   return absenceCounts(sessionDate, classesStartDate);
 }
 
-module.exports = { seenAttendanceFilter, isSeenRecord, absenceCounts };
+// ─── Reposiciones sencillas y dobles ──────────────────────────────────────
+// Una reposición grupal se programa declarando "por cuántas asistencias cuenta"
+// (ClassSession.effectiveUnits): sencilla = 1, doble = 2. Ese valor es la única
+// fuente de verdad de cuántas clases del paquete recupera el estudiante que
+// asiste. Las clases regulares y los festivales siempre valen 1.0, así que
+// multiplicar por las unidades es seguro en cualquier sesión.
+function attendanceUnits(session) {
+  const units = parseFloat(session?.effectiveUnits);
+  return Number.isFinite(units) && units > 0 ? units : 1;
+}
+
+// Clases que ESTE registro consume del paquete del estudiante: 0 si no es
+// "clase vista", si no las unidades de la sesión (2 en una reposición doble).
+function seenUnits(record, session, classesStartDate) {
+  if (!isSeenRecord(record, session?.kind, session?.date, classesStartDate)) return 0;
+  return attendanceUnits(session);
+}
+
+// Las unidades admiten medios (0.5), así que los acumulados se redondean a un
+// decimal para no arrastrar ruido de punto flotante en las vistas.
+function roundUnits(total) {
+  return Math.round((total + Number.EPSILON) * 10) / 10;
+}
+
+module.exports = { seenAttendanceFilter, isSeenRecord, absenceCounts, attendanceUnits, seenUnits, roundUnits };
