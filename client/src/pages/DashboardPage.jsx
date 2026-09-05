@@ -300,13 +300,23 @@ function PendingFestivals() {
 function PendingMakeups() {
   const navigate = useNavigate();
   const [makeups, setMakeups] = useState([]);
+  const [error, setError] = useState('');
 
   useEffect(() => {
     api.get('/makeups', { status: 'PROGRAMADA' })
       .then((data) => setMakeups(data || []))
-      .catch(() => {});
+      // Sin esto, una falla al cargar se ve idéntica a "no hay reposiciones":
+      // el profesor no puede distinguir un error de una lista vacía.
+      .catch((err) => setError(err.message || 'No se pudieron cargar las reposiciones'));
   }, []);
 
+  if (error) {
+    return (
+      <div className="alert alert-error mb-3">
+        🔁 No se pudieron cargar tus reposiciones: {error}
+      </div>
+    );
+  }
   if (makeups.length === 0) return null;
 
   // Una reposición ya dictada está pendiente de reporte (y su pago se suspende si

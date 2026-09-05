@@ -14,7 +14,8 @@
     "db:migrate": "prisma migrate deploy",
     "db:seed": "node src/scripts/seed.js",
     "db:seed-demo": "node src/scripts/seed-demo.js",
-    "docs:dictionary": "node src/scripts/generate-data-dictionary.js"
+    "docs:dictionary": "node src/scripts/generate-data-dictionary.js",
+    "diagnose:makeups": "node src/scripts/diagnose-makeups.js"
   },
   "prisma": {
     "schema": "src/prisma/schema.prisma"
