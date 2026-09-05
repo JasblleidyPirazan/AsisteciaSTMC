@@ -23,6 +23,27 @@ const UNIT_PRESETS = [
   { value: 2, label: 'Doble (2)' },
 ];
 
+// Una reposición no está cerrada porque alguien la haya reportado: el reporte
+// que cuenta es el del PROFESOR, y el asistente debe confirmar aparte que
+// acompañó. Esto muestra a la Escuela qué falta de esas dos cosas.
+function reportState(m) {
+  if (m.status === 'CANCELADA') return { icon: '🚫', text: 'Cancelada', color: 'var(--gray-400)' };
+  if (m.status === 'PROGRAMADA') return { icon: '⏳', text: 'Sin reportar', color: 'var(--gray-500)' };
+  if (m.reportedBy?.role === 'TEACHER') {
+    return { icon: '✅', text: 'Reportada por el profesor', color: 'var(--green)' };
+  }
+  const quien = m.reportedBy?.role === 'PHYSICAL_TRAINER' ? 'el coordinador' : 'la administración';
+  return { icon: '⚠️', text: `Reportada por ${quien} · falta el reporte del profesor`, color: 'var(--yellow)' };
+}
+
+function assistantState(m) {
+  if (!m.assistant) return null;
+  if (m.assistantConfirmedId) {
+    return { icon: '✅', text: `${m.assistantConfirmed?.name || m.assistant.name} confirmó que acompañó`, color: 'var(--green)' };
+  }
+  return { icon: '⏳', text: `Falta que ${m.assistant.name} confirme su acompañamiento`, color: 'var(--yellow)' };
+}
+
 // Etiqueta legible de la programación: sencilla, doble o el valor exacto.
 function unitsLabel(effectiveUnits) {
   const u = parseFloat(effectiveUnits);
@@ -270,6 +291,19 @@ export default function MakeupsPage() {
                   {m.status === 'REALIZADA' && ` · ${presentCount} presentes`}
                 </div>
                 <div className="text-xs text-gray">{unitsLabel(m.effectiveUnits)}</div>
+
+                {/* Qué falta para cerrarla: el reporte del profesor y la
+                    confirmación del asistente son pasos distintos. */}
+                {(() => {
+                  const r = reportState(m);
+                  const a = assistantState(m);
+                  return (
+                    <div className="text-xs mt-2">
+                      <div style={{ color: r.color }}>{r.icon} {r.text}</div>
+                      {a && <div style={{ color: a.color }}>{a.icon} {a.text}</div>}
+                    </div>
+                  );
+                })()}
 
                 <div className="flex gap-2 mt-3">
                   {m.status === 'PROGRAMADA' && (

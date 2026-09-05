@@ -297,18 +297,34 @@ function PendingFestivals() {
   );
 }
 
+// Quién hizo el último reporte de la reposición, en palabras.
+function reporterLabel(reportedBy) {
+  if (!reportedBy) return 'alguien más';
+  if (reportedBy.role === 'TEACHER') return 'otro profesor';
+  if (reportedBy.role === 'PHYSICAL_TRAINER') return 'el coordinador';
+  return 'la administración';
+}
+
 function PendingMakeups() {
   const navigate = useNavigate();
+  const { user } = useAuth();
   const [makeups, setMakeups] = useState([]);
   const [error, setError] = useState('');
 
+  const isTeacher = user?.role === 'TEACHER';
+
   useEffect(() => {
-    api.get('/makeups', { status: 'PROGRAMADA' })
+    // El profesor pide TODAS sus reposiciones, no solo las PROGRAMADA: que el
+    // coordinador ya la haya reportado no reemplaza su reporte, así que no debe
+    // desaparecerle del home. El coordinador sí sigue viendo solo las
+    // pendientes, para no llenarle la pantalla con las que ya reportó cada
+    // profesor.
+    api.get('/makeups', isTeacher ? {} : { status: 'PROGRAMADA' })
       .then((data) => setMakeups(data || []))
       // Sin esto, una falla al cargar se ve idéntica a "no hay reposiciones":
       // el profesor no puede distinguir un error de una lista vacía.
       .catch((err) => setError(err.message || 'No se pudieron cargar las reposiciones'));
-  }, []);
+  }, [isTeacher]);
 
   if (error) {
     return (
@@ -317,15 +333,24 @@ function PendingMakeups() {
       </div>
     );
   }
-  if (makeups.length === 0) return null;
+
+  // Le falta MI reporte: nunca se reportó, o el último reporte lo hizo otra
+  // persona (el coordinador). Las canceladas no se reportan.
+  const needsMyReport = (m) =>
+    m.status !== 'CANCELADA' && (m.status === 'PROGRAMADA' || m.reportedById !== user?.id);
+
+  const pending = makeups.filter(needsMyReport);
+  if (pending.length === 0) return null;
 
   // Una reposición ya dictada está pendiente de reporte (y su pago se suspende si
   // no se reporta el mismo día); una futura solo se anuncia, todavía no se reporta.
   const today = bogotaTodayStr();
-  const toReport = makeups.filter((m) => String(m.date).slice(0, 10) <= today);
-  const upcoming = makeups.filter((m) => String(m.date).slice(0, 10) > today);
+  const toReport = pending.filter((m) => String(m.date).slice(0, 10) <= today);
+  const upcoming = pending.filter((m) => String(m.date).slice(0, 10) > today);
 
   function card(m, accent) {
+    // Reportada por otro: el profesor todavía debe poner su propio reporte.
+    const reportedByOther = m.status !== 'PROGRAMADA' && m.reportedById !== user?.id;
     return (
       <div key={m.id} className="card card-tap mb-2" style={{ borderLeft: `3px solid ${accent}` }}
         onClick={() => navigate(`/makeups/${m.id}/attendance`)}>
@@ -336,6 +361,11 @@ function PendingMakeups() {
               {fmtDate(m.date)} · {m.makeupProfessor?.name || '—'} · {m.makeupParticipants?.length || 0} est.
               {m.assistant ? ` · 🤝 ${m.assistant.name}` : ''}
             </div>
+            {reportedByOther && (
+              <div className="text-xs mt-1" style={{ color: 'var(--yellow-700, #92400e)' }}>
+                ⚠️ Reportada por {reporterLabel(m.reportedBy)} · falta tu reporte
+              </div>
+            )}
           </div>
           <span style={{ fontSize: '1.2rem' }}>›</span>
         </div>

@@ -42,6 +42,11 @@ function makeupInclude() {
     makeupProfessor: { select: { id: true, name: true } },
     substituteProfessor: { select: { id: true, name: true } },
     assistant: { select: { id: true, name: true } },
+    // Quién la reportó y si el asistente confirmó su acompañamiento: una
+    // reposición no está cerrada porque el coordinador la haya reportado —
+    // faltan el reporte del profesor y la confirmación del asistente.
+    reportedBy: { select: { id: true, email: true, role: true } },
+    assistantConfirmed: { select: { id: true, name: true } },
     makeupParticipants: {
       include: { student: { select: PARTICIPANT_STUDENT_SELECT } },
       orderBy: { student: { name: 'asc' } },
@@ -114,6 +119,7 @@ router.get('/', requireRole('ADMIN', 'PHYSICAL_TRAINER', 'TEACHER', 'ASSISTANT')
           ...s,
           makeupParticipants: (s.makeupParticipants || []).map((p) => ({ id: p.id, studentId: p.studentId })),
           attendanceRecords: undefined,
+          reportedBy: undefined, // el asistente no necesita saber quién reportó
         })),
       });
     }
