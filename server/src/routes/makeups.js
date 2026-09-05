@@ -1,6 +1,7 @@
 const express = require('express');
 const prisma = require('../lib/prisma');
 const { requireRole } = require('../middleware/auth');
+const { consolidateSession, resolveReporterType, backfillLegacyReport } = require('../services/consolidation');
 const { calculateCosts } = require('../services/costEngine');
 const { attachStudentStatus } = require('../services/studentStatus');
 const { isSessionPeriodLocked } = require('../lib/payrollLock');
@@ -47,6 +48,11 @@ function makeupInclude() {
     // faltan el reporte del profesor y la confirmación del asistente.
     reportedBy: { select: { id: true, email: true, role: true } },
     assistantConfirmed: { select: { id: true, name: true } },
+    // Los dos reportes de staging: quién ya reportó y qué dijo cada uno. El
+    // flujo precarga con ellos el reporte propio al editar.
+    reports: {
+      include: { attendance: { include: { student: { select: { name: true } } } } },
+    },
     makeupParticipants: {
       include: { student: { select: PARTICIPANT_STUDENT_SELECT } },
       orderBy: { student: { name: 'asc' } },
@@ -120,6 +126,7 @@ router.get('/', requireRole('ADMIN', 'PHYSICAL_TRAINER', 'TEACHER', 'ASSISTANT')
           makeupParticipants: (s.makeupParticipants || []).map((p) => ({ id: p.id, studentId: p.studentId })),
           attendanceRecords: undefined,
           reportedBy: undefined, // el asistente no necesita saber quién reportó
+          reports: undefined,
         })),
       });
     }
@@ -248,12 +255,23 @@ router.put('/:id', requireRole('ADMIN', 'PHYSICAL_TRAINER'), async (req, res, ne
       include: makeupInclude(),
     });
 
-    // If it was already reported, recalculate costs (participants/units may have changed)
-    if (['REALIZADA', 'CANCELADA_MITAD'].includes(session.status)) {
+    // Cambiar participantes o unidades altera lo que los dos reportes deben
+    // decir, así que se vuelve a consolidar. Una reposición legada (sin
+    // reportes de staging) conserva el camino anterior: solo recalcular costos.
+    const reportCount = await prisma.classReport.count({ where: { sessionId: req.params.id } });
+    let refreshed = session;
+    // Una reposición cancelada no se re-consolida: consolidar la devolvería a
+    // PROGRAMADA y la descancelaría sin que nadie lo pidiera.
+    if (reportCount > 0 && session.status !== 'CANCELADA') {
+      await consolidateSession(req.params.id);
+      refreshed = await prisma.classSession.findUnique({
+        where: { id: req.params.id }, include: makeupInclude(),
+      });
+    } else if (['REALIZADA', 'CANCELADA_MITAD'].includes(session.status)) {
       await calculateCosts(req.params.id);
     }
 
-    res.json({ success: true, data: session });
+    res.json({ success: true, data: refreshed });
   } catch (err) {
     next(err);
   }
@@ -280,7 +298,10 @@ router.delete('/:id', requireRole('ADMIN', 'PHYSICAL_TRAINER'), async (req, res,
   }
 });
 
-// Report attendance for a makeup class (normal flow for prof/PF/admin)
+// Reportar la asistencia de una reposición — DOBLE REPORTE, igual que una clase
+// regular (nota 31): se guarda el reporte de quien llama (profesor o
+// coordinador) en staging y solo cuando los dos coinciden se escribe la
+// asistencia definitiva y corre el motor de costos. Ver nota 51.
 router.post('/:id/finalize', async (req, res, next) => {
   try {
     const { attendanceRecords, substituteProfessorId, assistantId } = req.body;
@@ -301,55 +322,72 @@ router.post('/:id/finalize', async (req, res, next) => {
     if (!(await canReportMakeup(req.user, session))) {
       return res.status(403).json({ success: false, error: 'No tienes permiso para reportar esta reposición' });
     }
+
+    const reporterType = resolveReporterType(req.user.role, req.body.reporterType);
+    if (!reporterType) {
+      return res.status(400).json({ success: false, error: 'Indica el tipo de reporte (profesor o coordinador)' });
+    }
+
     if (await isSessionPeriodLocked(session.date)) {
       return res.status(409).json({ success: false, error: LOCKED_MSG });
     }
 
-    // Re-finalizing is an edit: snapshot the previous state into an edit log
-    const isEdit = ['REALIZADA', 'CANCELADA_MITAD'].includes(session.status);
-    let previousState = null;
-    if (isEdit) {
-      const prevRecords = await prisma.attendanceRecord.findMany({
-        where: { sessionId: req.params.id },
-        include: { student: { select: { name: true } } },
-      });
-      previousState = {
-        status: session.status,
-        effectiveUnits: parseFloat(session.effectiveUnits),
-        records: prevRecords.map((r) => ({
-          studentId: r.studentId,
-          name: r.student?.name,
-          status: r.status,
-          attendanceType: r.attendanceType,
-          justification: r.justification,
-        })),
-      };
-    }
+    // Reposición reportada antes de la doble consolidación: se rescata ese
+    // reporte para no perder su asistencia ni sus costos al consolidar.
+    await backfillLegacyReport(req.params.id);
 
-    // Makeup participants are all regular attendees of this class (no group bracket
-    // exception). effectiveUnits is the "counts-as" value defined at creation.
-    const newRecords = (attendanceRecords || []).map((record) => ({
-      sessionId: req.params.id,
+    // Re-enviar el propio reporte es una edición: se guarda la versión anterior.
+    const prevReport = await prisma.classReport.findUnique({
+      where: { sessionId_reporterType: { sessionId: req.params.id, reporterType } },
+      include: { attendance: { include: { student: { select: { name: true } } } } },
+    });
+
+    // En una reposición no hay grupo: el "titular" es el profesor asignado, así
+    // que elegir a otro en el selector equivale al sustituto de una clase.
+    const dictatingId = substituteProfessorId && substituteProfessorId !== session.makeupProfessorId
+      ? substituteProfessorId
+      : null;
+
+    const report = await prisma.classReport.upsert({
+      where: { sessionId_reporterType: { sessionId: req.params.id, reporterType } },
+      update: {
+        reportedById: req.user.id,
+        dictatedByOwner: !dictatingId,
+        dictatingProfessorId: dictatingId,
+        assistantId: assistantId || null,
+      },
+      create: {
+        sessionId: req.params.id,
+        reporterType,
+        reportedById: req.user.id,
+        dictatedByOwner: !dictatingId,
+        dictatingProfessorId: dictatingId,
+        assistantId: assistantId || null,
+      },
+    });
+
+    // Los participantes de una reposición asisten como clase REGULAR: la
+    // reposición ya no tiene tarifa aparte (el motor de costos los cuenta como
+    // un presente más para el tramo).
+    const rows = (attendanceRecords || []).map((record) => ({
+      classReportId: report.id,
       studentId: record.studentId,
       status: record.status,
       attendanceType: 'REGULAR',
       justification: record.justification?.slice(0, 500) || null,
-      reportedById: req.user.id,
     }));
-    await prisma.attendanceRecord.deleteMany({ where: { sessionId: req.params.id } });
-    if (newRecords.length > 0) {
-      await prisma.attendanceRecord.createMany({ data: newRecords });
+    await prisma.classReportAttendance.deleteMany({ where: { classReportId: report.id } });
+    if (rows.length > 0) {
+      await prisma.classReportAttendance.createMany({ data: rows });
     }
 
-    const sessionData = { status: 'REALIZADA', reportedById: req.user.id };
-    if (substituteProfessorId !== undefined) sessionData.substituteProfessorId = substituteProfessorId || null;
-    if (assistantId !== undefined) sessionData.assistantId = assistantId || null;
-    // Only the first report stamps firstReportedAt (late-report pay suspension)
+    // El PRIMER reporte (de cualquiera de los dos) marca firstReportedAt para la
+    // regla de pago suspendido por reporte tardío; editar no lo vuelve a marcar.
+    const sessionData = { reportedById: req.user.id };
     if (!session.firstReportedAt) sessionData.firstReportedAt = new Date();
-    // Auto-validación: si quien reporta la reposición es el coordinador/admin,
-    // su reporte ES la información del coordinador sobre el asistente — lo que
-    // coincide se valida solo, sin clic extra en la cola. Si reporta el
-    // profesor y CAMBIA el asistente, la validación previa deja de aplicar.
+    // Auto-validación del asistente: si quien reporta es el coordinador/admin,
+    // su reporte ES la información del coordinador. Si reporta el profesor y
+    // cambia el asistente, la validación previa deja de aplicar.
     if (COORDINATOR_ROLES.includes(req.user.role)) {
       sessionData.coordinatorValidatedById = req.user.id;
       sessionData.coordinatorValidatedAt = new Date();
@@ -357,32 +395,39 @@ router.post('/:id/finalize', async (req, res, next) => {
       sessionData.coordinatorValidatedById = null;
       sessionData.coordinatorValidatedAt = null;
     }
-
     await prisma.classSession.update({ where: { id: req.params.id }, data: sessionData });
 
-    if (isEdit) {
+    if (prevReport) {
       await prisma.sessionEditLog.create({
         data: {
           sessionId: req.params.id,
           editedById: req.user.id,
-          previousState,
+          previousState: {
+            reporterType,
+            records: prevReport.attendance.map((r) => ({
+              studentId: r.studentId, name: r.student?.name, status: r.status,
+              attendanceType: r.attendanceType, justification: r.justification,
+            })),
+          },
           newState: {
-            status: 'REALIZADA',
-            effectiveUnits: parseFloat(session.effectiveUnits),
-            records: newRecords.map(({ studentId, status, justification }) => ({
-              studentId, status, attendanceType: 'REGULAR', justification,
+            reporterType,
+            records: rows.map(({ studentId, status, attendanceType, justification }) => ({
+              studentId, status, attendanceType, justification,
             })),
           },
         },
       });
     }
 
-    const costs = await calculateCosts(req.params.id);
+    // MATCHED escribe la asistencia definitiva y corre el motor de costos;
+    // PENDING/MISMATCH la dejan sin registros ni pago.
+    const consolidation = await consolidateSession(req.params.id);
+
     const updated = await prisma.classSession.findUnique({
       where: { id: req.params.id },
       include: makeupInclude(),
     });
-    res.json({ success: true, data: { session: updated, costs } });
+    res.json({ success: true, data: { session: updated, consolidation } });
   } catch (err) {
     next(err);
   }

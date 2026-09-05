@@ -27,7 +27,24 @@ const MAKEUP = {
   id: 'm1', kind: 'MAKEUP', status: 'PROGRAMADA', date: new Date('2026-08-20T00:00:00Z'),
   effectiveUnits: 1, makeupProfessorId: 'p1', substituteProfessorId: null,
   assistantId: 'a1', firstReportedAt: null,
+  reports: [], // staging del doble reporte (lo lee consolidateSession)
+  _count: { reports: 0 },
 };
+
+// Reportes de staging que hay en la sesión (los ve consolidateSession).
+function withReports(reports) {
+  prismaMock.classSession.findUnique = vi.fn().mockResolvedValue({
+    ...MAKEUP, reports, _count: { reports: reports.length },
+  });
+}
+
+function reportOf(reporterType, { attendance = [{ studentId: 's1', status: 'PRESENTE' }], assistantId = 'a1' } = {}) {
+  return {
+    id: `r-${reporterType}`, reporterType, reportedById: 'u9',
+    dictatedByOwner: true, dictatingProfessorId: null, assistantId,
+    attendance: attendance.map((a) => ({ ...a, attendanceType: 'REGULAR', justification: null })),
+  };
+}
 
 beforeAll(async () => {
   process.env.JWT_SECRET = JWT_SECRET;
@@ -111,7 +128,7 @@ describe('POST /api/makeups — el coordinador las crea', () => {
   });
 });
 
-describe('POST /api/makeups/:id/finalize — reporte como clase normal', () => {
+describe('POST /api/makeups/:id/finalize — doble reporte, como una clase regular', () => {
   const body = { attendanceRecords: [{ studentId: 's1', status: 'PRESENTE' }], assistantId: 'a1' };
 
   beforeEach(() => {
@@ -119,24 +136,95 @@ describe('POST /api/makeups/:id/finalize — reporte como clase normal', () => {
     prismaMock.costRecord = { deleteMany: vi.fn(), createMany: vi.fn() };
     prismaMock.sessionEditLog = { create: vi.fn() };
     prismaMock.systemConfig = { findMany: vi.fn().mockResolvedValue([]) };
+    prismaMock.student = { findMany: vi.fn().mockResolvedValue([]) };
+    prismaMock.classReport = {
+      findUnique: vi.fn().mockResolvedValue(null),
+      upsert: vi.fn().mockResolvedValue({ id: 'rep1' }),
+      count: vi.fn().mockResolvedValue(0),
+      create: vi.fn(),
+    };
+    prismaMock.classReportAttendance = { deleteMany: vi.fn(), createMany: vi.fn() };
   });
 
-  it('El profesor titular puede reportar', async () => {
+  it('el reporte del profesor solo va a staging: sin el del coordinador queda PENDING', async () => {
     const res = await request(app)
       .post('/api/makeups/m1/finalize').send(body)
       .set('Authorization', `Bearer ${authAs('TEACHER')}`);
+
     expect(res.status).toBe(200);
-    // No cambió el asistente asignado → conserva la validación del coordinador.
-    const data = prismaMock.classSession.update.mock.calls[0][0].data;
-    expect(data.coordinatorValidatedAt).toBeUndefined();
-    expect(data.status).toBe('REALIZADA');
+    expect(res.body.data.consolidation.status).toBe('PENDING');
+    // Se guardó como reporte PROFESSOR, no como asistencia definitiva
+    expect(prismaMock.classReport.upsert.mock.calls[0][0].create.reporterType).toBe('PROFESSOR');
+    expect(prismaMock.classReportAttendance.createMany).toHaveBeenCalled();
+    // Y no se escribió ninguna asistencia consolidada ni costo
+    expect(prismaMock.attendanceRecord.createMany).not.toHaveBeenCalled();
+    expect(prismaMock.costRecord.createMany).not.toHaveBeenCalled();
   });
 
-  it('Si el profesor cambia el asistente, se limpia la validación del coordinador', async () => {
+  it('el coordinador escribe el reporte COORDINATOR', async () => {
+    await request(app)
+      .post('/api/makeups/m1/finalize').send(body)
+      .set('Authorization', `Bearer ${authAs('PHYSICAL_TRAINER', 'coord1')}`);
+    expect(prismaMock.classReport.upsert.mock.calls[0][0].create.reporterType).toBe('COORDINATOR');
+  });
+
+  it('cuando los dos reportes coinciden se consolida y se calcula el pago', async () => {
+    // Ya está el del coordinador; ahora llega el del profesor, idéntico.
+    withReports([reportOf('COORDINATOR'), reportOf('PROFESSOR')]);
+
+    const res = await request(app)
+      .post('/api/makeups/m1/finalize').send(body)
+      .set('Authorization', `Bearer ${authAs('TEACHER')}`);
+
+    expect(res.status).toBe(200);
+    expect(res.body.data.consolidation.status).toBe('MATCHED');
+    expect(prismaMock.attendanceRecord.createMany).toHaveBeenCalled();
+    const update = prismaMock.classSession.update.mock.calls.at(-1)[0].data;
+    expect(update.status).toBe('REALIZADA');
+    expect(update.consolidationStatus).toBe('MATCHED');
+  });
+
+  it('si los reportes NO coinciden queda MISMATCH: sin asistencia ni pago', async () => {
+    withReports([
+      reportOf('COORDINATOR', { attendance: [{ studentId: 's1', status: 'AUSENTE' }] }),
+      reportOf('PROFESSOR', { attendance: [{ studentId: 's1', status: 'PRESENTE' }] }),
+    ]);
+
+    const res = await request(app)
+      .post('/api/makeups/m1/finalize').send(body)
+      .set('Authorization', `Bearer ${authAs('TEACHER')}`);
+
+    expect(res.status).toBe(200);
+    expect(res.body.data.consolidation.status).toBe('MISMATCH');
+    expect(prismaMock.attendanceRecord.createMany).not.toHaveBeenCalled();
+    const update = prismaMock.classSession.update.mock.calls.at(-1)[0].data;
+    expect(update.status).toBe('PROGRAMADA');
+    expect(update.consolidationStatus).toBe('MISMATCH');
+  });
+
+  it('discrepar solo en el asistente también es MISMATCH', async () => {
+    withReports([
+      reportOf('COORDINATOR', { assistantId: 'a1' }),
+      reportOf('PROFESSOR', { assistantId: 'a2' }),
+    ]);
     const res = await request(app)
       .post('/api/makeups/m1/finalize').send({ ...body, assistantId: 'a2' })
       .set('Authorization', `Bearer ${authAs('TEACHER')}`);
-    expect(res.status).toBe(200);
+    expect(res.body.data.consolidation.status).toBe('MISMATCH');
+  });
+
+  it('el profesor no cambió el asistente → conserva la validación del coordinador', async () => {
+    await request(app)
+      .post('/api/makeups/m1/finalize').send(body)
+      .set('Authorization', `Bearer ${authAs('TEACHER')}`);
+    const data = prismaMock.classSession.update.mock.calls[0][0].data;
+    expect(data.coordinatorValidatedAt).toBeUndefined();
+  });
+
+  it('si el profesor cambia el asistente, se limpia la validación del coordinador', async () => {
+    await request(app)
+      .post('/api/makeups/m1/finalize').send({ ...body, assistantId: 'a2' })
+      .set('Authorization', `Bearer ${authAs('TEACHER')}`);
     const data = prismaMock.classSession.update.mock.calls[0][0].data;
     expect(data.coordinatorValidatedAt).toBeNull();
   });

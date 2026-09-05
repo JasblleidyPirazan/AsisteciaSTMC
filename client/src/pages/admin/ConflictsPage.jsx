@@ -45,7 +45,10 @@ export default function ConflictsPage() {
             <div key={c.sessionId} className="card mb-3" style={{ borderLeft: '3px solid var(--red)' }}>
               <div className="flex items-center justify-between mb-2">
                 <div className="font-medium">
-                  {c.group?.code}{c.group?.name ? ` · ${c.group.name}` : ''}
+                  {/* Una reposición no tiene grupo: se nombra por su título. */}
+                  {c.kind === 'MAKEUP'
+                    ? `🔁 ${c.title || 'Reposición grupal'}${c.makeupProfessor ? ` · ${c.makeupProfessor.name}` : ''}`
+                    : `${c.group?.code}${c.group?.name ? ` · ${c.group.name}` : ''}`}
                 </div>
                 <span className="text-xs text-gray">{fmtDate(c.date)}</span>
               </div>
@@ -55,9 +58,11 @@ export default function ConflictsPage() {
               {canReport && (
                 <button
                   className="btn btn-outline btn-full mt-3"
-                  onClick={() => navigate(`/attendance/${c.groupId}`, {
-                    state: { group: { id: c.groupId, code: c.group?.code, name: c.group?.name }, date: c.date.slice(0, 10) },
-                  })}
+                  onClick={() => c.kind === 'MAKEUP'
+                    ? navigate(`/makeups/${c.sessionId}/attendance`)
+                    : navigate(`/attendance/${c.groupId}`, {
+                      state: { group: { id: c.groupId, code: c.group?.code, name: c.group?.name }, date: c.date.slice(0, 10) },
+                    })}
                 >
                   Ajustar mi reporte
                 </button>

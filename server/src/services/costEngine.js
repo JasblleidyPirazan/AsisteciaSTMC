@@ -164,6 +164,8 @@ async function calculateCosts(sessionId) {
     // AUTOMATICALLY: in a REGULAR class consolidated by the dual-report flow,
     // MATCHED already proves professor and coordinator agreed on the assistant,
     // so no extra manual click is needed — only the assistant's confirmation.
+    // Las reposiciones grupales también se consolidan por doble reporte
+    // (nota 51), así que su MATCHED vale exactamente igual.
     // coordinatorValidatedAt remains as the manual path (makeups reported by a
     // teacher, legacy sessions, overrides). Sessions dated before the cutoff
     // stay PAYABLE so editing old sessions never retains pay already settled.
@@ -171,7 +173,7 @@ async function calculateCosts(sessionId) {
     const beforeCutoff = matchStart && dbDateStr(session.date) < matchStart;
     const coordinatorAgrees =
       !!session.coordinatorValidatedAt ||
-      (session.kind === 'REGULAR' && session.consolidationStatus === 'MATCHED');
+      (['REGULAR', 'MAKEUP'].includes(session.kind) && session.consolidationStatus === 'MATCHED');
     const tripleMatch =
       session.assistantConfirmedId === session.assistantId && coordinatorAgrees;
     const assistantPayStatus = beforeCutoff || tripleMatch ? 'PAYABLE' : 'PENDING_MATCH';

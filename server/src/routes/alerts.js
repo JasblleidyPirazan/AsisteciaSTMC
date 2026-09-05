@@ -95,17 +95,27 @@ router.get('/pending-reports', requireRole('ADMIN', 'PHYSICAL_TRAINER', 'TEACHER
  */
 router.get('/report-conflicts', requireRole('ADMIN', 'PHYSICAL_TRAINER', 'TEACHER'), async (req, res, next) => {
   try {
-    const where = { kind: 'REGULAR', consolidationStatus: 'MISMATCH' };
+    // Las reposiciones grupales también se consolidan por doble reporte
+    // (nota 51), así que sus conflictos entran en la misma cola.
+    const where = { kind: { in: ['REGULAR', 'MAKEUP'] }, consolidationStatus: 'MISMATCH' };
 
     if (req.user.role === 'TEACHER') {
       const professor = await prisma.professor.findUnique({ where: { userId: req.user.id } });
       if (!professor) return res.json({ success: true, data: { conflicts: [], total: 0 } });
-      where.group = { professorId: professor.id };
+      // Sus clases regulares (por grupo) y sus reposiciones (asignada o sustituto).
+      where.OR = [
+        { group: { professorId: professor.id } },
+        { makeupProfessorId: professor.id },
+        { substituteProfessorId: professor.id },
+      ];
     }
 
     const sessions = await prisma.classSession.findMany({
       where,
-      include: { group: { select: { id: true, code: true, name: true } } },
+      include: {
+        group: { select: { id: true, code: true, name: true } },
+        makeupProfessor: { select: { id: true, name: true } },
+      },
       orderBy: { date: 'asc' },
     });
 
@@ -161,6 +171,10 @@ router.get('/report-conflicts', requireRole('ADMIN', 'PHYSICAL_TRAINER', 'TEACHE
         sessionId: s.id,
         groupId: s.groupId,
         group: s.group,
+        // Una reposición no tiene grupo: se identifica por su nombre y profesor.
+        kind: s.kind,
+        title: s.title,
+        makeupProfessor: s.makeupProfessor,
         date: s.date,
         diff,
       };

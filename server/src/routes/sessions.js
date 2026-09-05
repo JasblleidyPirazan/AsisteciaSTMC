@@ -1,7 +1,7 @@
 const express = require('express');
 const prisma = require('../lib/prisma');
 const { calculateCosts } = require('../services/costEngine');
-const { consolidateSession } = require('../services/consolidation');
+const { consolidateSession, resolveReporterType } = require('../services/consolidation');
 const { isSessionPeriodLocked } = require('../lib/payrollLock');
 const { assistantMissing } = require('../lib/assistantMatch');
 
@@ -36,15 +36,6 @@ async function canReportGroup(user, groupId) {
   }
 
   return false;
-}
-
-// Which staging report a user writes. TEACHER → PROFESSOR, PHYSICAL_TRAINER
-// (coordinador) → COORDINATOR. SUPERADMIN edits either and must say which.
-function resolveReporterType(role, requested) {
-  if (role === 'TEACHER') return 'PROFESSOR';
-  if (role === 'PHYSICAL_TRAINER') return 'COORDINATOR';
-  if (role === 'SUPERADMIN' && ['PROFESSOR', 'COORDINATOR'].includes(requested)) return requested;
-  return null;
 }
 
 // Resuelve el asistente que actúa. ADMIN/SUPERADMIN actúan a nombre de otro

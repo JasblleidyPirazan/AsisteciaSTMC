@@ -297,14 +297,6 @@ function PendingFestivals() {
   );
 }
 
-// Quién hizo el último reporte de la reposición, en palabras.
-function reporterLabel(reportedBy) {
-  if (!reportedBy) return 'alguien más';
-  if (reportedBy.role === 'TEACHER') return 'otro profesor';
-  if (reportedBy.role === 'PHYSICAL_TRAINER') return 'el coordinador';
-  return 'la administración';
-}
-
 function PendingMakeups() {
   const navigate = useNavigate();
   const { user } = useAuth();
@@ -334,10 +326,15 @@ function PendingMakeups() {
     );
   }
 
-  // Le falta MI reporte: nunca se reportó, o el último reporte lo hizo otra
-  // persona (el coordinador). Las canceladas no se reportan.
-  const needsMyReport = (m) =>
-    m.status !== 'CANCELADA' && (m.status === 'PROGRAMADA' || m.reportedById !== user?.id);
+  // Doble reporte (nota 51): la reposición me sigue pendiente mientras no esté
+  // MI reporte, y también si los dos reportes no coinciden — ahí hay que
+  // ajustar. Las canceladas no se reportan.
+  const myReporterType = isTeacher ? 'PROFESSOR' : 'COORDINATOR';
+  const needsMyReport = (m) => {
+    if (m.status === 'CANCELADA') return false;
+    if (m.consolidationStatus === 'MISMATCH') return true;
+    return !(m.reports || []).some((r) => r.reporterType === myReporterType);
+  };
 
   const pending = makeups.filter(needsMyReport);
   if (pending.length === 0) return null;
@@ -349,8 +346,9 @@ function PendingMakeups() {
   const upcoming = pending.filter((m) => String(m.date).slice(0, 10) > today);
 
   function card(m, accent) {
-    // Reportada por otro: el profesor todavía debe poner su propio reporte.
-    const reportedByOther = m.status !== 'PROGRAMADA' && m.reportedById !== user?.id;
+    const mismatch = m.consolidationStatus === 'MISMATCH';
+    // El otro ya reportó y falta el mío: la reposición no se consolida sola.
+    const waitingForMe = !mismatch && (m.reports || []).length > 0;
     return (
       <div key={m.id} className="card card-tap mb-2" style={{ borderLeft: `3px solid ${accent}` }}
         onClick={() => navigate(`/makeups/${m.id}/attendance`)}>
@@ -361,9 +359,14 @@ function PendingMakeups() {
               {fmtDate(m.date)} · {m.makeupProfessor?.name || '—'} · {m.makeupParticipants?.length || 0} est.
               {m.assistant ? ` · 🤝 ${m.assistant.name}` : ''}
             </div>
-            {reportedByOther && (
+            {mismatch && (
+              <div className="text-xs mt-1" style={{ color: 'var(--red)' }}>
+                ⚠️ Los reportes no coinciden · hay que ajustar
+              </div>
+            )}
+            {waitingForMe && (
               <div className="text-xs mt-1" style={{ color: 'var(--yellow-700, #92400e)' }}>
-                ⚠️ Reportada por {reporterLabel(m.reportedBy)} · falta tu reporte
+                🕓 El otro reporte ya está · falta el tuyo
               </div>
             )}
           </div>

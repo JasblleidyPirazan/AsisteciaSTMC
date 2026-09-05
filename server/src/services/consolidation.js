@@ -44,6 +44,24 @@ function effectiveDictatingId(report, groupProfessorId) {
   return report.dictatedByOwner ? groupProfessorId ?? null : report.dictatingProfessorId ?? null;
 }
 
+// El profesor "titular" de la sesión: en una clase regular es el del grupo; en
+// una reposición grupal no hay grupo, el titular es el que se asignó al crearla.
+function ownerProfessorId(session) {
+  if (session.kind === 'MAKEUP') return session.makeupProfessorId ?? null;
+  return session.group?.professorId ?? null;
+}
+
+// Quién escribe cada reporte de staging. TEACHER → PROFESSOR; el coordinador y
+// la administración → COORDINATOR; SUPERADMIN edita cualquiera y debe decir
+// cuál. (En clases regulares el ADMIN ni siquiera llega aquí: `canReportGroup`
+// lo bloquea antes — es solo-lectura, nota 32.)
+function resolveReporterType(role, requested) {
+  if (role === 'TEACHER') return 'PROFESSOR';
+  if (['PHYSICAL_TRAINER', 'ADMIN'].includes(role)) return 'COORDINATOR';
+  if (role === 'SUPERADMIN' && ['PROFESSOR', 'COORDINATOR'].includes(requested)) return requested;
+  return null;
+}
+
 function normalize(report, groupProfessorId) {
   const attendance = {};
   for (const a of report.attendance || []) attendance[a.studentId] = a.status;
@@ -78,8 +96,8 @@ async function consolidateSession(sessionId) {
     return { status: 'PENDING' };
   }
 
-  const groupProfId = session.group?.professorId ?? null;
-  const diff = diffReports(normalize(prof, groupProfId), normalize(coord, groupProfId));
+  const ownerProfId = ownerProfessorId(session);
+  const diff = diffReports(normalize(prof, ownerProfId), normalize(coord, ownerProfId));
 
   if (!diff.matched) {
     await clearConsolidation(sessionId, 'MISMATCH', await enrichDiff(diff));
@@ -135,6 +153,58 @@ async function clearConsolidation(sessionId, status, diff = null) {
   });
 }
 
+// Reposiciones reportadas ANTES de que existiera la doble consolidación: tienen
+// AttendanceRecord y costos pero ningún ClassReport. Si alguien manda ahora su
+// reporte, la consolidación las dejaría en PENDING y borraría esa asistencia y
+// esos costos ya liquidados. Para evitarlo se rescata el reporte existente como
+// el del rol de quien lo hizo: era, de hecho, su reporte.
+// Devuelve el reporterType rescatado, o null si no había nada que rescatar.
+async function backfillLegacyReport(sessionId) {
+  const session = await prisma.classSession.findUnique({
+    where: { id: sessionId },
+    select: {
+      id: true, kind: true, status: true, reportedById: true,
+      makeupProfessorId: true, substituteProfessorId: true, assistantId: true,
+      _count: { select: { reports: true } },
+    },
+  });
+  // Solo reposiciones ya reportadas y sin ningún reporte de staging.
+  if (!session || session.kind !== 'MAKEUP') return null;
+  if (!['REALIZADA', 'CANCELADA_MITAD'].includes(session.status)) return null;
+  if (session._count.reports > 0) return null;
+
+  const records = await prisma.attendanceRecord.findMany({ where: { sessionId } });
+  if (records.length === 0) return null;
+
+  // El rol de quien reportó decide de quién era ese reporte. Sin usuario
+  // identificable se asume el coordinador: así se reportaban antes.
+  const reporter = session.reportedById
+    ? await prisma.user.findUnique({ where: { id: session.reportedById }, select: { role: true } })
+    : null;
+  const reporterType = (reporter && resolveReporterType(reporter.role, null)) || 'COORDINATOR';
+
+  const substituteId = session.substituteProfessorId ?? null;
+  const report = await prisma.classReport.create({
+    data: {
+      sessionId,
+      reporterType,
+      reportedById: session.reportedById,
+      dictatedByOwner: !substituteId || substituteId === session.makeupProfessorId,
+      dictatingProfessorId: substituteId,
+      assistantId: session.assistantId ?? null,
+      attendance: {
+        create: records.map((r) => ({
+          studentId: r.studentId,
+          status: r.status,
+          attendanceType: r.attendanceType,
+          justification: r.justification,
+        })),
+      },
+    },
+  });
+  return { reporterType, reportId: report.id };
+}
+
 // Attach student names to a diff for display (only the divergent rows matter).
 async function enrichDiff(diff) {
   const ids = diff.students.map((s) => s.studentId);
@@ -148,4 +218,7 @@ async function enrichDiff(diff) {
   };
 }
 
-module.exports = { consolidateSession, diffReports, effectiveDictatingId, normalize };
+module.exports = {
+  consolidateSession, diffReports, effectiveDictatingId, normalize,
+  ownerProfessorId, resolveReporterType, backfillLegacyReport,
+};

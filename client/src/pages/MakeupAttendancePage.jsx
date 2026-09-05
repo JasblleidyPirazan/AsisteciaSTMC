@@ -25,11 +25,17 @@ export default function MakeupAttendancePage() {
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
   const [done, setDone] = useState(false);
+  const [result, setResult] = useState(null); // consolidación devuelta al enviar
   const [showCancel, setShowCancel] = useState(false);
   const [cancelCategory, setCancelCategory] = useState('');
   const [cancelReason, setCancelReason] = useState('');
 
-  const editing = makeup && ['REALIZADA', 'CANCELADA_MITAD'].includes(makeup.status);
+  // Doble reporte: el profesor escribe el reporte PROFESSOR, el coordinador y la
+  // administración el COORDINATOR. La reposición solo se cierra cuando coinciden.
+  const myReporterType = user?.role === 'TEACHER' ? 'PROFESSOR' : 'COORDINATOR';
+  const myReport = (makeup?.reports || []).find((r) => r.reporterType === myReporterType);
+  const otherReport = (makeup?.reports || []).find((r) => r.reporterType !== myReporterType);
+  const editing = !!myReport || (makeup && ['REALIZADA', 'CANCELADA_MITAD'].includes(makeup.status));
   const showCosts = ['ADMIN', 'SUPERADMIN', 'TEACHER'].includes(user?.role);
 
   useEffect(() => {
@@ -44,8 +50,19 @@ export default function MakeupAttendancePage() {
       setSubstitute(m.substituteProfessor || null);
       setAssistant(m.assistant || null);
 
-      const existing = m.attendanceRecords || [];
+      // Precarga: primero MI propio reporte de staging (lo que yo dije la última
+      // vez); si todavía no tengo, la asistencia consolidada que hubiera.
+      const mine = (m.reports || []).find(
+        (r) => r.reporterType === (user?.role === 'TEACHER' ? 'PROFESSOR' : 'COORDINATOR')
+      );
+      const existing = mine ? mine.attendance : (m.attendanceRecords || []);
       const byStudent = Object.fromEntries(existing.map((r) => [r.studentId, r]));
+      if (mine) {
+        const prof = profs.find((p) => p.id === mine.dictatingProfessorId);
+        if (prof) setSubstitute(prof);
+        const asi = asis.find((a) => a.id === mine.assistantId);
+        setAssistant(asi || null);
+      }
       setRecords(
         (m.makeupParticipants || []).map((p) => ({
           studentId: p.studentId,
@@ -70,11 +87,13 @@ export default function MakeupAttendancePage() {
     setSaving(true);
     setError('');
     try {
-      await api.post(`/makeups/${id}/finalize`, {
+      const res = await api.post(`/makeups/${id}/finalize`, {
         attendanceRecords: records.map((r) => ({ studentId: r.studentId, status: r.status })),
         substituteProfessorId: substitute?.id || null,
         assistantId: assistant?.id || null,
+        reporterType: myReporterType, // el SUPERADMIN debe decir cuál escribe
       });
+      setResult(res?.consolidation || null);
       setDone(true);
     } catch (err) {
       setError(err.message);
@@ -101,13 +120,23 @@ export default function MakeupAttendancePage() {
   if (loading) return <div className="page"><div className="spinner" /></div>;
   if (!makeup) return <div className="page"><div className="page-content"><div className="alert alert-error">{error || 'No encontrada'}</div></div></div>;
 
+  const otherRole = myReporterType === 'PROFESSOR' ? 'coordinador' : 'profesor';
+
   if (done) {
+    // Mismo lenguaje que una clase regular: la reposición solo queda cerrada
+    // (y el pago habilitado) cuando los dos reportes coinciden.
+    const outcome = {
+      MATCHED: { icon: '✅', title: 'Reportes coinciden', msg: 'El reporte del profesor y del coordinador coinciden: la reposición quedó consolidada y el pago habilitado.' },
+      PENDING: { icon: '🕓', title: 'Reporte enviado', msg: `Falta el reporte del ${otherRole}. Cuando ambos coincidan se consolidará la reposición y se habilitará el pago.` },
+      MISMATCH: { icon: '⚠️', title: 'Los reportes no coinciden', msg: `Tu reporte no coincide con el del ${otherRole}. Revisa el conflicto: ambos deben ajustar hasta que coincidan.` },
+    }[result?.status] || { icon: '✅', title: editing ? 'Reporte actualizado' : 'Reporte enviado', msg: 'La asistencia de la reposición quedó registrada.' };
+
     return (
       <div className="page">
         <div className="page-content" style={{ textAlign: 'center', paddingTop: 60 }}>
-          <div style={{ fontSize: '4rem' }}>✅</div>
-          <h2 className="mt-4">{editing ? 'Reporte actualizado' : 'Reporte enviado'}</h2>
-          <p className="text-gray mt-2">La asistencia de la reposición quedó registrada.</p>
+          <div style={{ fontSize: '4rem' }}>{outcome.icon}</div>
+          <h2 className="mt-4">{outcome.title}</h2>
+          <p className="text-gray mt-2">{outcome.msg}</p>
           <button className="btn btn-primary btn-full mt-4"
             onClick={() => navigate(user?.role === 'TEACHER' ? '/' : '/admin/makeups')}>
             Volver
@@ -137,9 +166,31 @@ export default function MakeupAttendancePage() {
 
       <div className="page-content">
         {error && <div className="alert alert-error mb-3">{error}</div>}
-        {editing && (
+        {myReport && (
           <div className="alert alert-info mb-3">
-            ✏️ Esta reposición ya fue reportada. Estás editando — se guardará un registro y se recalculará el pago.
+            ✏️ Ya enviaste tu reporte. Estás editándolo — se guardará un registro de la edición.
+          </div>
+        )}
+
+        {/* Estado de la doble consolidación, con las mismas reglas que una
+            clase regular: sin los dos reportes no hay asistencia ni pago. */}
+        {makeup.consolidationStatus === 'MISMATCH' ? (
+          <div className="alert alert-error mb-3">
+            ⚠️ Tu reporte y el del {otherRole} <strong>no coinciden</strong>. Ajusta hasta que digan lo mismo:
+            mientras tanto la reposición no se consolida ni se habilita el pago.
+          </div>
+        ) : makeup.consolidationStatus === 'MATCHED' ? (
+          <div className="alert alert-success mb-3">
+            ✅ Los dos reportes coinciden: reposición consolidada y pago habilitado.
+          </div>
+        ) : otherReport ? (
+          <div className="alert alert-info mb-3">
+            🕓 El {otherRole} ya reportó esta reposición. Falta el tuyo para consolidarla.
+          </div>
+        ) : (
+          <div className="alert alert-info mb-3">
+            🕓 Esta reposición la reportan el profesor y el {myReporterType === 'PROFESSOR' ? 'coordinador' : 'profesor'} por separado:
+            se consolida y se habilita el pago cuando los dos reportes coinciden.
           </div>
         )}
 

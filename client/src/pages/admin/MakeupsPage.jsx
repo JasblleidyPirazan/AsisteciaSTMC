@@ -28,12 +28,22 @@ const UNIT_PRESETS = [
 // acompañó. Esto muestra a la Escuela qué falta de esas dos cosas.
 function reportState(m) {
   if (m.status === 'CANCELADA') return { icon: '🚫', text: 'Cancelada', color: 'var(--gray-400)' };
-  if (m.status === 'PROGRAMADA') return { icon: '⏳', text: 'Sin reportar', color: 'var(--gray-500)' };
-  if (m.reportedBy?.role === 'TEACHER') {
-    return { icon: '✅', text: 'Reportada por el profesor', color: 'var(--green)' };
+  if (m.consolidationStatus === 'MISMATCH') {
+    return { icon: '⚠️', text: 'Los reportes NO coinciden · sin consolidar ni pagar', color: 'var(--red)' };
   }
-  const quien = m.reportedBy?.role === 'PHYSICAL_TRAINER' ? 'el coordinador' : 'la administración';
-  return { icon: '⚠️', text: `Reportada por ${quien} · falta el reporte del profesor`, color: 'var(--yellow)' };
+  const has = (t) => (m.reports || []).some((r) => r.reporterType === t);
+  const prof = has('PROFESSOR');
+  const coord = has('COORDINATOR');
+  if (prof && coord) {
+    return { icon: '✅', text: 'Los dos reportes coinciden · consolidada', color: 'var(--green)' };
+  }
+  if (prof) return { icon: '🕓', text: 'Reportó el profesor · falta el coordinador', color: 'var(--yellow)' };
+  if (coord) return { icon: '🕓', text: 'Reportó el coordinador · falta el profesor', color: 'var(--yellow)' };
+  // Reposición legada: reportada antes de la doble consolidación.
+  if (['REALIZADA', 'CANCELADA_MITAD'].includes(m.status)) {
+    return { icon: '✅', text: 'Reportada (antes de la doble consolidación)', color: 'var(--green)' };
+  }
+  return { icon: '⏳', text: 'Sin reportar', color: 'var(--gray-500)' };
 }
 
 function assistantState(m) {
