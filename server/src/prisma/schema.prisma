@@ -637,3 +637,74 @@ model PayrollLog {
 
   @@map("payroll_logs")
 }
+
+// ──────────────── Gastos operativos (módulo Contabilidad) ────────────────
+// Gastos de la academia que NO salen de la liquidación de clases (arriendo de
+// canchas, servicios, implementos, nómina administrativa…). Dos naturalezas:
+//
+//   FIJO     recurrente cada quincena. `amount` es el monto POR QUINCENA y se
+//            causa en cada quincena que toque la vigencia [startDate, endDate]
+//            (endDate null = vigente indefinidamente).
+//   VARIABLE ocurre una sola vez y se carga a la quincena `period` (derivada de
+//            `expenseDate`).
+//
+// El "pago realizado" no vive aquí sino en operating_expense_payments, una fila
+// por (gasto, quincena): un gasto fijo se paga quincena por quincena.
+model OperatingExpense {
+  id            String                   @id @default(cuid())
+  kind          OperatingExpenseKind
+  category      OperatingExpenseCategory @default(OTRO)
+  concept       String
+  amount        Decimal                  @db.Decimal(12, 2)
+  startDate     DateTime?                @map("start_date") @db.Date
+  endDate       DateTime?                @map("end_date") @db.Date
+  period        String?
+  expenseDate   DateTime?                @map("expense_date") @db.Date
+  provider      String?
+  note          String?
+  active        Boolean                  @default(true)
+  createdById   String?                  @map("created_by_id")
+  createdByName String?                  @map("created_by_name")
+  createdAt     DateTime                 @default(now()) @map("created_at")
+  updatedAt     DateTime                 @updatedAt @map("updated_at")
+
+  payments OperatingExpensePayment[]
+
+  @@index([kind])
+  @@index([period])
+  @@map("operating_expenses")
+}
+
+// Marca de pago de UNA quincena de un gasto operativo. Un gasto fijo acumula
+// una fila por quincena pagada; un variable tiene a lo sumo una.
+model OperatingExpensePayment {
+  id         String   @id @default(cuid())
+  expenseId  String   @map("expense_id")
+  period     String
+  paidAt     DateTime @default(now()) @map("paid_at")
+  paidById   String?  @map("paid_by_id")
+  paidByName String?  @map("paid_by_name")
+  createdAt  DateTime @default(now()) @map("created_at")
+
+  expense OperatingExpense @relation(fields: [expenseId], references: [id], onDelete: Cascade)
+
+  @@unique([expenseId, period])
+  @@map("operating_expense_payments")
+}
+
+enum OperatingExpenseKind {
+  FIJO
+  VARIABLE
+}
+
+enum OperatingExpenseCategory {
+  ARRIENDO
+  SERVICIOS
+  NOMINA_ADMINISTRATIVA
+  MANTENIMIENTO
+  IMPLEMENTOS
+  TRANSPORTE
+  MARKETING
+  IMPUESTOS_SEGUROS
+  OTRO
+}

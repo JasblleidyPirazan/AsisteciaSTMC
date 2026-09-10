@@ -126,7 +126,7 @@ export default function StrategyPage() {
               </div>
               <div className="stats-row">
                 <div className="stat-box"><div className="num" style={{ color: 'var(--green)', fontSize: '1rem' }}>{fmt(d.finance.income)}</div><div className="lbl">Ingresos · {d.finance.paymentsCount} pagos (todos)</div></div>
-                <div className="stat-box"><div className="num" style={{ color: 'var(--red)', fontSize: '1rem' }}>{fmt(d.finance.expensesAccrued)}</div><div className="lbl">Gasto causado</div></div>
+                <div className="stat-box"><div className="num" style={{ color: 'var(--red)', fontSize: '1rem' }}>{fmt(d.finance.expensesAccrued)}</div><div className="lbl">Gasto causado · clases {fmt(d.finance.payrollAccrued)} + fijos/variables {fmt(d.finance.operatingAccrued)}</div></div>
                 <div className="stat-box"><div className="num" style={{ fontSize: '1rem' }}>{fmt(d.finance.expensesPaid)}</div><div className="lbl">Ya pagado</div></div>
                 <div className="stat-box"><div className="num" style={{ color: d.finance.expensesRetained > 0 ? 'var(--yellow)' : 'inherit', fontSize: '1rem' }}>{fmt(d.finance.expensesRetained)}</div><div className="lbl">Retenido</div></div>
               </div>

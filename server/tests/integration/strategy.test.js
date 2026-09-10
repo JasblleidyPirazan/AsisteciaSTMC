@@ -28,6 +28,7 @@ beforeEach(async () => {
   prismaMock.attendanceRecord = { findMany: vi.fn().mockResolvedValue([]) };
   prismaMock.studentPayment = { findMany: vi.fn().mockResolvedValue([]) };
   prismaMock.costRecord = { findMany: vi.fn().mockResolvedValue([]) };
+  prismaMock.operatingExpense = { findMany: vi.fn().mockResolvedValue([]) };
   // Estado derivado de estudiantes (attachStudentStatus): config + agregados
   await mockStudentStatusDeps();
 });
@@ -116,10 +117,41 @@ describe('GET /reports/strategy — Visión Estratégica', () => {
     expect(d.finance).toMatchObject({
       income: 500000, expensesAccrued: 150000, expensesPaid: 100000,
       expensesRetained: 45000, net: 350000, marginPct: 70,
+      payrollAccrued: 150000, operatingAccrued: 0,
     });
 
     // Ingresos = TODOS los pagos del sistema (sin filtro de fecha): los pagos
     // pertenecen al semestre aunque se hayan recibido antes de su inicio.
     expect(prismaMock.studentPayment.findMany).toHaveBeenCalledWith({ select: { amount: true } });
+  });
+
+  it('suma los gastos fijos y variables al gasto causado (igual que Contabilidad)', async () => {
+    const token = authAs('ADMIN');
+    // Semestre de una sola quincena para que la expansión sea predecible.
+    prismaMock.semester.findFirst.mockResolvedValue({
+      name: '2026-2', startDate: new Date('2026-06-01'), endDate: new Date('2026-06-15'),
+    });
+    prismaMock.studentPayment.findMany.mockResolvedValue([{ amount: '1000000' }]);
+    prismaMock.costRecord.findMany.mockResolvedValue([
+      { payStatus: 'PAYABLE', total: '100000', paidAt: null },
+    ]);
+    prismaMock.operatingExpense.findMany.mockResolvedValue([
+      {
+        id: 'e1', kind: 'FIJO', category: 'ARRIENDO', concept: 'Arriendo', amount: '300000',
+        startDate: new Date('2026-06-01'), endDate: null, period: null, expenseDate: null,
+        payments: [{ period: '2026-06-1', paidAt: new Date(), paidByName: 'admin@stmc.co' }],
+      },
+    ]);
+
+    const res = await request(app).get('/api/reports/strategy')
+      .set('Authorization', `Bearer ${token}`);
+
+    expect(res.status).toBe(200);
+    expect(res.body.data.finance).toMatchObject({
+      income: 1000000,
+      payrollAccrued: 100000, operatingAccrued: 300000,
+      expensesAccrued: 400000, operatingPaid: 300000, expensesPaid: 300000,
+      net: 600000,
+    });
   });
 });

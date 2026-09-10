@@ -1,8 +1,10 @@
 // Lógica pura del módulo de Contabilidad (Admin/Superadmin).
 //
-// Tres vistas sobre los datos que ya produce el sistema:
+// Vistas sobre los datos que ya produce el sistema, más los gastos operativos
+// que se registran a mano en el propio módulo:
 //   Ingresos  = StudentPayment (registro de pagos de estudiantes) + verificación
 //   Gastos    = CostRecord agrupado por quincena (la liquidación a profes/asistentes)
+//               + OperatingExpense (gastos fijos y variables de la academia)
 //   Balance   = ingresos vs gastos por mes calendario
 //
 // Criterio contable: los gastos se miden por CAUSACIÓN (todo CostRecord
@@ -139,29 +141,172 @@ function summarizeExpenses(records, closures) {
   return { rows, totals, byMonth };
 }
 
+// Fechas [from, to] (YYYY-MM-DD) que cubre una quincena "YYYY-MM-h":
+// h=1 → días 1–15, h=2 → 16 al último día del mes.
+function periodBounds(period) {
+  const [y, m, h] = String(period).split('-').map(Number);
+  const mm = String(m).padStart(2, '0');
+  const lastDay = h === 1 ? 15 : new Date(Date.UTC(y, m, 0)).getUTCDate();
+  return { from: `${y}-${mm}-${h === 1 ? '01' : '16'}`, to: `${y}-${mm}-${String(lastDay).padStart(2, '0')}` };
+}
+
+// Fecha @db.Date (o string) → "YYYY-MM-DD" en UTC, que es como Postgres guarda
+// las columnas DATE (sin hora, sin zona).
+function dayStr(value) {
+  if (!value) return null;
+  if (typeof value === 'string') return value.slice(0, 10);
+  return new Date(value).toISOString().slice(0, 10);
+}
+
+// ¿Este gasto se causa en esta quincena?
+//   FIJO     → la quincena toca la vigencia [startDate, endDate]. endDate null =
+//              vigente indefinidamente. Si la vigencia arranca o termina a mitad
+//              de quincena, esa quincena SÍ cuenta completa (el gasto fijo es un
+//              monto por quincena, no se prorratea por días).
+//   VARIABLE → la quincena es exactamente la que tiene asignada.
+function expenseCoversPeriod(expense, period) {
+  if (expense.kind === 'VARIABLE') {
+    return (expense.period || periodFromDateStr(dayStr(expense.expenseDate) || '')) === period;
+  }
+  const start = dayStr(expense.startDate);
+  if (!start) return false;
+  const end = dayStr(expense.endDate);
+  const { from, to } = periodBounds(period);
+  return start <= to && (!end || end >= from);
+}
+
+// Expande las definiciones de gastos operativos en una ocurrencia por quincena
+// del rango y las agrega por quincena, mes y categoría.
+//
+// `expenses` viene de Prisma con `payments` incluido (las marcas de pago por
+// quincena), y `periods` son las quincenas del rango pedido.
+function expandOperatingExpenses(expenses, periods) {
+  const occurrences = [];
+  const byPeriod = {};
+  for (const period of periods) {
+    byPeriod[period] = {
+      period, count: 0, fixedTotal: 0, variableTotal: 0,
+      total: 0, paidTotal: 0, unpaidTotal: 0,
+    };
+  }
+
+  for (const expense of expenses) {
+    const paidByPeriod = {};
+    for (const p of expense.payments || []) paidByPeriod[p.period] = p;
+    const amount = parseFloat(expense.amount) || 0;
+
+    for (const period of periods) {
+      if (!expenseCoversPeriod(expense, period)) continue;
+      const payment = paidByPeriod[period] || null;
+      occurrences.push({
+        expenseId: expense.id,
+        period,
+        kind: expense.kind,
+        category: expense.category,
+        concept: expense.concept,
+        provider: expense.provider || null,
+        note: expense.note || null,
+        amount,
+        startDate: dayStr(expense.startDate),
+        endDate: dayStr(expense.endDate),
+        expenseDate: dayStr(expense.expenseDate),
+        paid: !!payment,
+        paidAt: payment?.paidAt || null,
+        paidByName: payment?.paidByName || null,
+      });
+
+      const row = byPeriod[period];
+      row.count += 1;
+      row.total += amount;
+      if (expense.kind === 'FIJO') row.fixedTotal += amount;
+      else row.variableTotal += amount;
+      if (payment) row.paidTotal += amount;
+      else row.unpaidTotal += amount;
+    }
+  }
+
+  const rows = periods.map((p) => byPeriod[p]);
+
+  const totals = rows.reduce(
+    (acc, r) => ({
+      count: acc.count + r.count,
+      fixedTotal: acc.fixedTotal + r.fixedTotal,
+      variableTotal: acc.variableTotal + r.variableTotal,
+      total: acc.total + r.total,
+      paidTotal: acc.paidTotal + r.paidTotal,
+      unpaidTotal: acc.unpaidTotal + r.unpaidTotal,
+    }),
+    { count: 0, fixedTotal: 0, variableTotal: 0, total: 0, paidTotal: 0, unpaidTotal: 0 }
+  );
+
+  // Mes calendario de la quincena (para el balance) y categoría (para el desglose).
+  const byMonth = {};
+  const byCategory = {};
+  for (const o of occurrences) {
+    const month = String(o.period).slice(0, 7);
+    if (!byMonth[month]) byMonth[month] = { accrued: 0, paid: 0 };
+    byMonth[month].accrued += o.amount;
+    if (o.paid) byMonth[month].paid += o.amount;
+
+    if (!byCategory[o.category]) byCategory[o.category] = { total: 0, count: 0, paidTotal: 0 };
+    byCategory[o.category].total += o.amount;
+    byCategory[o.category].count += 1;
+    if (o.paid) byCategory[o.category].paidTotal += o.amount;
+  }
+
+  return { occurrences, rows, totals, byMonth, byCategory };
+}
+
 // Balance mensual: ingresos vs gastos causados, con resultado neto acumulado.
-function buildBalance(months, incomeByMonth, expensesByMonth) {
+//
+// El gasto de un mes = nómina de clases (payrollByMonth, de summarizeExpenses)
+// + gastos operativos fijos y variables (operatingByMonth, de
+// expandOperatingExpenses). `expensesAccrued`/`expensesPaid` son la suma de
+// ambos; el desglose queda en payroll*/operating* para poder mostrarlo.
+function buildBalance(months, incomeByMonth, payrollByMonth, operatingByMonth = {}) {
   let cumulativeNet = 0;
   const rows = months.map((month) => {
     const income = incomeByMonth[month] || 0;
-    const exp = expensesByMonth[month] || { accrued: 0, paid: 0 };
-    const net = income - exp.accrued;
+    const pay = payrollByMonth[month] || { accrued: 0, paid: 0 };
+    const ope = operatingByMonth[month] || { accrued: 0, paid: 0 };
+    const expensesAccrued = pay.accrued + ope.accrued;
+    const expensesPaid = pay.paid + ope.paid;
+    const net = income - expensesAccrued;
     cumulativeNet += net;
-    return { month, income, expensesAccrued: exp.accrued, expensesPaid: exp.paid, net, cumulativeNet };
+    return {
+      month, income,
+      payrollAccrued: pay.accrued, payrollPaid: pay.paid,
+      operatingAccrued: ope.accrued, operatingPaid: ope.paid,
+      expensesAccrued, expensesPaid, net, cumulativeNet,
+    };
   });
 
   const totals = rows.reduce(
     (acc, r) => ({
       income: acc.income + r.income,
+      payrollAccrued: acc.payrollAccrued + r.payrollAccrued,
+      payrollPaid: acc.payrollPaid + r.payrollPaid,
+      operatingAccrued: acc.operatingAccrued + r.operatingAccrued,
+      operatingPaid: acc.operatingPaid + r.operatingPaid,
       expensesAccrued: acc.expensesAccrued + r.expensesAccrued,
       expensesPaid: acc.expensesPaid + r.expensesPaid,
       net: acc.net + r.net,
     }),
-    { income: 0, expensesAccrued: 0, expensesPaid: 0, net: 0 }
+    { income: 0, payrollAccrued: 0, payrollPaid: 0, operatingAccrued: 0, operatingPaid: 0, expensesAccrued: 0, expensesPaid: 0, net: 0 }
   );
   totals.marginPct = totals.income > 0 ? (totals.net / totals.income) * 100 : null;
 
   return { rows, totals };
 }
 
-module.exports = { periodsBetween, monthsBetween, summarizeIncome, summarizeExpenses, buildBalance };
+module.exports = {
+  periodsBetween,
+  monthsBetween,
+  periodBounds,
+  periodFromDateStr,
+  summarizeIncome,
+  summarizeExpenses,
+  expenseCoversPeriod,
+  expandOperatingExpenses,
+  buildBalance,
+};

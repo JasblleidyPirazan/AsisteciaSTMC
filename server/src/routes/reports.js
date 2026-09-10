@@ -6,7 +6,8 @@ const { getCurrentPeriod } = require('../services/costEngine');
 const { absenceCounts, seenUnits, attendanceUnits, roundUnits } = require('../services/attendanceStats');
 const { computeAttendanceDeviations } = require('../services/attendanceAlerts');
 const { byGroupCode } = require('../lib/sort');
-const { bogotaToday, bogotaDateStr, bogotaMinutesOfDay } = require('../lib/dates');
+const { bogotaToday, bogotaDateStr, bogotaMinutesOfDay, dbDateStr } = require('../lib/dates');
+const { periodsBetween, expandOperatingExpenses } = require('../services/accounting');
 const { attachStudentStatus } = require('../services/studentStatus');
 const { buildTrackingRows, consumedTotal, progressPct } = require('../services/studentTracking');
 
@@ -605,7 +606,7 @@ router.get('/strategy', requireRole('ADMIN'), async (req, res, next) => {
     const to = semester ? new Date(semester.endDate) : todayBogota;
     const dateRange = { gte: from, lte: to };
 
-    const [studentRows, groups, sessions, attRows, payments, costRows] = await Promise.all([
+    const [studentRows, groups, sessions, attRows, payments, costRows, operatingRows] = await Promise.all([
       prisma.student.findMany({
         where: { active: true },
         select: {
@@ -642,6 +643,16 @@ router.get('/strategy', requireRole('ADMIN'), async (req, res, next) => {
       prisma.costRecord.findMany({
         where: { session: { date: dateRange } },
         select: { payStatus: true, total: true, paidAt: true },
+      }),
+      // Gastos operativos (fijos y variables): la vigencia se resuelve al
+      // expandirlos por quincena, así que se traen todos los activos.
+      prisma.operatingExpense.findMany({
+        where: { active: true },
+        select: {
+          id: true, kind: true, category: true, concept: true, amount: true,
+          startDate: true, endDate: true, period: true, expenseDate: true,
+          payments: { select: { period: true, paidAt: true, paidByName: true } },
+        },
       }),
     ]);
 
@@ -730,16 +741,25 @@ router.get('/strategy', requireRole('ADMIN'), async (req, res, next) => {
     const alertYellow = deviations.filter((d) => d.level === 'AMARILLA').length;
 
     // ---- Finanzas (criterio del módulo de Contabilidad) ----
+    // Gasto causado = nómina de clases (CostRecord habilitado) + gastos
+    // operativos fijos y variables de las quincenas del rango. Es la misma
+    // suma que muestra Contabilidad, para que las dos vistas no se contradigan.
     const income = payments.reduce((s, p) => s + parseFloat(p.amount), 0);
-    let expensesAccrued = 0, expensesPaid = 0, expensesRetained = 0;
+    let payrollAccrued = 0, payrollPaid = 0, expensesRetained = 0;
     for (const c of costRows) {
       const amount = parseFloat(c.total);
       if (['SUSPENDED_LATE', 'PENDING_MATCH'].includes(c.payStatus)) expensesRetained += amount;
       else {
-        expensesAccrued += amount;
-        if (c.paidAt) expensesPaid += amount;
+        payrollAccrued += amount;
+        if (c.paidAt) payrollPaid += amount;
       }
     }
+    const operating = expandOperatingExpenses(
+      operatingRows,
+      periodsBetween(dbDateStr(from), dbDateStr(to))
+    );
+    const expensesAccrued = payrollAccrued + operating.totals.total;
+    const expensesPaid = payrollPaid + operating.totals.paidTotal;
     const net = income - expensesAccrued;
 
     res.json({
@@ -771,6 +791,9 @@ router.get('/strategy', requireRole('ADMIN'), async (req, res, next) => {
           income,
           paymentsCount: payments.length,
           expensesAccrued, expensesPaid, expensesRetained,
+          payrollAccrued, payrollPaid,
+          operatingAccrued: operating.totals.total,
+          operatingPaid: operating.totals.paidTotal,
           net,
           marginPct: income > 0 ? Math.round((net / income) * 100) : null,
         },
