@@ -23,6 +23,8 @@ beforeEach(() => {
   resetPrisma();
   prismaMock.payrollClosure = { findUnique: vi.fn().mockResolvedValue(null) };
   prismaMock.payrollApproval = { findUnique: vi.fn().mockResolvedValue(null) };
+  // Gastos fijos y variables de la quincena (el summary los suma al total).
+  prismaMock.operatingExpense = { findMany: vi.fn().mockResolvedValue([]) };
   prismaMock.systemConfig = { findUnique: vi.fn().mockResolvedValue({ value: '2026-01-01' }) };
   prismaMock.costRecord = {
     findMany: vi.fn(),

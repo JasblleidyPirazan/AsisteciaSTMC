@@ -33,6 +33,21 @@ const MISSING_LABEL = {
 
 const rowBtn = { minHeight: 26, padding: '0 8px', fontSize: '0.72rem' };
 
+// Gastos fijos y variables (mismas etiquetas que Contabilidad).
+const EXPENSE_KIND_LABEL = { FIJO: 'Fijo', VARIABLE: 'Variable' };
+const EXPENSE_KIND_BADGE = { FIJO: 'badge-blue', VARIABLE: 'badge-yellow' };
+const EXPENSE_CATEGORY_LABEL = {
+  ARRIENDO: 'Arriendo',
+  SERVICIOS: 'Servicios',
+  NOMINA_ADMINISTRATIVA: 'Nómina administrativa',
+  MANTENIMIENTO: 'Mantenimiento',
+  IMPLEMENTOS: 'Implementos',
+  TRANSPORTE: 'Transporte',
+  MARKETING: 'Marketing',
+  IMPUESTOS_SEGUROS: 'Impuestos y seguros',
+  OTRO: 'Otro',
+};
+
 // Estado derivado de un CostRecord para el flujo Aprobado → Pagado.
 // Verde = coincidencia total (habilitado); rojo = conflicto/retención.
 function recordState(r) {
@@ -64,6 +79,153 @@ function StatCard({ icon, tint, label, value, sub, subColor }) {
       <div className="kpi-lbl">{label}</div>
       <div className="kpi-num" style={{ fontSize: '1.5rem' }}>{value}</div>
       {sub && <div className="kpi-sub" style={{ color: subColor || 'var(--text-soft)' }}>{sub}</div>}
+    </div>
+  );
+}
+
+// Gastos fijos y variables causados en la quincena. No hacen parte de la
+// liquidación a profesores (no se aprueban ni se retienen acá): se muestran para
+// que el total de la quincena sea el desembolso real de la academia. Se crean y
+// se marcan como pagados en Contabilidad → "Fijos y variables".
+function OperatingExpensesTable({ operating, onGoToAccounting }) {
+  const t = operating?.totals || { count: 0, fixedTotal: 0, variableTotal: 0, total: 0, paidTotal: 0, unpaidTotal: 0 };
+  const rows = operating?.occurrences || [];
+
+  return (
+    <div className="mb-4">
+      <div className="flex items-center justify-between mb-2" style={{ gap: 8, flexWrap: 'wrap' }}>
+        <h3 style={{ margin: 0, fontSize: '1rem' }}>🧾 Gastos fijos y variables de la quincena</h3>
+        <button className="btn btn-ghost" style={{ minHeight: 30, fontSize: '0.75rem', padding: '0 10px' }}
+          onClick={onGoToAccounting}>Gestionar en Contabilidad →</button>
+      </div>
+
+      {rows.length === 0 ? (
+        <div className="alert alert-info">
+          No hay gastos fijos ni variables causados en esta quincena.
+        </div>
+      ) : (
+        <>
+          {/* Escritorio: tabla */}
+          <div className="only-desktop table-wrap">
+            <table className="data-table">
+              <thead>
+                <tr>
+                  <th style={{ width: 80 }}>Tipo</th>
+                  <th>Concepto</th>
+                  <th>Categoría</th>
+                  <th className="num">Monto</th>
+                  <th style={{ textAlign: 'right' }}>Estado</th>
+                </tr>
+              </thead>
+              <tbody>
+                {rows.map((o) => (
+                  <tr key={`${o.expenseId}-${o.period}`}>
+                    <td>
+                      <span className={`badge ${EXPENSE_KIND_BADGE[o.kind] || 'badge-gray'}`}>
+                        {EXPENSE_KIND_LABEL[o.kind] || o.kind}
+                      </span>
+                    </td>
+                    <td>
+                      <div className="font-medium">{o.concept}</div>
+                      {o.provider && <div className="text-xs text-gray">{o.provider}</div>}
+                    </td>
+                    <td className="text-sm">{EXPENSE_CATEGORY_LABEL[o.category] || o.category}</td>
+                    <td className="num font-medium">{fmt(o.amount)}</td>
+                    <td style={{ textAlign: 'right' }}>
+                      {o.paid
+                        ? <span className="badge badge-green">✓ Pagado</span>
+                        : <span className="badge badge-yellow">Pendiente</span>}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+              <tfoot>
+                <tr>
+                  <td></td>
+                  <td>Total gastos fijos y variables</td>
+                  <td className="text-xs text-gray">
+                    Fijos {fmt(t.fixedTotal)} · Variables {fmt(t.variableTotal)}
+                  </td>
+                  <td className="num" style={{ color: 'var(--brand-indigo, var(--blue))' }}>{fmt(t.total)}</td>
+                  <td className="text-xs" style={{ textAlign: 'right', color: 'var(--text-soft)' }}>
+                    {fmt(t.paidTotal)} pagado
+                  </td>
+                </tr>
+              </tfoot>
+            </table>
+          </div>
+
+          {/* Móvil: cards */}
+          <div className="only-mobile">
+            {rows.map((o) => (
+              <div key={`${o.expenseId}-${o.period}`} className="card mb-2">
+                <div className="flex items-center justify-between" style={{ gap: 8 }}>
+                  <div style={{ minWidth: 0 }}>
+                    <div className="font-medium">{o.concept}</div>
+                    <div className="text-xs text-gray">
+                      {EXPENSE_KIND_LABEL[o.kind] || o.kind} · {EXPENSE_CATEGORY_LABEL[o.category] || o.category}
+                      {o.provider ? ` · ${o.provider}` : ''}
+                    </div>
+                  </div>
+                  <div style={{ textAlign: 'right', flexShrink: 0 }}>
+                    <div className="cost-total">{fmt(o.amount)}</div>
+                    {o.paid
+                      ? <span className="badge badge-green">✓ Pagado</span>
+                      : <span className="badge badge-yellow">Pendiente</span>}
+                  </div>
+                </div>
+              </div>
+            ))}
+            <div className="card mb-2" style={{ background: 'var(--gray-50)' }}>
+              <div className="flex items-center justify-between">
+                <span className="font-medium">Total gastos</span>
+                <span className="cost-total">{fmt(t.total)}</span>
+              </div>
+              <div className="text-xs text-gray mt-1">
+                Fijos {fmt(t.fixedTotal)} · Variables {fmt(t.variableTotal)} · {fmt(t.paidTotal)} pagado
+              </div>
+            </div>
+          </div>
+        </>
+      )}
+    </div>
+  );
+}
+
+// La fila que suma todo: nómina de clases (profesores + asistentes) + gastos
+// fijos y variables = desembolso total de la quincena. El retenido se muestra
+// aparte porque NO entra al total (aún no es un gasto en firme).
+function PeriodTotals({ summaryData, retainedTotal }) {
+  const operatingTotals = summaryData?.operating?.totals || { count: 0, total: 0 };
+  const payroll = summaryData?.grandTotal || 0;
+  const classes = (summaryData?.classesProfessors || 0) + (summaryData?.classesAssistants || 0);
+  const total = summaryData?.periodTotal ?? (payroll + operatingTotals.total);
+
+  const line = (label, detail, amount, strong = false) => (
+    <div className="flex items-center justify-between" style={{ gap: 12, padding: '6px 0' }}>
+      <span style={{ minWidth: 0 }}>
+        <span className={strong ? 'font-medium' : ''}>{label}</span>
+        {detail && <span className="text-xs text-gray"> · {detail}</span>}
+      </span>
+      <span className={strong ? 'cost-total' : 'font-medium'} style={{ whiteSpace: 'nowrap' }}>{fmt(amount)}</span>
+    </div>
+  );
+
+  return (
+    <div className="card mb-4" style={{ borderLeft: '4px solid var(--brand-indigo, var(--blue))' }}>
+      <div className="font-medium mb-1" style={{ fontSize: '1rem' }}>Total de la quincena</div>
+      {line('Profesores', `${summaryData?.classesProfessors || 0} clases`, summaryData?.totalProfessors || 0)}
+      {line('Asistentes', `${summaryData?.classesAssistants || 0} clases`, summaryData?.totalAssistants || 0)}
+      {line('Nómina de clases', `${classes} clases en total`, payroll)}
+      {line('Gastos fijos y variables', `${operatingTotals.count} gasto${operatingTotals.count !== 1 ? 's' : ''}`, operatingTotals.total)}
+      <div style={{ borderTop: '2px solid var(--gray-200)', marginTop: 6, paddingTop: 2 }}>
+        {line('TOTAL A DESEMBOLSAR', null, total, true)}
+      </div>
+      {retainedTotal > 0 && (
+        <div className="text-xs mt-1" style={{ color: 'var(--red)' }}>
+          No incluye {fmt(retainedTotal)} retenido (suspendido / pendiente de validación).
+        </div>
+      )}
     </div>
   );
 }
@@ -420,6 +582,7 @@ export default function PayrollPage() {
     if (items.length === 0) return null;
     const totalPayable = items.reduce((sum, s) => sum + (s.payableTotal ?? s.total), 0);
     const totalRetained = items.reduce((sum, s) => sum + (s.suspendedTotal || 0) + (s.pendingTotal || 0), 0);
+    const totalClasses = items.reduce((sum, s) => sum + (s.classCount || 0), 0);
     return (
       <div className="table-wrap mb-4">
         <table className="data-table">
@@ -494,7 +657,7 @@ export default function PayrollPage() {
             <tr>
               <td></td>
               <td>Total {label.toLowerCase()}</td>
-              <td></td>
+              <td className="num">{totalClasses}</td>
               <td className="num" style={{ color: 'var(--brand-indigo, var(--blue))' }}>{fmt(totalPayable)}</td>
               <td className="num" style={{ color: totalRetained > 0 ? 'var(--red)' : 'inherit' }}>
                 {totalRetained > 0 ? fmt(totalRetained) : '—'}
@@ -510,6 +673,8 @@ export default function PayrollPage() {
   const hasItems = summaryData && summaryData.items?.length > 0;
   const retainedTotal = summaryData
     ? (summaryData.suspendedGrandTotal || 0) + (summaryData.pendingGrandTotal || 0) : 0;
+  const operatingTotals = summaryData?.operating?.totals
+    || { count: 0, fixedTotal: 0, variableTotal: 0, total: 0, paidTotal: 0, unpaidTotal: 0 };
   const headerPeriodLabel = periodLabel(period, semester);
 
   return (
@@ -590,6 +755,11 @@ export default function PayrollPage() {
                 <StatCard icon="🤝" tint={{ bg: 'rgba(79,159,178,0.14)', fg: '#4F9FB2' }}
                   label="Asistentes" value={fmt(summaryData.totalAssistants)}
                   sub={`${assistants.length} beneficiario${assistants.length !== 1 ? 's' : ''}`} />
+                <StatCard icon="🧾" tint={{ bg: 'rgba(232,162,59,0.16)', fg: '#B4780A' }}
+                  label="Gastos fijos y variables" value={fmt(operatingTotals.total)}
+                  sub={operatingTotals.count > 0
+                    ? `${operatingTotals.count} gasto${operatingTotals.count !== 1 ? 's' : ''} · ${fmt(operatingTotals.unpaidTotal)} sin pagar`
+                    : 'sin gastos en la quincena'} />
                 <StatCard icon="⏸" tint={{ bg: 'rgba(232,82,106,0.12)', fg: '#E8526A' }}
                   label="Retenido" value={fmt(retainedTotal)}
                   sub={retainedTotal > 0 ? 'suspendido / pendiente' : 'sin retenciones'}
@@ -644,7 +814,7 @@ export default function PayrollPage() {
               <div className="alert alert-info">No hay registros de pago para este período.</div>
             ) : (
               <>
-                {/* Escritorio: tablas anchas */}
+                {/* Nómina de clases — escritorio: tablas anchas */}
                 <div className="only-desktop">
                   <PayeeTable items={professors} label="Profesores" />
                   <PayeeTable items={assistants} label="Asistentes" />
@@ -668,8 +838,29 @@ export default function PayrollPage() {
                       {assistants.map((s) => <PayeeCard key={s.payeeId} s={s} />)}
                     </>
                   )}
+                  {/* Totales de la nómina de clases (el pie de tabla es solo de escritorio) */}
+                  <div className="card mb-2" style={{ background: 'var(--gray-50)' }}>
+                    <div className="flex items-center justify-between">
+                      <span className="font-medium">Total nómina de clases</span>
+                      <span className="cost-total">{fmt(summaryData.grandTotal)}</span>
+                    </div>
+                    <div className="text-xs text-gray mt-1">
+                      {summaryData.classesProfessors || 0} clases de profesores · {summaryData.classesAssistants || 0} de asistentes
+                    </div>
+                  </div>
                 </div>
               </>
+            )}
+
+            {/* Gastos fijos y variables causados en la quincena */}
+            {summaryData && (
+              <OperatingExpensesTable operating={summaryData.operating}
+                onGoToAccounting={() => navigate('/admin/accounting')} />
+            )}
+
+            {/* La fila que suma todo */}
+            {summaryData && (hasItems || operatingTotals.count > 0) && (
+              <PeriodTotals summaryData={summaryData} retainedTotal={retainedTotal} />
             )}
           </>
         ))}

@@ -2,6 +2,7 @@ const express = require('express');
 const prisma = require('../lib/prisma');
 const { requireRole } = require('../middleware/auth');
 const { getNextPeriod } = require('../services/costEngine');
+const { expandOperatingExpenses } = require('../services/accounting');
 const { assistantMissing } = require('../lib/assistantMatch');
 const { dbDateStr } = require('../lib/dates');
 const XLSX = require('xlsx');
@@ -43,6 +44,21 @@ async function refreshAssistantPayStatus(period) {
     }
   }
   if (updates.length > 0) await prisma.$transaction(updates);
+}
+
+// Gastos fijos y variables (OperatingExpense) que se causan en ESTA quincena.
+// Son gastos de la academia que NO salen de la liquidación a profesores, pero
+// la Liquidación los muestra para que el total de la quincena sea el desembolso
+// real. Misma expansión que usa Contabilidad (una sola fuente de verdad), acá
+// pedida para un único período.
+async function operatingForPeriod(period) {
+  const expenses = await prisma.operatingExpense.findMany({
+    where: { active: true },
+    include: { payments: { select: { period: true, paidAt: true, paidByName: true } } },
+    orderBy: [{ kind: 'asc' }, { category: 'asc' }, { concept: 'asc' }],
+  });
+  const { occurrences, totals, byCategory } = expandOperatingExpenses(expenses, [period]);
+  return { occurrences, totals, byCategory };
 }
 
 router.get('/', async (req, res, next) => {
@@ -297,7 +313,18 @@ router.get('/summary', requireRole('ADMIN'), async (req, res, next) => {
     const suspendedGrandTotal = sorted.reduce((sum, s) => sum + s.suspendedTotal, 0);
     const pendingGrandTotal = sorted.reduce((sum, s) => sum + s.pendingTotal, 0);
 
-    const approval = await prisma.payrollApproval.findUnique({ where: { period } });
+    // Conteo de clases por bando (la vista muestra el total al pie de cada tabla).
+    const classesProfessors = sorted
+      .filter((s) => s.payeeType === 'PROFESSOR')
+      .reduce((sum, s) => sum + s.classCount, 0);
+    const classesAssistants = sorted
+      .filter((s) => s.payeeType === 'ASSISTANT')
+      .reduce((sum, s) => sum + s.classCount, 0);
+
+    const [approval, operating] = await Promise.all([
+      prisma.payrollApproval.findUnique({ where: { period } }),
+      operatingForPeriod(period),
+    ]);
 
     res.json({
       success: true,
@@ -305,9 +332,17 @@ router.get('/summary', requireRole('ADMIN'), async (req, res, next) => {
         items: sorted,
         totalProfessors,
         totalAssistants,
+        classesProfessors,
+        classesAssistants,
         grandTotal: totalProfessors + totalAssistants,
         suspendedGrandTotal,
         pendingGrandTotal,
+        // Gastos fijos y variables causados en la quincena (no hacen parte de la
+        // liquidación a profesores; van aparte y suman al total del período).
+        operating,
+        // Desembolso total de la quincena: nómina de clases habilitada + gastos
+        // operativos. Los retenidos NO entran (aún no son un gasto en firme).
+        periodTotal: totalProfessors + totalAssistants + operating.totals.total,
         progress,
         approval: approval
           ? {
@@ -516,6 +551,42 @@ router.get('/export', requireRole('ADMIN', 'TEACHER', 'ASSISTANT'), async (req, 
       : XLSX.utils.aoa_to_sheet([['Sin registros de asistentes para este período']]);
     XLSX.utils.book_append_sheet(wb, wsAsst, 'Asistentes');
 
+    // Gastos fijos y variables causados en la quincena (no son nómina de clases,
+    // pero sí desembolso del período — misma tabla que muestra la vista).
+    const operating = await operatingForPeriod(period);
+    const OPERATING_CATEGORY_LABEL = {
+      ARRIENDO: 'Arriendo',
+      SERVICIOS: 'Servicios',
+      NOMINA_ADMINISTRATIVA: 'Nómina administrativa',
+      MANTENIMIENTO: 'Mantenimiento',
+      IMPLEMENTOS: 'Implementos',
+      TRANSPORTE: 'Transporte',
+      MARKETING: 'Marketing',
+      IMPUESTOS_SEGUROS: 'Impuestos y seguros',
+      OTRO: 'Otro',
+    };
+    const wsOperating = operating.occurrences.length > 0
+      ? XLSX.utils.aoa_to_sheet([
+          ['GASTOS FIJOS Y VARIABLES'],
+          [`Período: ${period}`],
+          [],
+          ['Tipo', 'Concepto', 'Categoría', 'Proveedor', 'Monto (COP)', 'Estado'],
+          ...operating.occurrences.map((o) => [
+            o.kind === 'FIJO' ? 'Fijo' : 'Variable',
+            o.concept,
+            OPERATING_CATEGORY_LABEL[o.category] || o.category,
+            o.provider || '',
+            o.amount,
+            o.paid ? 'Pagado' : 'Pendiente',
+          ]),
+          [],
+          ['', '', '', 'TOTAL FIJOS', operating.totals.fixedTotal],
+          ['', '', '', 'TOTAL VARIABLES', operating.totals.variableTotal],
+          ['', '', '', 'TOTAL GASTOS', operating.totals.total],
+        ])
+      : XLSX.utils.aoa_to_sheet([['Sin gastos fijos ni variables para este período']]);
+    XLSX.utils.book_append_sheet(wb, wsOperating, 'Gastos operativos');
+
     // Summary sheet — grand total counts only pay-enabled records
     const grandTotal = payableSum(profRows) + payableSum(asstRows);
     const retainedTotal = retainedSum(profRows) + retainedSum(asstRows);
@@ -523,12 +594,14 @@ router.get('/export', requireRole('ADMIN', 'TEACHER', 'ASSISTANT'), async (req, 
       ['RESUMEN LIQUIDACIÓN'],
       [`Período: ${period}`],
       [],
-      ['Concepto', 'Total (COP)'],
-      ['Total Profesores (habilitado)', payableSum(profRows)],
-      ['Total Asistentes (habilitado)', payableSum(asstRows)],
-      ['Total retenido (suspendido/pendiente)', retainedTotal],
+      ['Concepto', 'Clases', 'Total (COP)'],
+      ['Total Profesores (habilitado)', profRows.length, payableSum(profRows)],
+      ['Total Asistentes (habilitado)', asstRows.length, payableSum(asstRows)],
+      ['Subtotal nómina de clases', profRows.length + asstRows.length, grandTotal],
+      ['Gastos fijos y variables', operating.totals.count, operating.totals.total],
+      ['Total retenido (suspendido/pendiente)', '', retainedTotal],
       [],
-      ['GRAN TOTAL A PAGAR', grandTotal],
+      ['TOTAL DE LA QUINCENA', '', grandTotal + operating.totals.total],
     ]);
     XLSX.utils.book_append_sheet(wb, wsSum, 'Resumen');
 
