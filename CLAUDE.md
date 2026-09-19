@@ -6,7 +6,7 @@ Sistema completo de gestión de asistencia para una academia de tenis. Migració
 
 **Email admin:** jasblleidy@gmail.com  
 **Repositorio:** JasblleidyPirazan/AsisteciaSTMC  
-**Branch de trabajo:** `claude/ecstatic-goldberg-UpKEn`  
+**Branch de trabajo:** el que indique la sesión; el trabajo terminado se integra a `main`  
 **Deploy:** Railway → `asisteciastmc-production.up.railway.app`  
 **Documento de referencia:** `SistemaAsistenciaTenis_v2.docx` (en uploads)
 
@@ -301,8 +301,14 @@ Desde la base de datos o el seed, crear un `User` con `role: 'PHYSICAL_TRAINER'`
 ## Deploy en Railway — Pasos Completados
 
 1. ✅ Variables de entorno configuradas en Railway
-2. ⚠️ **PENDIENTE:** Cambiar branch en Railway de `main` a `claude/ecstatic-goldberg-UpKEn`
-   - Settings → Source → Branch → `claude/ecstatic-goldberg-UpKEn`
+2. **Deploy automático al hacer push.** Railway reconstruye sola cuando llega un
+   push a la rama que tiene configurada en Settings → Source → Branch.
+   ⚠️ La instrucción anterior de apuntar Railway a `claude/ecstatic-goldberg-UpKEn`
+   quedó **obsoleta**: esa rama se quedó en 2026-07-12, casi 100 commits atrás,
+   mientras producción corre funcionalidad muy posterior. **No apuntar Railway a
+   ella** — sería devolver el sistema meses atrás. El trabajo terminado va a `main`,
+   que es lo que se despliega; si la rama configurada en Railway fuera otra,
+   confirmarlo en el panel antes de asumir que un push llegó a producción.
 3. El `start.sh` ejecuta automáticamente al iniciar:
    - `prisma migrate deploy` (aplica las migraciones versionadas pendientes — ver **Flujo de migraciones**)
    - `node src/scripts/seed.js` (crea admin + tarifas por defecto)
