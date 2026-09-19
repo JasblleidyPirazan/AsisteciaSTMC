@@ -400,12 +400,20 @@ export default function PayrollPage() {
   }
 
   async function handleClose() {
-    if (!confirm(`¿Cerrar la quincena ${period}?\n\nSe congela la liquidación: no se podrán editar reportes ni pagos, los pagos suspendidos pasan a la siguiente quincena, y queda registrado. Podrás reabrirla si hace falta.`)) return;
+    const toPay = summaryData?.progress?.approved || 0;
+    const payLine = toPay > 0
+      ? `\n\nSe marcarán como PAGADOS los ${toPay} pago(s) aprobados (el cierre certifica que ya se desembolsaron).`
+      : '';
+    if (!confirm(`¿Cerrar la quincena ${period}?${payLine}\n\nSe congela la liquidación: no se podrán editar reportes ni pagos, los pagos suspendidos pasan a la siguiente quincena, y queda registrado. Podrás reabrirla si hace falta.`)) return;
     setApproving(true);
     try {
       const r = await api.post('/payroll/close', { period });
       await load();
-      if (r?.carried > 0) toast.success(`Quincena cerrada. ${r.carried} clase(s) suspendida(s) se arrastraron a ${r.nextPeriod}.`);
+      setDetailMap({});
+      const parts = [];
+      if (r?.markedPaid > 0) parts.push(`${r.markedPaid} pago(s) quedaron marcados como realizados`);
+      if (r?.carried > 0) parts.push(`${r.carried} clase(s) suspendida(s) se arrastraron a ${r.nextPeriod}`);
+      toast.success(parts.length > 0 ? `Quincena cerrada. ${parts.join(' · ')}.` : 'Quincena cerrada.');
     } catch (err) {
       toast.error(err.message);
     } finally {
@@ -798,7 +806,9 @@ export default function PayrollPage() {
                       <div className="text-xs text-gray mt-1">
                         {(summaryData?.progress?.pending || 0) > 0
                           ? `Faltan ${summaryData.progress.pending} pago(s) por validar o retener antes de cerrar.`
-                          : 'Congela la liquidación, arrastra los suspendidos a la siguiente quincena y bloquea la edición. Reversible.'}
+                          : (summaryData?.progress?.approved || 0) > 0
+                            ? `Marca como pagados los ${summaryData.progress.approved} pago(s) aprobados, arrastra los suspendidos a la siguiente quincena y bloquea la edición. Reversible.`
+                            : 'Congela la liquidación, arrastra los suspendidos a la siguiente quincena y bloquea la edición. Reversible.'}
                       </div>
                     </div>
                     <button className="btn btn-success" style={{ minHeight: 40 }}

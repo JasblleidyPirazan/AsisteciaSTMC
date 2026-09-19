@@ -816,7 +816,18 @@ router.post('/close', requireRole('ADMIN'), async (req, res, next) => {
       });
     }
 
-    // Foto por payee: pagado (PAYABLE) vs arrastrado (SUSPENDED_LATE).
+    // El cierre ES el último paso del ciclo: cuando se cierra, la plata ya salió.
+    // Por eso al cerrar se estampa "pago realizado" en todo lo aprobado que
+    // todavía no lo tenga. Sin esto los registros quedaban aprobados-pero-no-
+    // pagados para siempre (la quincena cerrada ya no admite marcarlos, ver
+    // loadEditableRecord), y el acumulado del profesor/asistente los seguía
+    // contando como "habilitado, sin pagar" mientras el admin los daba por listos.
+    // Los retenidos (heldAt) quedan fuera a propósito: se decidió NO pagarlos.
+    const toPay = records.filter(
+      (r) => r.payStatus === 'PAYABLE' && r.approvedAt && !r.heldAt && !r.paidAt
+    );
+
+    // Foto por payee: pagado (aprobado) vs retenido vs arrastrado (SUSPENDED_LATE).
     const byPayee = {};
     for (const r of records) {
       const payeeId = r.professorId || r.assistantId;
@@ -825,17 +836,20 @@ router.post('/close', requireRole('ADMIN'), async (req, res, next) => {
         byPayee[key] = {
           payeeType: r.payeeType, payeeId,
           payeeName: r.professor?.name || r.assistant?.name || null,
-          classCount: 0, totalPaid: 0, totalCarried: 0,
+          classCount: 0, totalPaid: 0, totalHeld: 0, totalCarried: 0,
         };
       }
       const amount = parseFloat(r.total);
       byPayee[key].classCount += 1;
       if (r.payStatus === 'SUSPENDED_LATE') byPayee[key].totalCarried += amount;
+      // Un retenido no se pagó ni se arrastró: contarlo como pagado inflaba la foto.
+      else if (r.heldAt) byPayee[key].totalHeld += amount;
       else byPayee[key].totalPaid += amount;
     }
 
     const nextPeriod = getNextPeriod(period);
     const suspended = records.filter((r) => r.payStatus === 'SUSPENDED_LATE');
+    const paidAt = new Date();
 
     const closure = await prisma.$transaction(async (tx) => {
       const c = await tx.payrollClosure.upsert({
@@ -843,6 +857,19 @@ router.post('/close', requireRole('ADMIN'), async (req, res, next) => {
         create: { period, closedById: req.user.id, closedByName: req.user.email, locked: true },
         update: { closedById: req.user.id, closedByName: req.user.email, closedAt: new Date(), reopenedAt: null, reopenedById: null, locked: true },
       });
+      // Marcar como pagado lo aprobado (el cierre certifica que ya se desembolsó).
+      if (toPay.length > 0) {
+        await tx.costRecord.updateMany({
+          where: { id: { in: toPay.map((r) => r.id) } },
+          data: { paidAt, paidById: req.user.id },
+        });
+        await tx.payrollLog.create({
+          data: {
+            period, action: 'BULK_PAY', actorId: req.user.id, actorName: req.user.email,
+            detail: { count: toPay.length, reason: 'cierre de quincena', ids: toPay.map((r) => r.id) },
+          },
+        });
+      }
       await tx.payrollClosureLine.deleteMany({ where: { closureId: c.id } });
       await tx.payrollClosureLine.createMany({
         data: Object.values(byPayee).map((p) => ({
@@ -866,7 +893,7 @@ router.post('/close', requireRole('ADMIN'), async (req, res, next) => {
       await tx.payrollLog.create({
         data: {
           period, action: 'CLOSE', actorId: req.user.id, actorName: req.user.email,
-          detail: { note: note?.trim() || null, carried: suspended.length, nextPeriod, payees: Object.keys(byPayee).length },
+          detail: { note: note?.trim() || null, carried: suspended.length, markedPaid: toPay.length, nextPeriod, payees: Object.keys(byPayee).length },
         },
       });
       if (suspended.length > 0) {
@@ -878,7 +905,10 @@ router.post('/close', requireRole('ADMIN'), async (req, res, next) => {
       return c;
     });
 
-    res.json({ success: true, data: { period, locked: true, carried: suspended.length, nextPeriod, closedAt: closure.closedAt } });
+    res.json({
+      success: true,
+      data: { period, locked: true, carried: suspended.length, markedPaid: toPay.length, nextPeriod, closedAt: closure.closedAt },
+    });
   } catch (err) {
     next(err);
   }
