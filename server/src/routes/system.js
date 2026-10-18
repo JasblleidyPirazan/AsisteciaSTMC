@@ -3,6 +3,7 @@ const prisma = require('../lib/prisma');
 const { requireRole } = require('../middleware/auth');
 const { wipeClassData } = require('../services/wipeClassData');
 const { buildWorkbook, buildJson } = require('../services/databaseExport');
+const { importAttendance } = require('../services/attendanceImport');
 
 const router = express.Router();
 
@@ -51,6 +52,30 @@ router.get('/export/database', requireRole('ADMIN'), async (req, res, next) => {
     res.setHeader('Content-Disposition', `attachment; filename="base-de-datos-${stamp}.xlsx"`);
     res.send(buffer);
   } catch (err) {
+    next(err);
+  }
+});
+
+// Importar asistencia desde Excel (reportes tomados por fuera del sistema).
+// Cada clase entra como reporte de profesor + coordinador coincidentes, así
+// nadie tiene que reportarla. dryRun=true (por defecto) solo previsualiza.
+// Solo SUPERADMIN: escribe asistencia y genera pagos de una vez.
+router.post('/import-attendance', requireRole('SUPERADMIN'), async (req, res, next) => {
+  try {
+    const { fileBase64, dryRun } = req.body || {};
+    if (!fileBase64 || typeof fileBase64 !== 'string') {
+      return res.status(400).json({ success: false, error: 'Archivo requerido (fileBase64)' });
+    }
+    const buffer = Buffer.from(fileBase64, 'base64');
+    if (buffer.length === 0) {
+      return res.status(400).json({ success: false, error: 'El archivo está vacío o no es válido' });
+    }
+    const summary = await importAttendance(buffer, { dryRun: dryRun !== false, user: req.user });
+    res.json({ success: true, data: summary });
+  } catch (err) {
+    if (/encabezados|hoja/i.test(err.message)) {
+      return res.status(400).json({ success: false, error: err.message });
+    }
     next(err);
   }
 });

@@ -4,6 +4,7 @@ import { api } from '../../api/client';
 import { fmtDate } from '../../utils/dates';
 import { useAuth } from '../../hooks/useAuth';
 import { toast } from '../../utils/toast';
+import AttendanceImportCard from '../../components/AttendanceImportCard';
 
 const EMPTY_CONFIG = {
   rate_2_students: '',
@@ -441,6 +442,8 @@ export default function ConfigPage() {
             El diccionario también está en el repositorio: <code>docs/database-dictionary.md</code>.
           </div>
         </div>
+
+        {isSuperadmin && <AttendanceImportCard />}
 
         {/* Zona de peligro — reinicio de datos de clases (solo Superadmin) */}
         {isSuperadmin && (
