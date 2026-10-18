@@ -10,6 +10,7 @@ const { bogotaToday, bogotaDateStr, bogotaMinutesOfDay, dbDateStr } = require('.
 const { periodsBetween, expandOperatingExpenses } = require('../services/accounting');
 const { attachStudentStatus } = require('../services/studentStatus');
 const { buildTrackingRows, consumedTotal, progressPct } = require('../services/studentTracking');
+const { buildSecondGroupRows, isRegular } = require('../services/secondGroups');
 
 const router = express.Router();
 
@@ -241,6 +242,90 @@ router.get('/students-tracking/export', requireRole('ADMIN', 'PHYSICAL_TRAINER')
     const tag = semester?.name ? `-${String(semester.name).replace(/[^\w-]+/g, '_')}` : '';
     res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
     res.setHeader('Content-Disposition', `attachment; filename="seguimiento-estudiantes${tag}.xlsx"`);
+    res.send(buffer);
+  } catch (err) {
+    next(err);
+  }
+});
+
+// ─── Otros grupos (Reportes → Otros grupos) ───────────────────────────────
+// Estudiantes que asisten a un grupo distinto de su grupo principal: a cuál,
+// cuántas veces, en cuántas semanas y desde qué fecha. Rango por defecto: el
+// semestre activo. Lógica en services/secondGroups.js (unit-testeada).
+
+async function loadSecondGroups(query = {}) {
+  const semester = await prisma.semester.findFirst({ where: { active: true } });
+  const from = query.from ? new Date(query.from) : (semester?.startDate || null);
+  const to = query.to ? new Date(query.to) : (semester?.endDate || null);
+  const range = {};
+  if (from) range.gte = from;
+  if (to) range.lte = to;
+
+  const groupSelect = { code: true, professor: { select: { name: true } } };
+  const [students, records] = await Promise.all([
+    prisma.student.findMany({
+      where: { active: true },
+      select: {
+        id: true, name: true, document: true, isTrial: true, active: true, birthDate: true,
+        classesAcquired: true, classesStartDate: true, suspendedFrom: true, suspendedUntil: true,
+        enrollments: { select: { groupId: true, enrollmentType: true, enrolledAt: true, group: { select: groupSelect } } },
+      },
+    }),
+    prisma.attendanceRecord.findMany({
+      where: {
+        status: 'PRESENTE',
+        student: { active: true },
+        session: { kind: 'REGULAR', groupId: { not: null }, ...(Object.keys(range).length ? { date: range } : {}) },
+      },
+      select: {
+        studentId: true, status: true, attendanceType: true,
+        session: { select: { date: true, kind: true, groupId: true, group: { select: groupSelect } } },
+      },
+    }),
+  ]);
+  const decorated = await attachStudentStatus(students); // estado (ícono) — sin montos
+  const rows = buildSecondGroupRows({ students: decorated, records });
+  return {
+    semester: semester ? { id: semester.id, name: semester.name, startDate: semester.startDate, endDate: semester.endDate } : null,
+    from, to, rows,
+  };
+}
+
+router.get('/second-groups', requireRole('ADMIN', 'PHYSICAL_TRAINER'), async (req, res, next) => {
+  try {
+    res.json({ success: true, data: await loadSecondGroups(req.query) });
+  } catch (err) {
+    next(err);
+  }
+});
+
+router.get('/second-groups/export', requireRole('ADMIN', 'PHYSICAL_TRAINER'), async (req, res, next) => {
+  try {
+    const minVisits = Number(req.query.minVisits) || 3;
+    const minWeeks = Number(req.query.minWeeks) || 2;
+    const { rows } = await loadSecondGroups(req.query);
+    const data = rows.map((r) => ({
+      Documento: r.document || '',
+      Estudiante: r.name,
+      Estado: TRACKING_STATUS_LABEL[r.studentStatus] || r.studentStatus || '',
+      'Grupo principal': r.mainGroupCode || 'Sin grupo',
+      'Otro grupo': r.groupCode || '',
+      'Profesor del otro grupo': r.professor || '',
+      Días: r.weekdays.join(', '),
+      Veces: r.visits,
+      Semanas: r.weeks,
+      'Primera asistencia': r.firstDate || '',
+      'Última asistencia': r.lastDate || '',
+      Regular: isRegular(r, { minVisits, minWeeks }) ? 'Sí' : 'No',
+      'Inscrito en ese grupo': r.enrolled ? (r.enrollmentType === 'SECONDARY' ? 'Secundario' : 'Principal') : 'No',
+      'Inscrito desde': r.enrolledAt || '',
+    }));
+    const ws = XLSX.utils.json_to_sheet(data.length ? data : [{ Estudiante: 'Sin estudiantes en otros grupos' }]);
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, 'Otros grupos');
+    const buffer = XLSX.write(wb, { type: 'buffer', bookType: 'xlsx' });
+    res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+    res.setHeader('Content-Disposition', 'attachment; filename="estudiantes-otros-grupos.xlsx"');
     res.send(buffer);
   } catch (err) {
     next(err);

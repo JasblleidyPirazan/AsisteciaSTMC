@@ -3,8 +3,9 @@ import { useNavigate } from 'react-router-dom';
 import { api } from '../../api/client';
 import { fmtDate as fmt } from '../../utils/dates';
 import StudentTracking from './StudentTracking';
+import SecondGroups from './SecondGroups';
 
-const TABS = ['Grupo', 'Estudiantes', 'Asistente', 'Profesor', 'Clase'];
+const TABS = ['Grupo', 'Estudiantes', 'Otros grupos', 'Asistente', 'Profesor', 'Clase'];
 function fmtCOP(n) {
   return new Intl.NumberFormat('es-CO', { style: 'currency', currency: 'COP', maximumFractionDigits: 0 }).format(n || 0);
 }
@@ -46,7 +47,7 @@ export default function ReportsPage() {
 
   // Load sessions when a group is selected for the Clase tab
   useEffect(() => {
-    if (tab === 4 && classGroupId) {
+    if (tab === 5 && classGroupId) {
       api.get(`/reports/group/${classGroupId}`).then((data) => {
         setSessions(Array.isArray(data) ? data : []);
       }).catch(() => setSessions([]));
@@ -76,8 +77,8 @@ export default function ReportsPage() {
 
       let result;
       if (tab === 0) result = await api.get(`/reports/group/${groupId}`, params);
-      else if (tab === 2) result = await api.get(`/reports/assistant/${assistantId}`, params);
-      else if (tab === 3) result = await api.get(`/reports/professor/${professorId}`, params);
+      else if (tab === 3) result = await api.get(`/reports/assistant/${assistantId}`, params);
+      else if (tab === 4) result = await api.get(`/reports/professor/${professorId}`, params);
       else result = await api.get(`/reports/class/${sessionId}`);
 
       setData(result);
@@ -90,9 +91,9 @@ export default function ReportsPage() {
 
   const canSearch =
     (tab === 0 && groupId) ||
-    (tab === 2 && assistantId) ||
-    (tab === 3 && professorId) ||
-    (tab === 4 && sessionId);
+    (tab === 3 && assistantId) ||
+    (tab === 4 && professorId) ||
+    (tab === 5 && sessionId);
 
   return (
     <div className="page page-wide">
@@ -115,7 +116,7 @@ export default function ReportsPage() {
           ))}
         </div>
 
-        {tab === 1 ? <StudentTracking /> : (
+        {tab === 1 ? <StudentTracking /> : tab === 2 ? <SecondGroups /> : (
         <>
         <form onSubmit={handleSearch}>
           {!loadingLists && (
@@ -129,7 +130,7 @@ export default function ReportsPage() {
                   </select>
                 </>
               )}
-              {tab === 2 && (
+              {tab === 3 && (
                 <>
                   <label className="form-label">Asistente</label>
                   <select className="form-input form-select" value={assistantId} onChange={(e) => setAssistantId(e.target.value)}>
@@ -138,7 +139,7 @@ export default function ReportsPage() {
                   </select>
                 </>
               )}
-              {tab === 3 && (
+              {tab === 4 && (
                 <>
                   <label className="form-label">Profesor</label>
                   <select className="form-input form-select" value={professorId} onChange={(e) => setProfessorId(e.target.value)}>
@@ -147,7 +148,7 @@ export default function ReportsPage() {
                   </select>
                 </>
               )}
-              {tab === 4 && (
+              {tab === 5 && (
                 <>
                   <label className="form-label">Grupo</label>
                   <select className="form-input form-select mb-2" value={classGroupId} onChange={(e) => { setClassGroupId(e.target.value); setSessionId(''); }}>
@@ -172,7 +173,7 @@ export default function ReportsPage() {
             </div>
           )}
 
-          {tab !== 4 && (
+          {tab !== 5 && (
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
               <div className="form-group">
                 <label className="form-label">Desde</label>
@@ -193,9 +194,9 @@ export default function ReportsPage() {
         {error && <div className="alert alert-error mt-3">{error}</div>}
 
         {data && tab === 0 && <GroupReport data={data} />}
-        {data && tab === 2 && <AssistantReport data={data} />}
-        {data && tab === 3 && <ProfessorReport data={data} />}
-        {data && tab === 4 && <ClassReport data={data} />}
+        {data && tab === 3 && <AssistantReport data={data} />}
+        {data && tab === 4 && <ProfessorReport data={data} />}
+        {data && tab === 5 && <ClassReport data={data} />}
         </>
         )}
       </div>
