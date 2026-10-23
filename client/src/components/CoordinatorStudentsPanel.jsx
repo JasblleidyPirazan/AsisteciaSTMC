@@ -58,9 +58,16 @@ export default function CoordinatorStudentsPanel() {
       <div className="font-medium">📋 Estudiantes que requieren tu atención</div>
       <Section id="makeups" color="badge-red"
         title="Clases por reponer"
-        hint={`Les faltan ${thresholds.makeups} clases o más por reponer respecto al calendario del semestre.`}
+        hint={`Tienen ${thresholds.makeups} clases o más por reponer (lluvia + justificadas, menos las que ya repusieron).`}
         rows={makeups}
-        detail={(r) => <span className="badge badge-red">{r.pending} por reponer</span>} />
+        detail={(r) => (
+          <>
+            <span className="badge badge-red">{r.pending} por reponer</span>
+            <div className="text-xs text-gray">
+              {r.rain} lluvia · {r.justified} justificada{r.justified !== 1 ? 's' : ''}{r.madeUp > 0 ? ` · repuso ${r.madeUp}` : ''}
+            </div>
+          </>
+        )} />
       <Section id="nearEnd" color="badge-green"
         title="Por completar el semestre"
         hint={`Les faltan ${thresholds.nearEnd} clases o menos para terminar su paquete.`}
@@ -71,8 +78,9 @@ export default function CoordinatorStudentsPanel() {
               {r.remaining} clase{r.remaining !== 1 ? 's' : ''} restante{r.remaining !== 1 ? 's' : ''}
             </span>
             <div className="text-xs text-gray">
-              {r.endsBeyondSemester ? 'No alcanza en el semestre'
-                : r.projectedEnd ? `Termina ~${fmtDate(r.projectedEnd, { day: 'numeric', month: 'short' })}` : ''}
+              {r.projectedEnd
+                ? `Termina ~${fmtDate(r.projectedEnd, { day: 'numeric', month: 'short' })}${r.endsBeyondSemester ? ' (después del semestre)' : ''}`
+                : ''}
             </div>
           </>
         )} />
