@@ -3,8 +3,9 @@ import { useNavigate } from 'react-router-dom';
 import { api } from '../../api/client';
 import { fmtDate as fmt } from '../../utils/dates';
 import StudentTracking from './StudentTracking';
+import GroupsProgress from './GroupsProgress';
 
-const TABS = ['Grupo', 'Estudiantes', 'Asistente', 'Profesor', 'Clase'];
+const TABS = ['Grupo', 'Estudiantes', 'Asistente', 'Profesor', 'Clase', 'Avance de grupos'];
 function fmtCOP(n) {
   return new Intl.NumberFormat('es-CO', { style: 'currency', currency: 'COP', maximumFractionDigits: 0 }).format(n || 0);
 }
@@ -115,7 +116,7 @@ export default function ReportsPage() {
           ))}
         </div>
 
-        {tab === 1 ? <StudentTracking /> : (
+        {tab === 5 ? <GroupsProgress /> : tab === 1 ? <StudentTracking /> : (
         <>
         <form onSubmit={handleSearch}>
           {!loadingLists && (
