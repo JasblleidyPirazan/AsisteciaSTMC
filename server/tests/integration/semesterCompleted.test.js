@@ -83,7 +83,9 @@ describe('GET /alerts/coordinator', () => {
     resetPrisma();
     prismaMock.semester = {
       findFirst: vi.fn().mockResolvedValue({
-        startDate: new Date('2026-01-05'), endDate: new Date('2026-12-28'), exclusions: [],
+        startDate: new Date('2026-01-05'), endDate: new Date('2026-12-28'),
+        // 2 lunes festivos ya pasados → se suman a lo que debe 'debt'
+        exclusions: [{ date: new Date('2026-03-02'), reason: 'Festivo' }, { date: new Date('2026-03-16'), reason: 'Festivo' }],
       }),
     };
     prismaMock.student = {
@@ -109,14 +111,16 @@ describe('GET /alerts/coordinator', () => {
     };
   });
 
-  it('por reponer = lluvia + justificadas (la ausencia no cuenta)', async () => {
+  it('por reponer = lluvia + justificadas + festivos (la ausencia no cuenta)', async () => {
     const res = await request(alertsApp).get('/api/alerts/coordinator')
       .set('Authorization', `Bearer ${authAs('PHYSICAL_TRAINER')}`);
     expect(res.status).toBe(200);
     const { makeups, nearEnd, completedCount } = res.body.data;
     const debt = makeups.find((m) => m.studentId === 'debt');
-    expect(debt).toMatchObject({ pending: 4, rain: 2, justified: 2 });
-    expect(makeups.map((m) => m.studentId)).not.toContain('abs');
+    // 2 lluvia + 2 justificadas + 2 festivos (en color aparte)
+    expect(debt).toMatchObject({ pending: 6, rain: 2, justified: 2, holidays: 2 });
+    // 'abs' solo tiene ausencias sin justificar: no suman. Solo debe lo del grupo (2 lluvia + 2 festivos)
+    expect(makeups.find((m) => m.studentId === 'abs')).toMatchObject({ pending: 4, rain: 2, justified: 0, holidays: 2 });
     expect(nearEnd.map((s) => s.studentId)).toEqual(['near']);
     expect(nearEnd[0].remaining).toBe(2);
     expect(completedCount).toBe(1);
@@ -130,8 +134,8 @@ describe('GET /alerts/coordinator', () => {
         : original(args));
     const res = await request(alertsApp).get('/api/alerts/coordinator')
       .set('Authorization', `Bearer ${authAs('PHYSICAL_TRAINER')}`);
-    // debía 4, repuso 2 (una reposición doble) → 2: ya no llega al umbral de 3
-    expect(res.body.data.makeups.map((m) => m.studentId)).not.toContain('debt');
+    // debía 6, repuso 2 → 4: sigue sobre el umbral
+    expect(res.body.data.makeups.find((m) => m.studentId === 'debt').pending).toBe(4);
   });
 
   it('un profesor no puede ver el panel', async () => {
@@ -148,26 +152,37 @@ describe('GET /alerts/coordinator', () => {
 });
 
 describe('GET /alerts/holidays', () => {
-  it('calendario por grupo: festivos + lluvia y fecha final estimada', async () => {
+  it('calendario por grupo: plan de 40, festivos + lluvia y fecha final estimada', async () => {
     resetPrisma();
+    vi.useFakeTimers({ toFake: ['Date'] });
+    vi.setSystemTime(new Date('2026-09-17T15:00:00.000Z'));
     prismaMock.semester = {
       findFirst: vi.fn().mockResolvedValue({
-        id: 's', name: '2026-2', startDate: new Date('2026-09-01'), endDate: new Date('2026-09-30'),
+        id: 's', name: '2026-2', startDate: new Date('2026-09-01'), endDate: new Date('2026-12-15'),
         exclusions: [{ date: new Date('2026-09-14'), reason: 'Festivo' }],
       }),
     };
+    prismaMock.systemConfig = { findUnique: vi.fn().mockResolvedValue({ value: '4' }) };
     prismaMock.group = {
       findMany: vi.fn().mockResolvedValue([
         { id: 'a', code: 'A1', lunes: true, createdAt: new Date('2026-01-01'), professor: null },
         { id: 'b', code: 'B1', martes: true, createdAt: new Date('2026-01-01'), professor: null },
       ]),
     };
-    prismaMock.classSession = { findMany: vi.fn().mockResolvedValue([{ groupId: 'a' }]) };
+    // A1: el lunes 7 se dictó; B1: nada. (Sin lluvia)
+    prismaMock.classSession = {
+      findMany: vi.fn().mockResolvedValue([
+        { groupId: 'a', date: new Date('2026-09-07'), status: 'REALIZADA', cancellationCategory: null },
+      ]),
+    };
     const res = await request(alertsApp).get('/api/alerts/holidays')
       .set('Authorization', `Bearer ${authAs('PHYSICAL_TRAINER')}`);
     expect(res.status).toBe(200);
+    expect(res.body.data.plan).toBe(4);
     const [first, second] = res.body.data.groups;
-    expect(first).toMatchObject({ code: 'A1', lost: 1, rain: 1, totalLost: 2, extraVsBest: 2, estimatedEnd: '2026-10-12' });
-    expect(second).toMatchObject({ code: 'B1', totalLost: 0, extraVsBest: 0 });
+    // A1: plan lunes 7, 14, 21, 28 → fin ideal 28 sep. Real: faltan 3 desde hoy (jue 17): 21, 28 sep y 5 oct
+    expect(first).toMatchObject({ code: 'A1', plannedEnd: '2026-09-28', estimatedEnd: '2026-10-05', lost: 1, totalLost: 1, extraVsBest: 1 });
+    expect(second).toMatchObject({ code: 'B1', lost: 0, totalLost: 0, extraVsBest: 0 });
+    vi.useRealTimers();
   });
 });

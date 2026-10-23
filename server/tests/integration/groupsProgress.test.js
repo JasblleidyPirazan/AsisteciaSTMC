@@ -42,6 +42,7 @@ beforeEach(() => {
       exclusions: [{ date: day('2026-09-14'), reason: 'Festivo' }],
     }),
   };
+  prismaMock.systemConfig = { findUnique: vi.fn().mockResolvedValue({ value: '4' }) }; // plan de 4 clases
   prismaMock.group = { findMany: vi.fn().mockResolvedValue([GROUP]) };
   // Lunes 7: realizada · lunes 14: festivo (sin sesión) · lunes 21/28: por venir
   prismaMock.classSession = {
@@ -69,19 +70,30 @@ describe('GET /reports/groups-progress', () => {
     expect(res.status).toBe(200);
     const [g] = res.body.data.groups;
     expect(g).toMatchObject({
-      code: 'G1', startDate: '2026-09-07', plan: 4, given: 1,
-      holidaysLost: 1, holidaysLostPast: 1, rain: 0, upcoming: 2,
+      code: 'G1', startDate: '2026-09-07', plan: 4, given: 1, upcoming: 3,
+      holidaysLost: 1, holidaysLostPast: 1, rain: 0,
     });
-    // última clase del semestre: lunes 28; recuperar 1 festivo → lunes 5 de octubre
+    // plan: lunes 7, 14, 21, 28 → fin 28 sep. Faltan 3 desde hoy (jue 17), sin el 14: 21, 28 sep y 5 oct
+    expect(g.plannedEnd).toBe('2026-09-28');
     expect(g.estimatedEnd).toBe('2026-10-05');
+    expect(g.delayDays).toBe(7);
     expect(g.pct).toBe(25);
+  });
+
+  it('resumen por grupo: dónde poner el esfuerzo', async () => {
+    const res = await request(app).get('/api/reports/groups-progress')
+      .set('Authorization', `Bearer ${authAs('ADMIN')}`);
+    const g = res.body.data.groups[0];
+    // Ana: 1 festivo ya pasado (lunes 14) cuenta en lo que debe, sin tope de paquete
+    expect(g).toMatchObject({ studentsCount: 1, studentsWithMakeups: 1, makeupClasses: 1 });
+    expect(g.students[0]).toMatchObject({ name: 'Ana', holidays: 1, pending: 1 });
   });
 
   it('desplegable: avance de cada estudiante del grupo', async () => {
     const res = await request(app).get('/api/reports/groups-progress')
       .set('Authorization', `Bearer ${authAs('ADMIN')}`);
     const [st] = res.body.data.groups[0].students;
-    expect(st).toMatchObject({ name: 'Ana', seen: 1, total: 10, pct: 10, completed: false, pending: 0 });
+    expect(st).toMatchObject({ name: 'Ana', seen: 1, total: 10, pct: 10, completed: false });
     expect(st.projectedEnd).toBeTruthy();
   });
 

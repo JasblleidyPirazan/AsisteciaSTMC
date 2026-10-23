@@ -55,29 +55,47 @@ describe('projectEndDate', () => {
   });
 });
 
-describe('holidayDeviationForGroup', () => {
+describe('holidayDeviationForGroup — plan de 40 clases', () => {
   const exclusions = [
     { date: day('2026-09-14'), reason: 'Festivo' },
     { date: day('2026-09-15'), reason: 'Semana de receso' },
   ];
-  it('compara contra el calendario ideal desde el inicio del semestre', () => {
-    const r = holidayDeviationForGroup(group({ lunes: true }, { createdAt: day('2026-09-20') }), semester, exclusions);
-    // aunque el grupo se creó el 20, el plan ideal cuenta los 4 lunes del semestre
-    expect(r.withoutHolidays).toBe(4);
-    expect(r.scheduled).toBe(3);
+  const lunes = group({ lunes: true });
+
+  it('el plan es de N clases desde el inicio del semestre', () => {
+    // lunes: 7, 14, 21, 28 de sept, 5, 12... → la 6.ª es el 12 de oct
+    const r = holidayDeviationForGroup(lunes, semester, exclusions, { plan: 6, todayStr: '2026-09-01' });
+    expect(r.plannedStart).toBe('2026-09-07');
+    expect(r.plannedEnd).toBe('2026-10-12');
+    expect(r.plan).toBe(6);
+  });
+  it('la fecha final estimada salta los festivos', () => {
+    const r = holidayDeviationForGroup(lunes, semester, exclusions, { plan: 6, todayStr: '2026-09-01' });
+    // sin el lunes 14: 7, 21, 28, 5, 12, 19 → la 6.ª es el 19 de oct
+    expect(r.estimatedEnd).toBe('2026-10-19');
     expect(r.lost).toBe(1);
     expect(r.lostDates).toEqual([{ date: '2026-09-14', reason: 'Festivo' }]);
-    expect(r.days).toBe('Lun');
-    expect(r.plannedEnd).toBe('2026-09-28');
+    expect(r.delayDays).toBe(7);
   });
-  it('la fecha final estimada se corre por festivos y lluvia', () => {
-    const r = holidayDeviationForGroup(group({ lunes: true }), semester, exclusions, 1);
+  it('lo que no se dictó (lluvia) corre la fecha: se estima con lo que falta', () => {
+    // Hoy 29 sept; dadas 3 de 6 (el 14 festivo, el 21 llovió) → faltan 3: 5, 12 y 19 de oct
+    const r = holidayDeviationForGroup(lunes, semester, exclusions, { plan: 6, given: 3, rain: 1, todayStr: '2026-09-29' });
+    expect(r.remaining).toBe(3);
+    expect(r.estimatedEnd).toBe('2026-10-19');
     expect(r.totalLost).toBe(2);
-    // última clase del semestre: lun 28; recuperar 2 → lunes 5 y 12 de octubre
-    expect(r.estimatedEnd).toBe('2026-10-12');
   });
-  it('sin pérdidas la fecha final es la del plan', () => {
-    const r = holidayDeviationForGroup(group({ jueves: true }), semester, exclusions);
+  it('si la clase de hoy ya se dio, la proyección arranca mañana', () => {
+    const base = { plan: 6, given: 4, todayStr: '2026-10-05' };
+    expect(holidayDeviationForGroup(lunes, semester, exclusions, { ...base, givenToday: false }).estimatedEnd).toBe('2026-10-12');
+    expect(holidayDeviationForGroup(lunes, semester, exclusions, { ...base, givenToday: true }).estimatedEnd).toBe('2026-10-19');
+  });
+  it('plan completo: no hay nada que estimar', () => {
+    const r = holidayDeviationForGroup(lunes, semester, exclusions, { plan: 3, given: 3, todayStr: '2026-10-01' });
+    expect(r.remaining).toBe(0);
+    expect(r.delayDays).toBeNull();
+  });
+  it('un grupo sin días afectados no pierde clases', () => {
+    const r = holidayDeviationForGroup(group({ jueves: true }), semester, exclusions, { plan: 5, todayStr: '2026-09-01' });
     expect(r.totalLost).toBe(0);
     expect(r.estimatedEnd).toBe(r.plannedEnd);
   });

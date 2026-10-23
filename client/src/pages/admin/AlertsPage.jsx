@@ -210,8 +210,7 @@ function HolidaysTab({ data, navigate }) {
   return (
     <>
       <p className="text-sm text-gray mb-3">
-        Cada grupo contra el calendario ideal del semestre <strong>{data.semester.name}</strong> (todas las
-        clases dictadas, del inicio al fin). Se descuentan los <strong>festivos / fechas excluidas</strong> y
+        Cada grupo contra su plan de <strong>{data.plan} clases</strong> desde el inicio del semestre <strong>{data.semester.name}</strong>. Se descuentan los <strong>festivos / fechas excluidas</strong> y
         las clases <strong>canceladas por lluvia</strong>; la <strong>fecha final estimada</strong> es cuándo
         terminaría el grupo si recupera esas clases con su mismo horario.
       </p>
@@ -238,7 +237,7 @@ function HolidaysTab({ data, navigate }) {
               </span>
             </div>
             <div className="text-xs text-gray mt-1">
-              Plan: <strong>{g.withoutHolidays}</strong> clases
+              Plan: <strong>{g.plan}</strong> clases · dadas {g.given}
               {g.lost > 0 && <> · festivos −{g.lost}</>}
               {g.rain > 0 && <> · lluvia −{g.rain}</>}
               {g.extraVsBest > 0 && <> · pierde {g.extraVsBest} más que el grupo menos afectado</>}

@@ -58,13 +58,18 @@ export default function CoordinatorStudentsPanel() {
       <div className="font-medium">📋 Estudiantes que requieren tu atención</div>
       <Section id="makeups" color="badge-red"
         title="Clases por reponer"
-        hint={`Tienen ${thresholds.makeups} clases o más por reponer (lluvia + justificadas, menos las que ya repusieron).`}
+        hint={`Tienen ${thresholds.makeups} clases o más por reponer: lluvia + justificadas + festivos / fechas excluidas, menos las que ya repusieron.`}
         rows={makeups}
         detail={(r) => (
           <>
             <span className="badge badge-red">{r.pending} por reponer</span>
             <div className="text-xs text-gray">
-              {r.rain} lluvia · {r.justified} justificada{r.justified !== 1 ? 's' : ''}{r.madeUp > 0 ? ` · repuso ${r.madeUp}` : ''}
+              {r.rain} lluvia · {r.justified} justificada{r.justified !== 1 ? 's' : ''}
+              {' · '}
+              <span style={{ color: 'var(--blue)', fontWeight: 600 }} title="Clases que cayeron en festivos o fechas excluidas">
+                {r.holidays} festivo{r.holidays !== 1 ? 's' : ''}
+              </span>
+              {r.madeUp > 0 ? ` · repuso ${r.madeUp}` : ''}
             </div>
           </>
         )} />

@@ -67,9 +67,10 @@ export default function GroupsProgress() {
   return (
     <>
       <p className="text-sm text-gray mb-3">
-        Avance de cada grupo en el semestre <strong>{data.semester.name}</strong>. El plan es dictar todas las
-        clases del calendario; los <strong>festivos / recesos</strong> y la <strong>lluvia</strong> corren la
-        fecha final estimada. Toca un grupo para ver el avance de sus estudiantes.
+        Avance de cada grupo en el semestre <strong>{data.semester.name}</strong>. El plan es de{' '}
+        <strong>{data.plan} clases</strong> por grupo; los <strong>festivos / recesos</strong> y la{' '}
+        <strong>lluvia</strong> corren la fecha final estimada. Toca un grupo para ver el avance de sus
+        estudiantes; al final hay una tabla resumen para ver dónde poner el esfuerzo.
       </p>
       <input className="form-input mb-3" placeholder="Buscar grupo o profesor…" value={search}
         onChange={(e) => setSearch(e.target.value)} />
@@ -103,7 +104,7 @@ export default function GroupsProgress() {
                   sub={g.estimatedEnd && g.plannedEnd && g.estimatedEnd !== g.plannedEnd ? `Plan: ${short(g.plannedEnd)}` : null}>
                   {short(g.estimatedEnd)}
                 </Metric>
-                <Metric label="Clases dadas" sub={`faltan ${g.upcoming} programadas`}>{g.given} de {g.plan}</Metric>
+                <Metric label="Clases dadas" sub={g.upcoming > 0 ? `faltan ${g.upcoming} por dictar` : 'plan completo'}>{g.given} de {g.plan}</Metric>
                 <Metric label="No dadas: festivos y recesos"
                   sub={g.holidaysLost > g.holidaysLostPast ? `${g.holidaysLost - g.holidaysLostPast} más por venir` : null}>
                   {g.holidaysLostPast}
@@ -138,6 +139,12 @@ export default function GroupsProgress() {
                     </div>
                     <div className="text-xs text-gray">
                       {s.pending > 0 && <span className="badge badge-red" style={{ marginRight: 6 }}>{s.pending} por reponer</span>}
+                      {s.holidays > 0 && (
+                        <span style={{ color: 'var(--blue)', fontWeight: 600, marginRight: 6 }}
+                          title="Clases que cayeron en festivos o fechas excluidas">
+                          {s.holidays} festivo{s.holidays !== 1 ? 's' : ''}
+                        </span>
+                      )}
                       {s.completed ? 'Semestre completado'
                         : s.projectedEnd ? `Termina ~${short(s.projectedEnd)}${s.endsBeyondSemester ? ' (después del semestre)' : ''}`
                         : s.total ? '' : 'Sin clases adquiridas'}
@@ -154,6 +161,98 @@ export default function GroupsProgress() {
           </div>
         );
       })}
+
+      <SummaryTable groups={data.groups} plan={data.plan} />
     </>
+  );
+}
+
+// Tabla resumen de todos los grupos, ordenable: sirve para ver de un vistazo
+// dónde poner el esfuerzo (más reposiciones pendientes, más retraso, menos avance).
+const COLS = [
+  { key: 'code', label: 'Grupo', get: (g) => g.code, text: true },
+  { key: 'prof', label: 'Profesor', get: (g) => g.professor?.name || '', text: true },
+  { key: 'pct', label: '% avance', get: (g) => g.pct ?? -1, title: 'Clases dadas / plan' },
+  { key: 'given', label: 'Dadas', get: (g) => g.given },
+  { key: 'upcoming', label: 'Faltan', get: (g) => g.upcoming, title: 'Clases del plan por dictar' },
+  { key: 'holidays', label: 'Festivos', get: (g) => g.holidaysLostPast, title: 'Clases no dadas por festivos y recesos (a hoy)' },
+  { key: 'rain', label: 'Lluvia', get: (g) => g.rain },
+  { key: 'students', label: 'Est. con reposición', get: (g) => g.studentsWithMakeups, title: 'Estudiantes del grupo con clases por reponer' },
+  { key: 'makeups', label: 'Clases por reponer', get: (g) => g.makeupClasses, title: 'Suma de clases por reponer de sus estudiantes' },
+  { key: 'delay', label: 'Retraso (días)', get: (g) => g.delayDays ?? 0, title: 'Fecha estimada final vs. fin del plan' },
+  { key: 'end', label: 'Fin estimado', get: (g) => g.estimatedEnd || '', text: true },
+];
+
+function SummaryTable({ groups, plan }) {
+  const [sort, setSort] = useState({ key: 'makeups', dir: 'desc' });
+  if (groups.length === 0) return null;
+  const col = COLS.find((c) => c.key === sort.key) || COLS[0];
+  const rows = [...groups].sort((a, b) => {
+    const x = col.get(a);
+    const y = col.get(b);
+    const cmp = col.text ? String(x).localeCompare(String(y), 'es', { numeric: true }) : x - y;
+    return sort.dir === 'asc' ? cmp : -cmp;
+  });
+  const sum = (fn) => groups.reduce((acc, g) => acc + fn(g), 0);
+  const totalPlan = groups.length * plan;
+  const totalGiven = sum((g) => g.given);
+
+  function toggle(key, text) {
+    setSort((s) => (s.key === key ? { key, dir: s.dir === 'asc' ? 'desc' : 'asc' } : { key, dir: text ? 'asc' : 'desc' }));
+  }
+
+  return (
+    <div className="card mt-4" style={{ overflowX: 'auto' }}>
+      <h3 style={{ marginBottom: 4 }}>Resumen: ¿dónde poner el esfuerzo?</h3>
+      <p className="text-xs text-gray mb-2">
+        Ordenado por clases por reponer. Toca un encabezado para ordenar por otra columna.
+      </p>
+      <table className="data-table" style={{ width: '100%', fontSize: '0.82rem' }}>
+        <thead>
+          <tr>
+            {COLS.map((c) => (
+              <th key={c.key} title={c.title || 'Ordenar'} onClick={() => toggle(c.key, c.text)}
+                style={{ cursor: 'pointer', whiteSpace: 'nowrap', userSelect: 'none', textAlign: c.text ? 'left' : 'right' }}>
+                {c.label} <span style={{ opacity: sort.key === c.key ? 1 : 0.35, fontSize: '0.75em' }}>
+                  {sort.key === c.key ? (sort.dir === 'asc' ? '▲' : '▼') : '↕'}
+                </span>
+              </th>
+            ))}
+          </tr>
+        </thead>
+        <tbody>
+          {rows.map((g) => (
+            <tr key={g.groupId}>
+              <td className="font-medium" style={{ whiteSpace: 'nowrap' }}>{g.code}</td>
+              <td style={{ whiteSpace: 'nowrap' }}>{g.professor?.name || '—'}</td>
+              <td style={{ textAlign: 'right', color: trafficColor(g.pct), fontWeight: 600 }}>{g.pct == null ? '—' : `${g.pct}%`}</td>
+              <td style={{ textAlign: 'right' }}>{g.given}</td>
+              <td style={{ textAlign: 'right' }}>{g.upcoming}</td>
+              <td style={{ textAlign: 'right', color: g.holidaysLostPast > 0 ? 'var(--blue)' : undefined }}>{g.holidaysLostPast}</td>
+              <td style={{ textAlign: 'right' }}>{g.rain}</td>
+              <td style={{ textAlign: 'right' }}>{g.studentsWithMakeups} de {g.studentsCount}</td>
+              <td style={{ textAlign: 'right', fontWeight: 600, color: g.makeupClasses > 0 ? 'var(--red)' : undefined }}>{g.makeupClasses}</td>
+              <td style={{ textAlign: 'right', color: (g.delayDays || 0) > 0 ? 'var(--red)' : undefined }}>
+                {g.delayDays == null ? '—' : g.delayDays}
+              </td>
+              <td style={{ whiteSpace: 'nowrap' }}>{short(g.estimatedEnd)}</td>
+            </tr>
+          ))}
+        </tbody>
+        <tfoot>
+          <tr className="font-medium">
+            <td colSpan={2}>Total ({groups.length} grupos)</td>
+            <td style={{ textAlign: 'right' }}>{totalPlan > 0 ? `${Math.round((totalGiven / totalPlan) * 100)}%` : '—'}</td>
+            <td style={{ textAlign: 'right' }}>{totalGiven}</td>
+            <td style={{ textAlign: 'right' }}>{sum((g) => g.upcoming)}</td>
+            <td style={{ textAlign: 'right' }}>{sum((g) => g.holidaysLostPast)}</td>
+            <td style={{ textAlign: 'right' }}>{sum((g) => g.rain)}</td>
+            <td style={{ textAlign: 'right' }}>{sum((g) => g.studentsWithMakeups)}</td>
+            <td style={{ textAlign: 'right' }}>{Math.round(sum((g) => g.makeupClasses) * 10) / 10}</td>
+            <td colSpan={2} />
+          </tr>
+        </tfoot>
+      </table>
+    </div>
   );
 }
