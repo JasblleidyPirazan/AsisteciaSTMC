@@ -162,7 +162,7 @@ describe('GET /alerts/holidays', () => {
         exclusions: [{ date: new Date('2026-09-14'), reason: 'Festivo' }],
       }),
     };
-    prismaMock.systemConfig = { findUnique: vi.fn().mockResolvedValue({ value: '4' }) };
+    prismaMock.systemConfig = { findUnique: vi.fn().mockResolvedValue({ value: '8' }) };
     prismaMock.group = {
       findMany: vi.fn().mockResolvedValue([
         { id: 'a', code: 'A1', lunes: true, createdAt: new Date('2026-01-01'), professor: null },
@@ -178,7 +178,7 @@ describe('GET /alerts/holidays', () => {
     const res = await request(alertsApp).get('/api/alerts/holidays')
       .set('Authorization', `Bearer ${authAs('PHYSICAL_TRAINER')}`);
     expect(res.status).toBe(200);
-    expect(res.body.data.plan).toBe(4);
+    expect(res.body.data.plan).toBe(8);
     const [first, second] = res.body.data.groups;
     // A1: plan lunes 7, 14, 21, 28 → fin ideal 28 sep. Real: faltan 3 desde hoy (jue 17): 21, 28 sep y 5 oct
     expect(first).toMatchObject({ code: 'A1', plannedEnd: '2026-09-28', estimatedEnd: '2026-10-05', lost: 1, totalLost: 1, extraVsBest: 1 });
