@@ -2,7 +2,7 @@
 
 > **Generated file — do not edit by hand.** It is produced from `server/src/services/dataDictionary.js` by `cd server && npm run docs:dictionary`. The same module feeds the *Data Dictionary* sheet of the full database export, so the document and the exported workbook always describe the same schema. A unit test (`tests/unit/dataDictionary.test.js`) fails if `schema.prisma` gains, renames or drops anything that is not documented here.
 
-**Engine:** PostgreSQL (Prisma ORM v5, versioned migrations) · **Tables:** 29 · **Enums:** 16 · **Columns:** 270
+**Engine:** PostgreSQL (Prisma ORM v5, versioned migrations) · **Tables:** 30 · **Enums:** 16 · **Columns:** 279
 
 ## Conventions
 
@@ -55,6 +55,7 @@
 | [`class_report_attendance`](#class_report_attendance) | `ClassReportAttendance` | Attendance mark of one student inside one staging report. |
 | [`attendance_records`](#attendance_records) | `AttendanceRecord` | Consolidated attendance — the single source of truth for reports, statistics and the cost engine. |
 | [`makeup_participants`](#makeup_participants) | `MakeupParticipant` | Students assigned to a group make-up or to a festival. |
+| [`makeup_booking_suggestions`](#makeup_booking_suggestions) | `MakeupBookingSuggestion` | Alternative days/times a guardian suggests from the public booking link when none of the make-up slots works. |
 | [`festival_professors`](#festival_professors) | `FestivalProfessor` | Professors taking part in a festival. |
 
 **Audit**
@@ -115,6 +116,7 @@ erDiagram
     users |o--o{ attendance_records : "reported_by_id"
     class_sessions ||--o{ makeup_participants : "session_id"
     students ||--o{ makeup_participants : "student_id"
+    students ||--o{ makeup_booking_suggestions : "student_id"
     class_sessions ||--o{ festival_professors : "session_id"
     professors ||--o{ festival_professors : "professor_id"
     class_sessions ||--o{ session_edit_logs : "session_id"
@@ -217,7 +219,7 @@ Assistants who accompany classes. Paid a fixed rate per class, released only whe
 
 ### `students`
 
-*Prisma model:* `Student` · *area:* People · *columns:* 22
+*Prisma model:* `Student` · *area:* People · *columns:* 23
 
 Students of the academy. The commercial status (trial / pre-enrolled / enrolled / fully paid / suspended / inactive) is NOT stored: it is derived on the server from payments, attendance and the tuition rates. classes_acquired + previous_classes is the size of the package the student may consume.
 
@@ -244,9 +246,10 @@ Students of the academy. The commercial status (trial / pre-enrolled / enrolled 
 | `deactivated_at` | timestamp | yes |  | When the student was deactivated. |
 | `validated_at` | timestamp | yes |  | When the guardian confirmed the contact data through the public validation page. |
 | `policies_accepted_at` | timestamp | yes |  | When the guardian accepted the policies for this student. |
+| `booking_token` | text | yes | UNIQUE | Secret code of the personal make-up booking link (/reponer/:token). Lets the guardian book make-up slots without logging in. Created on demand by the coordinator; rotating it invalidates the old link. |
 | `created_at` | timestamp | no |  | Row creation timestamp. |
 
-**PK:** (id)
+**PK:** (id) · **Unique:** (booking_token)
 
 **Relations**
 
@@ -257,6 +260,7 @@ Students of the academy. The commercial status (trial / pre-enrolled / enrolled 
 - `makeupParticipations` → `MakeupParticipant[]` — Make-up / festival sessions the student was assigned to.
 - `groupHistory` → `StudentGroupHistory[]` — Group transfers.
 - `payments` → `StudentPayment[]` — Payments received.
+- `bookingSuggestions` → `MakeupBookingSuggestion[]` — Alternative schedules suggested from the booking link.
 
 ## Money in
 
@@ -411,7 +415,7 @@ Key/value configuration. Holds the pay brackets (rate_2_students … rate_5plus_
 
 ### `class_sessions`
 
-*Prisma model:* `ClassSession` · *area:* Classes · *columns:* 27
+*Prisma model:* `ClassSession` · *area:* Classes · *columns:* 28
 
 A class on a given date. Three kinds share this table: REGULAR (a group class), MAKEUP (group make-up, no group_id, participants in makeup_participants) and FESTIVAL (several professors, flat rate each). The unique constraint (group_id, date) prevents duplicated sessions for a group on the same day. A regular session only becomes REALIZADA when the professor and the coordinator reports match.
 
@@ -443,9 +447,10 @@ A class on a given date. Three kinds share this table: REGULAR (a group class), 
 | `consolidation_status` | ConsolidationStatus | no |  | PENDING / MATCHED / MISMATCH of the dual report. Default PENDING. |
 | `consolidation_diff` | jsonb | yes |  | Detail of the disagreement per student when the status is MISMATCH. |
 | `consolidated_at` | timestamp | yes |  | When both reports matched. |
+| `booking_slot` | text | yes |  | Public make-up booking slot ("VIE-1715", "SAB-1330"…). Only set on make-ups created by a guardian booking; unique per date. |
 | `created_at` | timestamp | no |  | Row creation timestamp. |
 
-**PK:** (id) · **Unique:** (group_id, date)
+**PK:** (id) · **Unique:** (group_id, date) · **Unique:** (date, booking_slot)
 
 **Relations**
 
@@ -535,7 +540,7 @@ Consolidated attendance — the single source of truth for reports, statistics a
 
 ### `makeup_participants`
 
-*Prisma model:* `MakeupParticipant` · *area:* Classes · *columns:* 2
+*Prisma model:* `MakeupParticipant` · *area:* Classes · *columns:* 3
 
 Students assigned to a group make-up or to a festival. Composite key (session, student); deleted in cascade with the session.
 
@@ -543,6 +548,7 @@ Students assigned to a group make-up or to a festival. Composite key (session, s
 |---|---|---|---|---|
 | `session_id` | text | no | PK, FK → class_sessions.id | Make-up / festival session. |
 | `student_id` | text | no | PK, FK → students.id | Participant. |
+| `booked_at` | timestamp | yes |  | When the guardian booked this seat from the public booking link. Null = assigned by the coordinator. Only guardian bookings can be cancelled by the guardian. |
 
 **PK:** (session_id, student_id)
 
@@ -550,6 +556,27 @@ Students assigned to a group make-up or to a festival. Composite key (session, s
 
 - `session` → `ClassSession`
 - `student` → `Student`
+
+### `makeup_booking_suggestions`
+
+*Prisma model:* `MakeupBookingSuggestion` · *area:* Classes · *columns:* 6
+
+Alternative days/times a guardian suggests from the public booking link when none of the make-up slots works. The coordinator marks them as attended.
+
+| Column | Type | Null | Key | Description |
+|---|---|---|---|---|
+| `id` | text | no | PK | Primary key. Collision-free id generated by the application (cuid). |
+| `student_id` | text | no | FK → students.id | Student the suggestion is for. |
+| `text` | text | no |  | Free text written by the guardian (max 500 chars). |
+| `resolved_at` | timestamp | yes |  | When the coordinator marked it as attended. Null = open. |
+| `resolved_by_id` | text | yes |  | User who marked it as attended. |
+| `created_at` | timestamp | no |  | Row creation timestamp. |
+
+**PK:** (id) · **Index:** (resolved_at)
+
+**Relations**
+
+- `student` → `Student` — Student (deleted in cascade).
 
 ### `festival_professors`
 

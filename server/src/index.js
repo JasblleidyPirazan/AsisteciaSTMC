@@ -50,6 +50,9 @@ app.get('/api/health', (req, res) => {
 // Public enrollment routes (rate limiting applied per-route inside the router)
 app.use('/api/enrollment', require('./routes/enrollment'));
 app.use('/api/validation', require('./routes/validation'));
+// Agendamiento público de reposiciones: enlace personal sin login; las rutas
+// /admin/* del mismo router aplican auth inline.
+app.use('/api/makeup-booking', require('./routes/makeupBooking'));
 
 // Auth (rate-limited on login)
 app.use('/api/auth', authLimiter, require('./routes/auth'));

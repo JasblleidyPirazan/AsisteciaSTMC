@@ -325,7 +325,7 @@ async function computeGroupHolidayDeviation() {
  * reportar. Los festivos se suman pero se informan aparte (`holidays`) para
  * mostrarse en otro color.
  */
-async function computeMakeupDebt() {
+async function computeMakeupDebt({ studentIds = null } = {}) {
   const semester = await prisma.semester.findFirst({
     where: { active: true },
     include: { exclusions: true },
@@ -334,7 +334,11 @@ async function computeMakeupDebt() {
 
   const today = bogotaToday();
   const students = await prisma.student.findMany({
-    where: { active: true, isTrial: false, ...notSuspended(today) },
+    where: {
+      active: true, isTrial: false, ...notSuspended(today),
+      // Agendamiento público: la deuda de un solo estudiante
+      ...(studentIds ? { id: { in: studentIds } } : {}),
+    },
     include: { enrollments: { include: { group: true } } },
     orderBy: { name: 'asc' },
   });

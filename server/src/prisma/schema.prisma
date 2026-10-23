@@ -102,6 +102,9 @@ model Student {
   // Validación de datos + aceptación de políticas por el acudiente (flujo público)
   validatedAt        DateTime? @map("validated_at")
   policiesAcceptedAt DateTime? @map("policies_accepted_at")
+  // Enlace personal de agendamiento de reposiciones (/reponer/:token): sin
+  // login, el acudiente agenda turnos con este código secreto.
+  bookingToken       String?   @unique @map("booking_token")
   createdAt          DateTime  @default(now()) @map("created_at")
 
   parentUser           User?                 @relation("ParentUser", fields: [parentUserId], references: [id])
@@ -110,6 +113,7 @@ model Student {
   classReportAttendance ClassReportAttendance[]
   makeupEnrollments     MakeupEnrollment[]
   makeupParticipations  MakeupParticipant[]
+  bookingSuggestions    MakeupBookingSuggestion[]
   groupHistory          StudentGroupHistory[]
   payments              StudentPayment[]
 
@@ -234,6 +238,9 @@ model ClassSession {
   consolidationStatus      ConsolidationStatus   @default(PENDING) @map("consolidation_status")
   consolidationDiff        Json?                 @map("consolidation_diff")
   consolidatedAt           DateTime?             @map("consolidated_at")
+  // Turno de agendamiento público de reposiciones ("VIE-1715"…). Solo lo
+  // tienen las reposiciones creadas por la reserva de un acudiente.
+  bookingSlot              String?               @map("booking_slot")
   createdAt                DateTime              @default(now()) @map("created_at")
 
   group               Group?              @relation(fields: [groupId], references: [id])
@@ -250,6 +257,7 @@ model ClassSession {
   editLogs            SessionEditLog[]
 
   @@unique([groupId, date])
+  @@unique([date, bookingSlot])
   @@map("class_sessions")
 }
 
@@ -337,6 +345,9 @@ enum CancellationCategory {
 model MakeupParticipant {
   sessionId String @map("session_id")
   studentId String @map("student_id")
+  // Lo reservó el acudiente desde su enlace (no el coordinador): solo esas
+  // reservas las puede cancelar el acudiente.
+  bookedAt  DateTime? @map("booked_at")
 
   session ClassSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
   student Student      @relation(fields: [studentId], references: [id])
@@ -707,4 +718,20 @@ enum OperatingExpenseCategory {
   MARKETING
   IMPUESTOS_SEGUROS
   OTRO
+}
+
+// Sugerencias de horario que deja el acudiente desde su enlace de agendamiento
+// cuando ninguno de los turnos le sirve.
+model MakeupBookingSuggestion {
+  id           String    @id @default(cuid())
+  studentId    String    @map("student_id")
+  text         String
+  resolvedAt   DateTime? @map("resolved_at")
+  resolvedById String?   @map("resolved_by_id")
+  createdAt    DateTime  @default(now()) @map("created_at")
+
+  student Student @relation(fields: [studentId], references: [id], onDelete: Cascade)
+
+  @@index([resolvedAt])
+  @@map("makeup_booking_suggestions")
 }

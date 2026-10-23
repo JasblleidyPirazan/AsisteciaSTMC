@@ -125,7 +125,8 @@ CORS_ORIGIN        # URL del dominio en Railway (ej: https://asisteciastmc.up.ra
 | `StudentEnrollment` | Relación estudiante↔grupo (PRIMARY o SECONDARY) |
 | `ClassSession` | Sesión de clase: PROGRAMADA/REALIZADA/CANCELADA/CANCELADA_MITAD(legacy). `kind` REGULAR/MAKEUP/FESTIVAL. Cancelación estructurada (`cancellationCategory` LLUVIA/SIN_ESTUDIANTES/OTRA). "No dicté la clase yo": `dictatedByOwner` + `notDictatedNote` obligatoria. Pago suspendido: `firstReportedAt` (solo primer reporte) + `paymentUnlocked*`. Triple coincidencia: `assistantConfirmedId/At` + `coordinatorValidated*`. Festivales: `festivalRate` |
 | `FestivalProfessor` | Profesores participantes de un festival (M2M sessionId+professorId); cada uno cobra `festivalRate` (pago igualitario) |
-| `MakeupParticipant` | Estudiantes asignados a una reposición grupal (sessionId + studentId) |
+| `MakeupParticipant` | Estudiantes asignados a una reposición grupal (sessionId + studentId). `bookedAt` = lo reservó el acudiente desde su enlace (nota 53) |
+| `MakeupBookingSuggestion` | Horarios alternativos que sugiere el acudiente desde el enlace de agendamiento cuando ningún turno le sirve (`resolvedAt` = atendida) |
 | `AttendanceRecord` | Asistencia por estudiante: PRESENTE/AUSENTE/JUSTIFICADA/NO_APLICA + tipo REGULAR/REPOSICION |
 | `CostRecord` | Costos calculados por sesión (professorId XOR assistantId, payeeType). `payStatus`: PAYABLE / SUSPENDED_LATE (reporte tardío, desbloquea solo ADMIN) / PENDING_MATCH (asistente sin triple coincidencia). Liquidación y export separan habilitado vs retenido |
 | `MakeupClass` | (Legacy, sin uso) — las reposiciones grupales ahora viven en `ClassSession` con `kind=MAKEUP` |
@@ -245,8 +246,18 @@ Desde la base de datos o el seed, crear un `User` con `role: 'PHYSICAL_TRAINER'`
 - `DELETE /api/makeups/:id` (ADMIN, PF) — eliminar (borra asistencia, costos, participantes)
 - `POST /api/makeups/:id/finalize` — reportar asistencia (ADMIN/PF cualquiera, TEACHER solo si es el profesor asignado/sustituto). Reemplaza registros, recalcula costos, guarda `SessionEditLog` en ediciones
 - `POST /api/makeups/:id/cancel` — cancelar con motivo
+- `PUT /api/makeups/:id` con `studentIds` solo quita/agrega los que cambian (conserva el `bookedAt` de los que siguen)
 - Los asistentes acompañan reposiciones vía el mismo `POST /api/sessions/:id/assist` (que ahora rechaza pisar la confirmación de otro asistente, 409, igual que la variante por grupo+fecha)
 - `finalize`/`cancel`/`PUT`/`DELETE` respetan el cierre de quincena (`isSessionPeriodLocked` → 409), igual que las clases regulares
+
+### Agendamiento público de reposiciones (nota 53)
+- `GET /api/makeup-booking/:token` — **público**, sin login: estudiante, deuda de reposiciones, turnos y sus reservas
+- `POST /api/makeup-booking/:token/book` — reservar `{ date, slotKey }`
+- `DELETE /api/makeup-booking/:token/book/:sessionId` — cancelar una reserva propia (hasta 24 h antes)
+- `POST /api/makeup-booking/:token/suggestions` — sugerir otro horario `{ text }`
+- `GET /api/makeup-booking/admin/overview` (ADMIN/Coordinador) — agenda, estudiantes por reponer con su enlace, sugerencias
+- `POST /api/makeup-booking/admin/students/:id/link` (ADMIN/Coordinador) — crea el enlace (o lo rota con `{ regenerate: true }`)
+- `PATCH /api/makeup-booking/admin/suggestions/:id` (ADMIN/Coordinador) — `{ resolved }`
 
 ### Estudiantes — gestión de grupos
 - `POST /api/students/:id/transfer` — cambiar grupo (registra historial). Body: `{ fromGroupId?, toGroupId, reason? }`
@@ -399,6 +410,8 @@ Si un test revela un bug real de la lógica de negocio, reportarlo antes de corr
 | `/attendance/:groupId` | AttendanceFlow | ADMIN, TEACHER, PARENT |
 | `/makeups/:id/attendance` | MakeupAttendancePage | ADMIN, TEACHER, PHYSICAL_TRAINER |
 | `/admin/makeups` | MakeupsPage | ADMIN, PHYSICAL_TRAINER |
+| `/admin/makeup-booking` | MakeupBookingAdminPage — Agendar reposiciones | ADMIN, PHYSICAL_TRAINER |
+| `/reponer/:token` | MakeupBookingPage — agendamiento del acudiente | Público (enlace personal) |
 | `/parent` | ParentPortalPage | PARENT, ADMIN |
 | `/admin` | AdminDashboard | ADMIN |
 | `/admin/students` | StudentsPage | ADMIN |
@@ -600,6 +613,13 @@ cd client && npm run build
     - **VARIABLE** — gasto de una sola vez, cargado a la quincena de su `expenseDate` (el `period` se deriva en el servidor).
     Nueve categorías (`OperatingExpenseCategory`: arriendo, servicios, nómina administrativa, mantenimiento, implementos, transporte, marketing, impuestos/seguros, otro) para el desglose. El **pago se marca por quincena** (`OperatingExpensePayment`, `@@unique[expenseId, period]`), así que un fijo puede estar pagado en una quincena y pendiente en la siguiente; `PATCH /accounting/expenses/:id/paid` rechaza (400) una quincena en la que el gasto no se causa. "Eliminar" **archiva** (`active=false`): deja de causarse pero el histórico se conserva; `?permanent=true` borra de verdad (la marca de pago cae por cascada).
     La expansión es **lógica pura** en `services/accounting.js` — `periodBounds(period)`, `expenseCoversPeriod(expense, period)` (solapamiento de rangos para FIJO, igualdad de quincena para VARIABLE) y `expandOperatingExpenses(expenses, periods)` → ocurrencias + agregados por quincena/mes/categoría — así que las definiciones se guardan una vez y el rango de la vista decide cuántos cobros se ven. Entra a **todos** los agregados de gasto: `/accounting/summary` (clave `operating`), la pestaña **Gastos** (KPI "Gasto causado total" = nómina + operativos, con su tabla por quincena), el **Balance** (columnas Nómina de clases / Fijos y variables), la hoja **Gastos Operativos** del export y la **Visión Estratégica** (nota 43). El cierre de quincena (`payroll/close`) **no** los bloquea: no son parte de la liquidación a profesores. Migración `20260910010000_operating_expenses` (defensiva). Tests: `tests/unit/accounting.test.js` (`periodBounds`, `expenseCoversPeriod`, `expandOperatingExpenses`, `buildBalance` con el 4.º argumento) y `tests/integration/accounting.routes.test.js` (CRUD, validaciones, gate de rol, marca de pago) + `strategy.test.js`.
+
+53. **Agendamiento público de reposiciones (`/reponer/:token`):** el acudiente agenda las reposiciones de su hijo **sin login y sin formulario**, con un **enlace personal** (`Student.bookingToken`, código aleatorio de 24 caracteres; migración `20261023010000_makeup_booking`, defensiva). Pensado como puente hasta la plataforma completa con cuentas.
+    - **Turnos** (`services/makeupBooking.js`, lógica pura unit-testeada): viernes 5:15–6:00 y 6:00–6:45 p. m.; sábado 1:30–2:15 y 2:15–3:00 p. m. (una cancha, 45 min). Cupo **6**, **todos los niveles comparten turno**, cada turno vale **una clase regular** (`effectiveUnits = 1`). Se ven 14 días hacia adelante, saltando las fechas excluidas del semestre. Se reserva hasta **2 h antes** y se cancela hasta **24 h antes**. Para cambiar horarios/cupo se editan las constantes `SLOT_TEMPLATES`/`SLOT_CAPACITY`.
+    - **Cuánto puede reservar** = clases por reponer (`computeMakeupDebt`, nota 52; acepta `{ studentIds }` para calcular uno solo) − reposiciones `PROGRAMADA` en las que ya está (las agendadas aún no bajan la deuda porque no se han visto).
+    - **Cada turno reservado es una reposición normal**: la primera reserva crea un `ClassSession kind=MAKEUP` con `bookingSlot` (`@@unique[date, bookingSlot]`) **sin profesor**; cada reserva es un `MakeupParticipant` con `bookedAt`. La reserva corre en transacción `Serializable` con reintentos, así que reservas simultáneas no pasan del cupo (validado contra Postgres con 7 reservas a la vez por el último cupo). Si se cancela la última reserva, la reposición vacía se borra. El acudiente solo cancela lo que **él** reservó (`bookedAt`); lo que programó la Escuela no.
+    - **Coordinación** (`/admin/makeup-booking`, ADMIN/Coordinador, menú "📅 Agendar reposiciones"): pestaña **Agenda** (turnos con quién reservó, alerta de turnos sin profesor y selector de profesor → `PUT /makeups/:id`; desde ahí sigue el flujo de reposiciones de siempre: panel del profesor, asistencia, costos), **Enviar enlaces** (estudiantes con deuda; crea el enlace y lo envía por **WhatsApp** — enlace `wa.me` con el mensaje listo, **sin conexión de API** —, **correo** — `mailto:` — o copia el mensaje; "Cambiar enlace" invalida el anterior) y **Sugerencias** (lo que pidieron los acudientes cuando nada les servía, con botón "Atendida").
+    - Tests: `tests/unit/makeupBooking.test.js` e `tests/integration/makeupBooking.test.js`.
 
 45. **Estado de asistencia N/A (`NO_APLICA`):** para estudiantes que **compran menos clases** que los días del grupo (p. ej. vienen 1 vez/semana en un grupo de 3 días). No cuenta **ni como asistencia ni como ausencia**: no consume paquete (no es "clase vista" — allowlist de `attendanceStats`), no genera reposición, no suma al pago del profesor (costEngine solo cuenta PRESENTE), no dispara INSCRITO, queda **fuera del denominador** de `attendanceRate` (reportes de clase/estudiante/profesor y portal padres) y **fuera de la distribución** del dashboard. En las **alertas de asistencia** cada N/A **descuenta una clase esperada**: `deviation = expected − seen − na` (`attendanceAlerts.js`; sin esto el estudiante de 1 vez/semana acumularía alerta roja falsa). Cuarto botón **N/A** (gris) solo en el flujo regular (Step3); reposiciones y festivales no lo muestran (participantes asignados a mano) aunque el server lo acepta en las 3 whitelists. En la doble consolidación ambos reportes deben coincidir también en N/A (igualdad de string). Migración aislada `20260725010000_attendance_status_no_aplica` (`ADD VALUE IF NOT EXISTS`). Tests: `attendanceStats`, `consolidation`, `attendanceAlerts` (nuevo) y whitelist en `finalize.dual`.
 
