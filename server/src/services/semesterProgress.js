@@ -94,6 +94,7 @@ function holidayDeviationForGroup(group, semester, exclusions, rain = 0) {
     rain,
     totalLost: lostDates.length + rain,
     lostDates,
+    plannedStart: all.length ? all[0] : null,
     plannedEnd,
     estimatedEnd,
     lastClassDate: lastReal,
@@ -162,15 +163,14 @@ async function computeStudentProgress() {
   // ¿Ya tiene registro hoy? Entonces la clase de hoy ya está contada en
   // `seen` y la proyección arranca mañana.
   const reportedToday = new Set();
-  const nearEndIds = students
-    .filter((s) => {
-      const c = computeCompletion({ acquired: s.classesAcquired, previous: s.previousClasses, seen: seenById[s.id] || 0 });
-      return c.total > 0 && !c.completed && c.remaining <= SEMESTER_END_THRESHOLD;
-    })
-    .map((s) => s.id);
-  if (nearEndIds.length > 0) {
+  const hasClassesLeft = (s) => {
+    const c = computeCompletion({ acquired: s.classesAcquired, previous: s.previousClasses, seen: seenById[s.id] || 0 });
+    return c.total > 0 && !c.completed;
+  };
+  const leftIds = students.filter(hasClassesLeft).map((s) => s.id);
+  if (leftIds.length > 0) {
     const todayRecords = await prisma.attendanceRecord.findMany({
-      where: { studentId: { in: nearEndIds }, session: { date: today } },
+      where: { studentId: { in: leftIds }, session: { date: today } },
       select: { studentId: true },
     });
     for (const r of todayRecords) reportedToday.add(r.studentId);
@@ -183,7 +183,7 @@ async function computeStudentProgress() {
     const c = computeCompletion({ acquired: s.classesAcquired, previous: s.previousClasses, seen });
     const groups = s.enrollments.map((e) => e.group).filter((g) => g?.active);
     const nearEnd = c.total > 0 && !c.completed && c.remaining <= SEMESTER_END_THRESHOLD;
-    const end = nearEnd
+    const end = c.total > 0 && !c.completed
       ? projectEndDate(groups, semester, semester.exclusions, c.remaining, reportedToday.has(s.id) ? tomorrow : today)
       : { date: null, beyondSemester: false };
     return {
@@ -192,6 +192,7 @@ async function computeStudentProgress() {
       groups: groups.map((g) => g.code),
       total: c.total,
       seen,
+      pct: c.total > 0 ? Math.min(100, Math.round((seen / c.total) * 100)) : null,
       remaining: c.remaining,
       completed: c.completed,
       nearEnd,
@@ -352,6 +353,88 @@ async function computeMakeupDebt() {
   return { semester, rows };
 }
 
+/**
+ * Avance de cada grupo activo en el semestre (Reportes → Avance de grupos):
+ * fecha de inicio del plan, fecha final estimada, clases dadas, clases no dadas
+ * por festivos / recesos y por lluvia, y el avance de cada uno de sus
+ * estudiantes (clases vistas / paquete, por reponer, fecha estimada de fin).
+ */
+async function computeGroupsProgress() {
+  const semester = await prisma.semester.findFirst({
+    where: { active: true },
+    include: { exclusions: true },
+  });
+  if (!semester) return { semester: null, groups: [] };
+  const todayStr = dbDateStr(bogotaToday());
+
+  const groups = await prisma.group.findMany({
+    where: { active: true },
+    include: { professor: { select: { id: true, name: true } } },
+  });
+  const sessions = groups.length === 0 ? [] : await prisma.classSession.findMany({
+    where: {
+      kind: 'REGULAR',
+      groupId: { in: groups.map((g) => g.id) },
+      date: { gte: new Date(semester.startDate), lte: new Date(semester.endDate) },
+    },
+    select: { groupId: true, date: true, status: true, cancellationCategory: true },
+  });
+  const given = {};
+  const rain = {};
+  for (const x of sessions) {
+    if (dbDateStr(x.date) > todayStr) continue;
+    if (x.status === 'REALIZADA') given[x.groupId] = (given[x.groupId] || 0) + 1;
+    else if (x.status === 'CANCELADA' && x.cancellationCategory === 'LLUVIA') rain[x.groupId] = (rain[x.groupId] || 0) + 1;
+  }
+
+  const [{ rows: progress }, { rows: debt }] = await Promise.all([computeStudentProgress(), computeMakeupDebt()]);
+  const debtById = Object.fromEntries(debt.map((d) => [d.studentId, d]));
+  const studentsByCode = {};
+  for (const p of progress) {
+    const d = debtById[p.studentId] || {};
+    for (const code of p.groups) {
+      (studentsByCode[code] ||= []).push({
+        studentId: p.studentId, name: p.name, seen: p.seen, total: p.total, pct: p.pct,
+        remaining: p.remaining, completed: p.completed,
+        pending: d.pending || 0, rain: d.rain || 0, justified: d.justified || 0,
+        projectedEnd: p.projectedEnd, endsBeyondSemester: p.endsBeyondSemester,
+      });
+    }
+  }
+
+  const rows = groups.map((g) => {
+    const cal = holidayDeviationForGroup(g, semester, semester.exclusions, rain[g.id] || 0);
+    const dadas = given[g.id] || 0;
+    const real = expectedDatesForGroup(g, semester, semester.exclusions, semester.endDate);
+    return {
+      groupId: g.id,
+      code: g.code,
+      ballLevel: g.ballLevel,
+      subLevel: g.subLevel,
+      days: cal.days,
+      professor: g.professor,
+      startDate: cal.plannedStart,
+      estimatedEnd: cal.estimatedEnd,
+      plannedEnd: cal.plannedEnd,
+      plan: cal.withoutHolidays,
+      given: dadas,
+      upcoming: real.filter((d) => d > todayStr).length,
+      holidaysLost: cal.lost,
+      holidaysLostPast: cal.lostDates.filter((d) => d.date <= todayStr).length,
+      holidayDates: cal.lostDates,
+      rain: cal.rain,
+      pct: cal.withoutHolidays > 0 ? Math.round((dadas / cal.withoutHolidays) * 100) : null,
+      students: (studentsByCode[g.code] || []).sort((a, b) => a.name.localeCompare(b.name, 'es')),
+    };
+  }).sort((a, b) => a.code.localeCompare(b.code, 'es', { numeric: true }));
+
+  return {
+    semester: { id: semester.id, name: semester.name, startDate: semester.startDate, endDate: semester.endDate },
+    today: todayStr,
+    groups: rows,
+  };
+}
+
 module.exports = {
   MAKEUP_ALERT_THRESHOLD,
   SEMESTER_END_THRESHOLD,
@@ -362,5 +445,6 @@ module.exports = {
   computeStudentProgress,
   computeGroupHolidayDeviation,
   computeMakeupDebt,
+  computeGroupsProgress,
   DAY_FIELDS,
 };

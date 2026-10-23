@@ -9,9 +9,20 @@ const { byGroupCode } = require('../lib/sort');
 const { bogotaToday, bogotaDateStr, bogotaMinutesOfDay, dbDateStr } = require('../lib/dates');
 const { periodsBetween, expandOperatingExpenses } = require('../services/accounting');
 const { attachStudentStatus } = require('../services/studentStatus');
+const { computeGroupsProgress } = require('../services/semesterProgress');
 const { buildTrackingRows, consumedTotal, progressPct } = require('../services/studentTracking');
 
 const router = express.Router();
+
+// Avance de los grupos en el semestre activo: inicio, fecha final estimada,
+// clases dadas, no dadas por festivos / recesos / lluvia, y avance por estudiante.
+router.get('/groups-progress', requireRole('ADMIN', 'PHYSICAL_TRAINER'), async (req, res, next) => {
+  try {
+    res.json({ success: true, data: await computeGroupsProgress() });
+  } catch (err) {
+    next(err);
+  }
+});
 
 router.get('/group/:groupId', requireRole('ADMIN', 'PHYSICAL_TRAINER', 'TEACHER'), async (req, res, next) => {
   try {
