@@ -68,7 +68,8 @@ export default function GroupsProgress() {
     <>
       <p className="text-sm text-gray mb-3">
         Avance de cada grupo en el semestre <strong>{data.semester.name}</strong>. El plan es de{' '}
-        <strong>{data.plan} clases</strong> por grupo; los <strong>festivos / recesos</strong> y la{' '}
+        <strong>{data.plan} clases</strong> por grupo (<strong>{Math.round(data.plan / 2)}</strong> si el grupo
+        tiene un solo día a la semana); los <strong>festivos / recesos</strong> y la{' '}
         <strong>lluvia</strong> corren la fecha final estimada. Toca un grupo para ver el avance de sus
         estudiantes; al final hay una tabla resumen para ver dónde poner el esfuerzo.
       </p>
@@ -177,9 +178,9 @@ const COLS = [
   { key: 'upcoming', label: 'Faltan', get: (g) => g.upcoming, title: 'Clases del plan por dictar' },
   { key: 'holidays', label: 'Festivos', get: (g) => g.holidaysLostPast, title: 'Clases no dadas por festivos y recesos (a hoy)' },
   { key: 'rain', label: 'Lluvia', get: (g) => g.rain },
-  { key: 'students', label: 'Est. con reposición', get: (g) => g.studentsWithMakeups, title: 'Estudiantes del grupo con clases por reponer' },
-  { key: 'makeups', label: 'Clases por reponer', get: (g) => g.makeupClasses, title: 'Suma de clases por reponer de sus estudiantes' },
-  { key: 'delay', label: 'Retraso (días)', get: (g) => g.delayDays ?? 0, title: 'Fecha estimada final vs. fin del plan' },
+  { key: 'students', label: 'Est. a reponer', get: (g) => g.studentsWithMakeups, title: 'Estudiantes del grupo con clases por reponer' },
+  { key: 'makeups', label: 'Por reponer', get: (g) => g.makeupClasses, title: 'Suma de clases por reponer de sus estudiantes' },
+  { key: 'delay', label: 'Retraso (d)', get: (g) => g.delayDays ?? 0, title: 'Retraso en días: fecha estimada final vs. fin del plan' },
   { key: 'end', label: 'Fin estimado', get: (g) => g.estimatedEnd || '', text: true },
 ];
 
@@ -194,7 +195,7 @@ function SummaryTable({ groups, plan }) {
     return sort.dir === 'asc' ? cmp : -cmp;
   });
   const sum = (fn) => groups.reduce((acc, g) => acc + fn(g), 0);
-  const totalPlan = groups.length * plan;
+  const totalPlan = sum((g) => g.plan);
   const totalGiven = sum((g) => g.given);
 
   function toggle(key, text) {
@@ -202,17 +203,20 @@ function SummaryTable({ groups, plan }) {
   }
 
   return (
-    <div className="card mt-4" style={{ overflowX: 'auto' }}>
+    <div className="card mt-4" style={{ padding: '12px 8px' }}>
       <h3 style={{ marginBottom: 4 }}>Resumen: ¿dónde poner el esfuerzo?</h3>
       <p className="text-xs text-gray mb-2">
         Ordenado por clases por reponer. Toca un encabezado para ordenar por otra columna.
       </p>
-      <table className="data-table" style={{ width: '100%', fontSize: '0.82rem' }}>
+      {/* Compacta: encabezados que se parten en dos líneas y celdas angostas para
+          que quepa en la ventana sin scroll horizontal. */}
+      <style>{'.summary-compact th, .summary-compact td { padding: 6px 4px; }'}</style>
+      <table className="data-table summary-compact" style={{ width: '100%', fontSize: '0.76rem' }}>
         <thead>
           <tr>
             {COLS.map((c) => (
               <th key={c.key} title={c.title || 'Ordenar'} onClick={() => toggle(c.key, c.text)}
-                style={{ cursor: 'pointer', whiteSpace: 'nowrap', userSelect: 'none', textAlign: c.text ? 'left' : 'right' }}>
+                style={{ cursor: 'pointer', userSelect: 'none', textAlign: c.text ? 'left' : 'right', verticalAlign: 'bottom', lineHeight: 1.2 }}>
                 {c.label} <span style={{ opacity: sort.key === c.key ? 1 : 0.35, fontSize: '0.75em' }}>
                   {sort.key === c.key ? (sort.dir === 'asc' ? '▲' : '▼') : '↕'}
                 </span>
@@ -224,7 +228,7 @@ function SummaryTable({ groups, plan }) {
           {rows.map((g) => (
             <tr key={g.groupId}>
               <td className="font-medium" style={{ whiteSpace: 'nowrap' }}>{g.code}</td>
-              <td style={{ whiteSpace: 'nowrap' }}>{g.professor?.name || '—'}</td>
+              <td>{g.professor?.name || '—'}</td>
               <td style={{ textAlign: 'right', color: trafficColor(g.pct), fontWeight: 600 }}>{g.pct == null ? '—' : `${g.pct}%`}</td>
               <td style={{ textAlign: 'right' }}>{g.given}</td>
               <td style={{ textAlign: 'right' }}>{g.upcoming}</td>
@@ -235,7 +239,9 @@ function SummaryTable({ groups, plan }) {
               <td style={{ textAlign: 'right', color: (g.delayDays || 0) > 0 ? 'var(--red)' : undefined }}>
                 {g.delayDays == null ? '—' : g.delayDays}
               </td>
-              <td style={{ whiteSpace: 'nowrap' }}>{short(g.estimatedEnd)}</td>
+              <td style={{ textAlign: 'right' }}>
+                {g.estimatedEnd ? fmtDate(g.estimatedEnd, { day: 'numeric', month: 'short' }) : '—'}
+              </td>
             </tr>
           ))}
         </tbody>

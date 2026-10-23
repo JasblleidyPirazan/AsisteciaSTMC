@@ -42,7 +42,7 @@ beforeEach(() => {
       exclusions: [{ date: day('2026-09-14'), reason: 'Festivo' }],
     }),
   };
-  prismaMock.systemConfig = { findUnique: vi.fn().mockResolvedValue({ value: '4' }) }; // plan de 4 clases
+  prismaMock.systemConfig = { findUnique: vi.fn().mockResolvedValue({ value: '8' }) }; // plan base 8 → 4 para un grupo de un solo día
   prismaMock.group = { findMany: vi.fn().mockResolvedValue([GROUP]) };
   // Lunes 7: realizada · lunes 14: festivo (sin sesión) · lunes 21/28: por venir
   prismaMock.classSession = {

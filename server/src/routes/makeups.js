@@ -230,10 +230,22 @@ router.put('/:id', requireRole('ADMIN', 'PHYSICAL_TRAINER'), async (req, res, ne
       if (studentIds.length === 0) {
         return res.status(400).json({ success: false, error: 'Debe asignar al menos un estudiante' });
       }
-      await prisma.makeupParticipant.deleteMany({ where: { sessionId: req.params.id } });
-      await prisma.makeupParticipant.createMany({
-        data: [...new Set(studentIds)].map((studentId) => ({ sessionId: req.params.id, studentId })),
+      // Solo se quitan/agregan los que cambian: los que siguen conservan su
+      // marca bookedAt (reserva del acudiente desde el agendamiento público).
+      const wanted = [...new Set(studentIds)];
+      const current = await prisma.makeupParticipant.findMany({
+        where: { sessionId: req.params.id }, select: { studentId: true },
       });
+      const currentIds = new Set(current.map((p) => p.studentId));
+      await prisma.makeupParticipant.deleteMany({
+        where: { sessionId: req.params.id, studentId: { notIn: wanted } },
+      });
+      const toAdd = wanted.filter((studentId) => !currentIds.has(studentId));
+      if (toAdd.length) {
+        await prisma.makeupParticipant.createMany({
+          data: toAdd.map((studentId) => ({ sessionId: req.params.id, studentId })),
+        });
+      }
     }
 
     const session = await prisma.classSession.update({

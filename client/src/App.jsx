@@ -33,6 +33,8 @@ import HorariosPage from './pages/HorariosPage';
 import ReportePage from './pages/ReportePage';
 import AuditPage from './pages/admin/AuditPage';
 import PublicValidationPage from './pages/ValidationPage';
+import MakeupBookingPage from './pages/MakeupBookingPage';
+import MakeupBookingAdminPage from './pages/admin/MakeupBookingAdminPage';
 import ValidationAdminPage from './pages/admin/ValidationAdminPage';
 
 class ErrorBoundary extends Component {
@@ -90,6 +92,8 @@ function AppRoutes() {
       <Route path="/login" element={user ? <Navigate to="/" /> : <LoginPage />} />
       <Route path="/enrollment" element={<EnrollmentPage />} />
       <Route path="/validar" element={<PublicValidationPage />} />
+      {/* Agendamiento de reposiciones: enlace personal del acudiente, sin login */}
+      <Route path="/reponer/:token" element={<MakeupBookingPage />} />
 
       <Route path="/" element={
         <RequireAuth>
@@ -166,6 +170,11 @@ function AppRoutes() {
       <Route path="/admin/makeups" element={
         <RequireAuth roles={['ADMIN', 'PHYSICAL_TRAINER']}>
           <Shell><MakeupsPage /></Shell>
+        </RequireAuth>
+      } />
+      <Route path="/admin/makeup-booking" element={
+        <RequireAuth roles={['ADMIN', 'PHYSICAL_TRAINER']}>
+          <Shell><MakeupBookingAdminPage /></Shell>
         </RequireAuth>
       } />
       <Route path="/admin/events" element={

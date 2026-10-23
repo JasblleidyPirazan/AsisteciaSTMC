@@ -27,6 +27,7 @@ const NAV = [
   { label: 'Validación de datos', path: '/admin/enrollment', icon: '📝', roles: ['ADMIN', 'PHYSICAL_TRAINER', 'RECEPTION'] },
   { label: 'Grupos', path: '/admin/groups', icon: '🎾', roles: ['ADMIN', 'PHYSICAL_TRAINER', 'RECEPTION'] },
   { label: 'Reposiciones', path: '/admin/makeups', icon: '🔁', roles: ['ADMIN', 'PHYSICAL_TRAINER'] },
+  { label: 'Agendar reposiciones', path: '/admin/makeup-booking', icon: '📅', roles: ['ADMIN', 'PHYSICAL_TRAINER'] },
   { label: 'Festivales', path: '/admin/festivals', icon: '🎉', roles: ['ADMIN', 'PHYSICAL_TRAINER'] },
   { label: 'Eventos', path: '/admin/events', icon: '🏆', roles: ['ADMIN', 'PHYSICAL_TRAINER'] },
 

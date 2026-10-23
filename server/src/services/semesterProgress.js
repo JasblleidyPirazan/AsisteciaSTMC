@@ -74,6 +74,14 @@ async function getPlanClasses() {
   return Number.isFinite(n) && n > 0 ? n : DEFAULT_PLAN_CLASSES;
 }
 
+// Meta de clases de un grupo: los de un solo día por semana tienen la mitad del
+// plan (20 de 40); los de 2 o más días, el plan completo.
+function planForGroup(group, basePlan) {
+  const days = ['lunes', 'martes', 'miercoles', 'jueves', 'viernes', 'sabado', 'domingo']
+    .filter((d) => group[d]).length;
+  return days === 1 ? Math.round(basePlan / 2) : basePlan;
+}
+
 // Calendario de UN grupo contra su plan de `plan` clases, contadas desde el
 // inicio del semestre.
 //   plannedEnd   = la clase N si NINGUNA fecha se excluyera ni se perdiera
@@ -85,7 +93,8 @@ async function getPlanClasses() {
 // `given` = clases dadas a hoy; `givenToday` = la de hoy ya está reportada
 // (la proyección arranca mañana); `rain` = canceladas por lluvia a hoy.
 function holidayDeviationForGroup(group, semester, exclusions, opts = {}) {
-  const { plan = DEFAULT_PLAN_CLASSES, given = 0, rain = 0, givenToday = false, todayStr = null } = opts;
+  const { plan: basePlan = DEFAULT_PLAN_CLASSES, given = 0, rain = 0, givenToday = false, todayStr = null } = opts;
+  const plan = planForGroup(group, basePlan);
   const startStr = dbDateStr(semester.startDate);
   const horizon = addDays(startStr, PLAN_HORIZON_DAYS);
   const ideal = scheduledDatesBetween(group, [], startStr, horizon);
@@ -316,7 +325,7 @@ async function computeGroupHolidayDeviation() {
  * reportar. Los festivos se suman pero se informan aparte (`holidays`) para
  * mostrarse en otro color.
  */
-async function computeMakeupDebt() {
+async function computeMakeupDebt({ studentIds = null } = {}) {
   const semester = await prisma.semester.findFirst({
     where: { active: true },
     include: { exclusions: true },
@@ -325,7 +334,11 @@ async function computeMakeupDebt() {
 
   const today = bogotaToday();
   const students = await prisma.student.findMany({
-    where: { active: true, isTrial: false, ...notSuspended(today) },
+    where: {
+      active: true, isTrial: false, ...notSuspended(today),
+      // Agendamiento público: la deuda de un solo estudiante
+      ...(studentIds ? { id: { in: studentIds } } : {}),
+    },
     include: { enrollments: { include: { group: true } } },
     orderBy: { name: 'asc' },
   });
