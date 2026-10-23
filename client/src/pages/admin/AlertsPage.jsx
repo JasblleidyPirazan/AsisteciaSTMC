@@ -14,6 +14,7 @@ export default function AlertsPage() {
   const [attendance, setAttendance] = useState(null);
   const [rain, setRain] = useState(null);
   const [preinscritos, setPreinscritos] = useState(null);
+  const [holidays, setHolidays] = useState(null);
   const [loading, setLoading] = useState(true);
   const [onlyAlerts, setOnlyAlerts] = useState(true);
   const [error, setError] = useState('');
@@ -25,10 +26,12 @@ export default function AlertsPage() {
       api.get('/alerts/attendance'),
       api.get('/alerts/rain'),
       api.get('/alerts/preinscritos'),
-    ]).then(([a, r, p]) => {
+      api.get('/alerts/holidays'),
+    ]).then(([a, r, p, h]) => {
       setAttendance(a);
       setRain(r);
       setPreinscritos(p);
+      setHolidays(h);
     }).catch((err) => setError(err.message)).finally(() => setLoading(false));
   }, []);
 
@@ -44,7 +47,7 @@ export default function AlertsPage() {
       </div>
 
       <div className="page-content">
-        <div style={{ display: 'flex', gap: 8, marginBottom: 16 }}>
+        <div style={{ display: 'flex', gap: 8, marginBottom: 16, flexWrap: 'wrap' }}>
           <button className={`btn ${tab === 'individual' ? 'btn-primary' : 'btn-outline'}`}
             style={{ flex: 1, minHeight: 38, fontSize: '0.85rem' }}
             onClick={() => setTab('individual')}>
@@ -59,6 +62,11 @@ export default function AlertsPage() {
             style={{ flex: 1, minHeight: 38, fontSize: '0.85rem' }}
             onClick={() => setTab('pre')}>
             Preinscritos {preinscritos?.alertCount > 0 && `(${preinscritos.alertCount})`}
+          </button>
+          <button className={`btn ${tab === 'holidays' ? 'btn-primary' : 'btn-outline'}`}
+            style={{ flex: 1, minHeight: 38, fontSize: '0.85rem' }}
+            onClick={() => setTab('holidays')}>
+            Festivos
           </button>
         </div>
 
@@ -134,6 +142,8 @@ export default function AlertsPage() {
               ))
             )}
           </>
+        ) : tab === 'holidays' ? (
+          <HolidaysTab data={holidays} navigate={navigate} />
         ) : (
           <>
             <p className="text-sm text-gray mb-3">
@@ -183,5 +193,63 @@ export default function AlertsPage() {
         />
       )}
     </div>
+  );
+}
+
+const fmtShort = (d) => new Date(`${d}T12:00:00`).toLocaleDateString('es-CO', { weekday: 'short', day: 'numeric', month: 'short' });
+
+// Desvío por festivos: cuántas clases pierde cada grupo porque su día cae en
+// una fecha excluida del semestre. Los grupos con más pérdida salen primero.
+function HolidaysTab({ data, navigate }) {
+  const groups = data?.groups || [];
+  if (!data?.semester) {
+    return <div className="alert alert-info">No hay un semestre activo — no hay calendario con el cual comparar.</div>;
+  }
+  const affected = groups.filter((g) => g.lost > 0);
+  return (
+    <>
+      <p className="text-sm text-gray mb-3">
+        Clases que cada grupo <strong>pierde por festivos o fechas excluidas</strong> del semestre
+        {' '}<strong>{data.semester.name}</strong>. Si un grupo pierde más clases que otros, quedará atrás
+        en su avance y habrá que reponérselas.
+      </p>
+      {affected.length === 0 ? (
+        <div className="alert alert-success">🎾 Ningún grupo pierde clases por festivos.</div>
+      ) : (
+        <div className="text-sm mb-3"><strong>{affected.length}</strong> de {groups.length} grupos pierden clases.</div>
+      )}
+      {groups.map((g) => {
+        const color = g.lost === 0 ? 'var(--green)' : g.extraVsBest > 0 ? 'var(--red)' : 'var(--yellow)';
+        return (
+          <div key={g.groupId} className="card mb-2" style={{ borderLeft: `4px solid ${color}` }}>
+            <div className="flex items-center justify-between" style={{ gap: 8 }}>
+              <div style={{ minWidth: 0 }}>
+                <button className="link-name font-medium"
+                  onClick={() => navigate('/admin/groups', { state: { focusCode: g.code, from: { label: 'Alertas', to: '/admin/alerts' } } })}>
+                  {g.code} ›
+                </button>
+                <div className="text-xs text-gray">{g.days} · {g.professor?.name}</div>
+              </div>
+              <div style={{ textAlign: 'right' }}>
+                <span className={`badge ${g.lost === 0 ? 'badge-green' : g.extraVsBest > 0 ? 'badge-red' : 'badge-yellow'}`}>
+                  {g.lost === 0 ? 'Sin pérdida' : `−${g.lost} clase${g.lost !== 1 ? 's' : ''}`}
+                </span>
+              </div>
+            </div>
+            <div className="text-xs text-gray mt-1">
+              Le quedan <strong>{g.scheduled}</strong> clases en el semestre (sin festivos serían {g.withoutHolidays})
+              {g.extraVsBest > 0 && <> · pierde {g.extraVsBest} más que el grupo menos afectado</>}
+            </div>
+            {g.lostDates.length > 0 && (
+              <div className="text-xs mt-1">
+                {g.lostDates.map((d) => (
+                  <div key={d.date}>📅 {fmtShort(d.date)}{d.reason ? ` · ${d.reason}` : ''}</div>
+                ))}
+              </div>
+            )}
+          </div>
+        );
+      })}
+    </>
   );
 }

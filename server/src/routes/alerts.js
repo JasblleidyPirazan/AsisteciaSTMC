@@ -3,6 +3,10 @@ const prisma = require('../lib/prisma');
 const { requireRole } = require('../middleware/auth');
 const { expectedDatesForGroup } = require('../services/schedule');
 const { computeAttendanceDeviations, RED_THRESHOLD, YELLOW_THRESHOLD } = require('../services/attendanceAlerts');
+const {
+  computeStudentProgress, computeGroupHolidayDeviation,
+  MAKEUP_ALERT_THRESHOLD, SEMESTER_END_THRESHOLD,
+} = require('../services/semesterProgress');
 const { attachStudentStatus } = require('../services/studentStatus');
 const { bogotaToday, dbDateStr } = require('../lib/dates');
 
@@ -282,6 +286,77 @@ router.get('/preinscritos', requireRole('ADMIN', 'PHYSICAL_TRAINER'), async (req
       success: true,
       data: { groups: data, threshold: PREINSCRITOS_THRESHOLD, alertCount: data.filter((g) => g.alert).length },
     });
+  } catch (err) {
+    next(err);
+  }
+});
+
+/**
+ * Panel del coordinador al entrar: estudiantes a punto de necesitar atención.
+ *  - makeups: les faltan 3 clases o más por reponer (desviación vs. el
+ *    calendario del semestre, misma regla de las alertas de asistencia).
+ *  - nearEnd: les faltan 3 clases o menos para completar su paquete del
+ *    semestre (con la fecha estimada de su última clase).
+ * Quien ya completó el semestre no aparece en ninguna lista.
+ */
+router.get('/coordinator', requireRole('ADMIN', 'PHYSICAL_TRAINER'), async (req, res, next) => {
+  try {
+    const { rows: progress } = await computeStudentProgress();
+    const completedIds = new Set(progress.filter((p) => p.completed).map((p) => p.studentId));
+
+    const deviations = await computeAttendanceDeviations();
+    const makeups = deviations
+      .filter((d) => d.deviation >= MAKEUP_ALERT_THRESHOLD && !completedIds.has(d.studentId))
+      .sort((a, b) => b.deviation - a.deviation)
+      .map((d) => ({
+        studentId: d.studentId, name: d.name, groups: d.groups,
+        pending: d.deviation, expected: d.expected, seen: d.seen,
+      }));
+
+    const nearEnd = progress
+      .filter((p) => p.nearEnd)
+      .sort((a, b) => a.remaining - b.remaining || a.name.localeCompare(b.name, 'es'))
+      .map((p) => ({
+        studentId: p.studentId, name: p.name, groups: p.groups,
+        remaining: p.remaining, seen: p.seen, total: p.total,
+        projectedEnd: p.projectedEnd, endsBeyondSemester: p.endsBeyondSemester,
+      }));
+
+    res.json({
+      success: true,
+      data: {
+        makeups, nearEnd,
+        completedCount: completedIds.size,
+        thresholds: { makeups: MAKEUP_ALERT_THRESHOLD, nearEnd: SEMESTER_END_THRESHOLD },
+        total: makeups.length + nearEnd.length,
+      },
+    });
+  } catch (err) {
+    next(err);
+  }
+});
+
+/**
+ * Estudiantes que ya completaron su paquete del semestre (id → true). Lo usa
+ * el listado de estudiantes para mostrar "Semestre completado".
+ */
+router.get('/semester-completed', requireRole('ADMIN', 'PHYSICAL_TRAINER', 'RECEPTION'), async (req, res, next) => {
+  try {
+    const { rows } = await computeStudentProgress();
+    res.json({ success: true, data: { studentIds: rows.filter((r) => r.completed).map((r) => r.studentId) } });
+  } catch (err) {
+    next(err);
+  }
+});
+
+/**
+ * Desvío por festivos / fechas excluidas de cada grupo: cuántas clases pierde
+ * el grupo porque su día cae en una fecha excluida del semestre.
+ */
+router.get('/holidays', requireRole('ADMIN', 'PHYSICAL_TRAINER'), async (req, res, next) => {
+  try {
+    const data = await computeGroupHolidayDeviation();
+    res.json({ success: true, data });
   } catch (err) {
     next(err);
   }

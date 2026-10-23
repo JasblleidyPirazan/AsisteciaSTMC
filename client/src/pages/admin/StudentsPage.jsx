@@ -7,6 +7,7 @@ import PageBack from '../../components/PageBack';
 import EmptyState from '../../components/EmptyState';
 import { toast } from '../../utils/toast';
 import { STUDENT_STATUS, StudentStatusBadge } from '../../utils/studentStatus';
+import { useSemesterCompleted, SemesterCompletedBadge } from '../../utils/semesterCompleted';
 
 const BALL_COLOR = { Roja: '#E8526A', Naranja: '#EA8A2E', Verde: '#1FA971', Amarilla: '#E8A23B' };
 const AVATAR_COLORS = ['#3F52A8', '#4F9FB2', '#7A5AF8', '#E8A23B', '#1FA971', '#E8526A', '#6F7BA6'];
@@ -161,6 +162,7 @@ export default function StudentsPage() {
   const [groupError, setGroupError] = useState('');
 
   const location = useLocation();
+  const semesterCompleted = useSemesterCompleted();
 
   useEffect(() => {
     Promise.all([
@@ -311,6 +313,7 @@ export default function StudentsPage() {
             <div className="flex items-center gap-2" style={{ flexWrap: 'wrap' }}>
               <span className="font-medium">{s.name}</span>
               <StudentStatusBadge status={s.studentStatus} missingBirthDate={s.missingBirthDate} />
+              {semesterCompleted.has(s.id) && <SemesterCompletedBadge />}
               {hasNoGroup(s) && !s.isTrial && <span className="badge badge-red">Sin grupo</span>}
             </div>
             <div className="text-xs text-gray" style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
@@ -578,6 +581,7 @@ export default function StudentsPage() {
             <div className="flex items-center gap-2" style={{ flexWrap: 'wrap' }}>
               <h3>{st.name}</h3>
               <StudentStatusBadge status={st.studentStatus} missingBirthDate={st.missingBirthDate} />
+              {semesterCompleted.has(st.id) && <SemesterCompletedBadge />}
             </div>
             <div className="flex items-center gap-2 mt-1" style={{ flexWrap: 'wrap' }}>
               {g?.ballLevel && <span className="chip"><span className="legend-dot" style={{ background: BALL_COLOR[g.ballLevel] || 'var(--gray-400)' }} /> {g.ballLevel}{g.subLevel || ''}</span>}

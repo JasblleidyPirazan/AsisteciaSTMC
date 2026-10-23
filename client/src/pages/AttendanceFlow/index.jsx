@@ -238,6 +238,7 @@ export default function AttendanceFlow() {
         {step === 3 && (
           <Step3Students
             groupId={groupId}
+            date={date}
             records={attendanceRecords}
             onChange={setAttendanceRecords}
             onNext={() => setStep(4)}
