@@ -294,8 +294,8 @@ router.get('/preinscritos', requireRole('ADMIN', 'PHYSICAL_TRAINER'), async (req
 /**
  * Panel del coordinador al entrar: estudiantes a punto de necesitar atención.
  *  - makeups: les faltan 3 clases o más por reponer = clases canceladas por
- *    lluvia + clases justificadas, desde su ingreso, menos lo ya repuesto.
- *    La ausencia sin justificar y los festivos NO cuentan.
+ *    lluvia + justificadas + festivos / fechas excluidas ya pasadas, desde su
+ *    ingreso, menos lo ya repuesto. La ausencia sin justificar NO cuenta.
  *  - nearEnd: les faltan 3 clases o menos para completar su paquete del
  *    semestre (con la fecha estimada de su última clase).
  * Quien ya completó el semestre no aparece en ninguna lista.
@@ -312,7 +312,7 @@ router.get('/coordinator', requireRole('ADMIN', 'PHYSICAL_TRAINER'), async (req,
       .sort((a, b) => b.pending - a.pending)
       .map((d) => ({
         studentId: d.studentId, name: d.name, groups: d.groups,
-        pending: d.pending, rain: d.rain, justified: d.justified, madeUp: d.madeUp,
+        pending: d.pending, rain: d.rain, justified: d.justified, holidays: d.holidays, madeUp: d.madeUp,
       }));
 
     const nearEnd = progress

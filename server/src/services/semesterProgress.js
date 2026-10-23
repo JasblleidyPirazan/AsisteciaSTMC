@@ -62,43 +62,102 @@ function daysLabel(group) {
     .filter((d) => group[d]).map((d) => DAY_SHORT[d]).join('-');
 }
 
-// Calendario de UN grupo contra el ideal: si todas sus clases se dictaran desde
-// el inicio del semestre hasta su fin. Resta lo que se pierde por festivos /
-// fechas excluidas (`lost`) y por lluvia (`rain`, clases ya canceladas), y
-// estima la fecha final si esas clases se recuperan siguiendo el horario del
-// grupo después de su última clase del semestre.
-function holidayDeviationForGroup(group, semester, exclusions, rain = 0) {
-  const all = expectedDatesForGroup(group, semester, [], semester.endDate);
-  const real = expectedDatesForGroup(group, semester, exclusions, semester.endDate);
-  const kept = new Set(real);
-  const reasonByDate = Object.fromEntries(exclusions.map((e) => [dbDateStr(e.date), e.reason || null]));
-  const lostDates = all.filter((d) => !kept.has(d)).map((d) => ({ date: d, reason: reasonByDate[d] }));
-  const plannedEnd = all.length ? all[all.length - 1] : null;
-  const lastReal = real.length ? real[real.length - 1] : null;
+// Clases del plan de un grupo (una matrícula completa). Es un plan de N clases,
+// no "todas las que alcancen en el semestre": 40 por defecto.
+const DEFAULT_PLAN_CLASSES = 40;
+// Horizonte para buscar la clase N de un grupo (≈ 2 años: sobra para 1 día/semana).
+const PLAN_HORIZON_DAYS = 800;
 
-  // Para dictar las clases del plan hay que reponer festivos + lluvia: se
-  // cuentan esas fechas más allá de la última clase del semestre.
-  const toRecover = lostDates.length + rain;
-  let estimatedEnd = lastReal;
-  if (toRecover > 0 && lastReal) {
-    const after = scheduledDatesBetween(group, exclusions, addDays(lastReal, 1), addDays(lastReal, PROJECTION_MAX_DAYS));
-    estimatedEnd = after[toRecover - 1] || null;
+async function getPlanClasses() {
+  const row = await prisma.systemConfig.findUnique({ where: { key: 'tuition_plan_classes' } });
+  const n = parseInt(row?.value);
+  return Number.isFinite(n) && n > 0 ? n : DEFAULT_PLAN_CLASSES;
+}
+
+// Calendario de UN grupo contra su plan de `plan` clases, contadas desde el
+// inicio del semestre.
+//   plannedEnd   = la clase N si NINGUNA fecha se excluyera ni se perdiera
+//   estimatedEnd = la clase N real: se salta los festivos / fechas excluidas y
+//                  recupera lo que no se dictó (lluvia, cancelaciones): faltan
+//                  `plan − given` clases por dictar desde hoy
+//   lost         = festivos / fechas excluidas que caen en días del grupo
+//                  dentro de ese rango (los que ya pasaron y los que vienen)
+// `given` = clases dadas a hoy; `givenToday` = la de hoy ya está reportada
+// (la proyección arranca mañana); `rain` = canceladas por lluvia a hoy.
+function holidayDeviationForGroup(group, semester, exclusions, opts = {}) {
+  const { plan = DEFAULT_PLAN_CLASSES, given = 0, rain = 0, givenToday = false, todayStr = null } = opts;
+  const startStr = dbDateStr(semester.startDate);
+  const horizon = addDays(startStr, PLAN_HORIZON_DAYS);
+  const ideal = scheduledDatesBetween(group, [], startStr, horizon);
+  const plannedEnd = ideal[plan - 1] || null;
+
+  const remaining = Math.max(0, plan - given);
+  let estimatedEnd = null;
+  if (remaining === 0) {
+    // Plan completo: terminó en su última clase dada (no hay nada que estimar)
+    estimatedEnd = todayStr;
+  } else {
+    let from = todayStr || startStr;
+    if (givenToday) from = addDays(from, 1);
+    if (from < startStr) from = startStr;
+    const future = scheduledDatesBetween(group, exclusions, from, addDays(from, PLAN_HORIZON_DAYS));
+    estimatedEnd = future[remaining - 1] || null;
   }
+
+  const excluded = new Set(exclusions.map((e) => dbDateStr(e.date)));
+  const reasonByDate = Object.fromEntries(exclusions.map((e) => [dbDateStr(e.date), e.reason || null]));
+  const limit = estimatedEnd || plannedEnd || horizon;
+  const lostDates = ideal
+    .filter((d) => excluded.has(d) && d <= limit)
+    .map((d) => ({ date: d, reason: reasonByDate[d] }));
+
   return {
     groupId: group.id,
     code: group.code,
     days: daysLabel(group),
-    withoutHolidays: all.length,
-    scheduled: real.length,
+    plan,
+    given,
+    remaining,
     lost: lostDates.length,
     rain,
     totalLost: lostDates.length + rain,
     lostDates,
-    plannedStart: all.length ? all[0] : null,
+    plannedStart: ideal[0] || null,
     plannedEnd,
     estimatedEnd,
-    lastClassDate: lastReal,
+    delayDays: remaining > 0 && estimatedEnd && plannedEnd
+      ? Math.round((new Date(`${estimatedEnd}T00:00:00Z`) - new Date(`${plannedEnd}T00:00:00Z`)) / 86400000)
+      : null,
   };
+}
+
+// Clases dadas / canceladas por lluvia de cada grupo hasta hoy, y si la clase
+// de hoy ya quedó reportada (para arrancar la proyección mañana).
+async function loadGroupSessionCounts(groups, semester, todayStr) {
+  const given = {};
+  const rain = {};
+  const givenToday = {};
+  if (groups.length === 0) return { given, rain, givenToday };
+  const sessions = await prisma.classSession.findMany({
+    where: {
+      kind: 'REGULAR',
+      groupId: { in: groups.map((g) => g.id) },
+      date: { gte: new Date(semester.startDate), lte: new Date(semester.endDate) },
+    },
+    select: { groupId: true, date: true, status: true, cancellationCategory: true },
+  });
+  for (const x of sessions) {
+    const d = dbDateStr(x.date);
+    if (d > todayStr) continue;
+    if (x.status === 'REALIZADA') {
+      given[x.groupId] = (given[x.groupId] || 0) + 1;
+      if (d === todayStr) givenToday[x.groupId] = true;
+    } else if (x.status === 'CANCELADA' && x.cancellationCategory === 'LLUVIA') {
+      rain[x.groupId] = (rain[x.groupId] || 0) + 1;
+      if (d === todayStr) givenToday[x.groupId] = true; // hoy ya se resolvió
+    }
+  }
+  return { given, rain, givenToday };
 }
 
 // ─── Consultas ────────────────────────────────────────────────────────────
@@ -203,37 +262,29 @@ async function computeStudentProgress() {
   return { semester, rows };
 }
 
-// Calendario de cada grupo activo contra el ideal (inicio → fin del semestre),
-// con lo perdido por festivos y por lluvia y la fecha final estimada. El más
-// afectado primero.
+// Calendario de cada grupo activo contra su plan de 40 clases, con lo perdido
+// por festivos y por lluvia y la fecha final estimada. El más afectado primero.
 async function computeGroupHolidayDeviation() {
   const semester = await prisma.semester.findFirst({
     where: { active: true },
     include: { exclusions: true },
   });
   if (!semester) return { semester: null, groups: [] };
-  const today = bogotaToday();
-  const [groups, rainSessions] = await Promise.all([
+  const todayStr = dbDateStr(bogotaToday());
+  const [groups, plan] = await Promise.all([
     prisma.group.findMany({
       where: { active: true },
       include: { professor: { select: { id: true, name: true } } },
     }),
-    prisma.classSession.findMany({
-      where: {
-        kind: 'REGULAR',
-        status: 'CANCELADA',
-        cancellationCategory: 'LLUVIA',
-        groupId: { not: null },
-        date: { gte: new Date(semester.startDate), lte: new Date(semester.endDate) },
-      },
-      select: { groupId: true },
-    }),
+    getPlanClasses(),
   ]);
-  const rainByGroup = {};
-  for (const s of rainSessions) rainByGroup[s.groupId] = (rainByGroup[s.groupId] || 0) + 1;
+  const counts = await loadGroupSessionCounts(groups, semester, todayStr);
 
   const rows = groups.map((g) => ({
-    ...holidayDeviationForGroup(g, semester, semester.exclusions, rainByGroup[g.id] || 0),
+    ...holidayDeviationForGroup(g, semester, semester.exclusions, {
+      plan, todayStr,
+      given: counts.given[g.id] || 0, rain: counts.rain[g.id] || 0, givenToday: !!counts.givenToday[g.id],
+    }),
     professor: g.professor,
   }));
   const minLost = rows.length ? Math.min(...rows.map((r) => r.totalLost)) : 0;
@@ -242,7 +293,8 @@ async function computeGroupHolidayDeviation() {
     .sort((a, b) => b.totalLost - a.totalLost || a.code.localeCompare(b.code, 'es', { numeric: true }));
   return {
     semester: { id: semester.id, name: semester.name, startDate: semester.startDate, endDate: semester.endDate },
-    today: dbDateStr(today),
+    today: todayStr,
+    plan,
     exclusions: semester.exclusions
       .map((e) => ({ date: dbDateStr(e.date), reason: e.reason }))
       .sort((a, b) => a.date.localeCompare(b.date)),
@@ -256,12 +308,13 @@ async function computeGroupHolidayDeviation() {
  * de clases):
  *
  *   debe  = clases de sus grupos canceladas por LLUVIA + clases JUSTIFICADAS
+ *           + clases que cayeron en FESTIVOS / fechas excluidas (ya pasadas)
  *   repuso = clases vistas en reposiciones (sesión MAKEUP o registro REPOSICION)
  *   por reponer = debe − repuso, con tope en lo que le queda del paquete
  *
- * NO cuentan: la ausencia sin justificar (la perdió), las clases aún sin
- * reportar, ni los festivos / fechas excluidas (estos no restan nada al
- * estudiante: solo corren la fecha estimada en que termina su paquete).
+ * NO cuentan: la ausencia sin justificar (la perdió) ni las clases aún sin
+ * reportar. Los festivos se suman pero se informan aparte (`holidays`) para
+ * mostrarse en otro color.
  */
 async function computeMakeupDebt() {
   const semester = await prisma.semester.findFirst({
@@ -324,8 +377,12 @@ async function computeMakeupDebt() {
   const madeUpById = {};
   for (const r of makeupSeen) madeUpById[r.studentId] = (madeUpById[r.studentId] || 0) + attendanceUnits(r.session);
 
+  const todayStr = dbDateStr(today);
+  const exclusionDates = semester.exclusions.map((e) => dbDateStr(e.date)).filter((d) => d <= todayStr);
+
   const rows = students.map((s) => {
     let rain = 0;
+    let holidays = 0;
     for (const e of s.enrollments) {
       if (!e.group?.active) continue;
       const floor = new Date(Math.max(
@@ -334,20 +391,22 @@ async function computeMakeupDebt() {
       ));
       const floorStr = dbDateStr(floor);
       rain += (rainByGroup[e.groupId] || []).filter((d) => d >= floorStr).length;
+      // Festivos / fechas excluidas ya pasadas que caían en un día de su grupo
+      holidays += exclusionDates.filter((d) => d >= floorStr && e.group[DAY_FIELDS[new Date(`${d}T00:00:00Z`).getUTCDay()]]).length;
     }
     const justifiedCount = justifiedByStudent[s.id] || 0;
     const madeUp = roundUnits(madeUpById[s.id] || 0);
     const c = computeCompletion({
       acquired: s.classesAcquired, previous: s.previousClasses, seen: seenById[s.id] || 0,
     });
-    const owed = rain + justifiedCount;
+    const owed = rain + justifiedCount + holidays;
     // Sin paquete registrado no hay contra qué topar: no se reporta deuda
     const pending = c.total > 0 ? Math.min(Math.max(0, roundUnits(owed - madeUp)), c.remaining) : 0;
     return {
       studentId: s.id,
       name: s.name,
       groups: s.enrollments.map((e) => e.group).filter((g) => g?.active).map((g) => g.code),
-      rain, justified: justifiedCount, madeUp, pending,
+      rain, justified: justifiedCount, holidays, madeUp, pending,
     };
   });
   return { semester, rows };
@@ -367,25 +426,14 @@ async function computeGroupsProgress() {
   if (!semester) return { semester: null, groups: [] };
   const todayStr = dbDateStr(bogotaToday());
 
-  const groups = await prisma.group.findMany({
-    where: { active: true },
-    include: { professor: { select: { id: true, name: true } } },
-  });
-  const sessions = groups.length === 0 ? [] : await prisma.classSession.findMany({
-    where: {
-      kind: 'REGULAR',
-      groupId: { in: groups.map((g) => g.id) },
-      date: { gte: new Date(semester.startDate), lte: new Date(semester.endDate) },
-    },
-    select: { groupId: true, date: true, status: true, cancellationCategory: true },
-  });
-  const given = {};
-  const rain = {};
-  for (const x of sessions) {
-    if (dbDateStr(x.date) > todayStr) continue;
-    if (x.status === 'REALIZADA') given[x.groupId] = (given[x.groupId] || 0) + 1;
-    else if (x.status === 'CANCELADA' && x.cancellationCategory === 'LLUVIA') rain[x.groupId] = (rain[x.groupId] || 0) + 1;
-  }
+  const [groups, plan] = await Promise.all([
+    prisma.group.findMany({
+      where: { active: true },
+      include: { professor: { select: { id: true, name: true } } },
+    }),
+    getPlanClasses(),
+  ]);
+  const counts = await loadGroupSessionCounts(groups, semester, todayStr);
 
   const [{ rows: progress }, { rows: debt }] = await Promise.all([computeStudentProgress(), computeMakeupDebt()]);
   const debtById = Object.fromEntries(debt.map((d) => [d.studentId, d]));
@@ -396,16 +444,18 @@ async function computeGroupsProgress() {
       (studentsByCode[code] ||= []).push({
         studentId: p.studentId, name: p.name, seen: p.seen, total: p.total, pct: p.pct,
         remaining: p.remaining, completed: p.completed,
-        pending: d.pending || 0, rain: d.rain || 0, justified: d.justified || 0,
+        pending: d.pending || 0, rain: d.rain || 0, justified: d.justified || 0, holidays: d.holidays || 0,
         projectedEnd: p.projectedEnd, endsBeyondSemester: p.endsBeyondSemester,
       });
     }
   }
 
   const rows = groups.map((g) => {
-    const cal = holidayDeviationForGroup(g, semester, semester.exclusions, rain[g.id] || 0);
-    const dadas = given[g.id] || 0;
-    const real = expectedDatesForGroup(g, semester, semester.exclusions, semester.endDate);
+    const cal = holidayDeviationForGroup(g, semester, semester.exclusions, {
+      plan, todayStr,
+      given: counts.given[g.id] || 0, rain: counts.rain[g.id] || 0, givenToday: !!counts.givenToday[g.id],
+    });
+    const students = (studentsByCode[g.code] || []).sort((a, b) => a.name.localeCompare(b.name, 'es'));
     return {
       groupId: g.id,
       code: g.code,
@@ -416,21 +466,27 @@ async function computeGroupsProgress() {
       startDate: cal.plannedStart,
       estimatedEnd: cal.estimatedEnd,
       plannedEnd: cal.plannedEnd,
-      plan: cal.withoutHolidays,
-      given: dadas,
-      upcoming: real.filter((d) => d > todayStr).length,
+      delayDays: cal.delayDays,
+      plan: cal.plan,
+      given: cal.given,
+      upcoming: cal.remaining,
       holidaysLost: cal.lost,
       holidaysLostPast: cal.lostDates.filter((d) => d.date <= todayStr).length,
       holidayDates: cal.lostDates,
       rain: cal.rain,
-      pct: cal.withoutHolidays > 0 ? Math.round((dadas / cal.withoutHolidays) * 100) : null,
-      students: (studentsByCode[g.code] || []).sort((a, b) => a.name.localeCompare(b.name, 'es')),
+      pct: cal.plan > 0 ? Math.round((cal.given / cal.plan) * 100) : null,
+      // Dónde poner el esfuerzo: reposiciones pendientes de sus estudiantes
+      makeupClasses: roundUnits(students.reduce((acc, st) => acc + st.pending, 0)),
+      studentsWithMakeups: students.filter((st) => st.pending > 0).length,
+      studentsCount: students.length,
+      students,
     };
   }).sort((a, b) => a.code.localeCompare(b.code, 'es', { numeric: true }));
 
   return {
     semester: { id: semester.id, name: semester.name, startDate: semester.startDate, endDate: semester.endDate },
     today: todayStr,
+    plan,
     groups: rows,
   };
 }
