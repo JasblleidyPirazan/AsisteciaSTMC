@@ -5,7 +5,7 @@ const { requireRole } = require('../middleware/auth');
 const { notSuspended } = require('../lib/filters');
 const { byGroupCode } = require('../lib/sort');
 const { bogotaDayOfWeek } = require('../lib/dates');
-const { seenAttendanceFilter, absenceCounts, attendanceUnits, roundUnits } = require('../services/attendanceStats');
+const { loadSeenById, computeCompletion } = require('../services/semesterProgress');
 const { attachStudentStatus, stripTuition } = require('../services/studentStatus');
 
 const router = express.Router();
@@ -237,48 +237,37 @@ router.get('/:id/students', async (req, res, next) => {
     // the active semester (falls back to all-time if no semester is active).
     // Cada registro suma las unidades de su sesión: una reposición doble
     // (effectiveUnits = 2) recupera 2 clases del paquete, no 1.
-    const studentIds = students.map((s) => s.id);
-    const seenById = {};
-    if (studentIds.length > 0) {
-      const activeSemester = await prisma.semester.findFirst({ where: { active: true } });
-      const dateFilter = activeSemester
-        ? { gte: activeSemester.startDate, lte: activeSemester.endDate }
-        : undefined;
-      const present = await prisma.attendanceRecord.findMany({
-        where: {
-          studentId: { in: studentIds },
-          AND: [
-            seenAttendanceFilter(),
-            ...(dateFilter ? [{ session: { date: dateFilter } }] : []),
-          ],
-        },
-        select: {
-          studentId: true, status: true,
-          session: { select: { date: true, effectiveUnits: true } },
-        },
-      });
-      const startById = Object.fromEntries(students.map((s) => [s.id, s.classesStartDate]));
-      for (const r of present) {
-        // AUSENTE de festival anterior al inicio de clases: no consume paquete
-        if (r.status === 'AUSENTE' && !absenceCounts(r.session?.date, startById[r.studentId])) continue;
-        seenById[r.studentId] = (seenById[r.studentId] || 0) + attendanceUnits(r.session);
-      }
-      for (const id of Object.keys(seenById)) seenById[id] = roundUnits(seenById[id]);
-    }
+    // `?date=` = fecha de la clase que se reporta: solo cuentan las sesiones
+    // anteriores, para que quien terminó su paquete EN esa clase siga viéndose
+    // al editar su reporte.
+    const activeSemester = students.length > 0
+      ? await prisma.semester.findFirst({ where: { active: true } })
+      : null;
+    const before = /^\d{4}-\d{2}-\d{2}$/.test(req.query.date || '')
+      ? new Date(`${req.query.date}T00:00:00.000Z`) : undefined;
+    const seenById = await loadSeenById(students, activeSemester, { before });
 
     // Estado derivado + error de fecha de nacimiento, visibles en el roster
     // del flujo de asistencia (ícono al lado de cada estudiante). Los montos
     // (tuition) solo van a roles con acceso económico.
     const decorated = stripTuition(await attachStudentStatus(students), req.user.role);
-    res.json({
-      success: true,
-      data: decorated.map((s) => ({
+    const rows = decorated.map((s) => {
+      const classesSeen = seenById[s.id] || 0;
+      return {
         ...s,
-        classesSeen: seenById[s.id] || 0,
+        classesSeen,
         // Las clases pendientes del semestre anterior suman al total adquirido
         classesAcquired: (s.classesAcquired || 0) + (s.previousClasses || 0),
-      })),
+        // Ya vio todo su paquete: "Semestre completado"
+        semesterCompleted: !s.isTrial && computeCompletion({
+          acquired: s.classesAcquired, previous: s.previousClasses, seen: classesSeen,
+        }).completed,
+      };
     });
+    // Quien completó el semestre deja de aparecer en la lista del grupo
+    // (salvo que se pida explícitamente, p. ej. para vistas de gestión).
+    const showCompleted = req.query.includeCompleted === 'true';
+    res.json({ success: true, data: showCompleted ? rows : rows.filter((s) => !s.semesterCompleted) });
   } catch (err) {
     next(err);
   }

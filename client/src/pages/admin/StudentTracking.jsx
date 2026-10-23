@@ -2,6 +2,7 @@ import { useState, useEffect, useMemo } from 'react';
 import { api } from '../../api/client';
 import { fmtDate } from '../../utils/dates';
 import { StudentStatusIcon, STUDENT_STATUS } from '../../utils/studentStatus';
+import { useSemesterCompleted } from '../../utils/semesterCompleted';
 import { toast } from '../../utils/toast';
 
 // Seguimiento de Estudiantes (Reportes → Estudiantes).
@@ -57,6 +58,7 @@ function PctBar({ pct }) {
 }
 
 export default function StudentTracking() {
+  const semesterCompleted = useSemesterCompleted();
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
@@ -281,6 +283,7 @@ export default function StudentTracking() {
                     <td className="font-medium" style={{ whiteSpace: 'nowrap' }}>
                       <StudentStatusIcon status={r.studentStatus} missingBirthDate={r.missingBirthDate} />
                       {r.name}
+                      {semesterCompleted.has(r.id) && <span title="Semestre completado" style={{ marginLeft: 4 }}>🎓</span>}
                     </td>
                     <td className="text-sm" style={{ whiteSpace: 'nowrap' }}>
                       {r.groupCode || <span className="text-gray">Sin grupo</span>}
@@ -334,6 +337,7 @@ export default function StudentTracking() {
                     <div className="font-medium">
                       <StudentStatusIcon status={r.studentStatus} missingBirthDate={r.missingBirthDate} />
                       {r.name}
+                      {semesterCompleted.has(r.id) && <span title="Semestre completado" style={{ marginLeft: 4 }}>🎓</span>}
                     </div>
                     <div className="text-xs text-gray">
                       {r.groupCode || 'Sin grupo'}{r.document ? ` · ${r.document}` : ''}

@@ -40,4 +40,4 @@ function expectedDatesForGroup(group, semester, exclusions = [], until = new Dat
   return dates;
 }
 
-module.exports = { expectedDatesForGroup };
+module.exports = { expectedDatesForGroup, DAY_FIELDS };

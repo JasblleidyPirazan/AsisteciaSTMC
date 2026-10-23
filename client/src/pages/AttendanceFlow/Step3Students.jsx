@@ -7,7 +7,7 @@ import { StudentStatusIcon } from '../../utils/studentStatus';
 const STATUS_LABELS = { PRESENTE: 'P', AUSENTE: 'A', JUSTIFICADA: 'J', NO_APLICA: 'N/A' };
 const STATUS_CLASS = { PRESENTE: 'present', AUSENTE: 'absent', JUSTIFICADA: 'justified', NO_APLICA: 'na' };
 
-export default function Step3Students({ groupId, records, onChange, onNext }) {
+export default function Step3Students({ groupId, date, records, onChange, onNext }) {
   const [students, setStudents] = useState([]);
   const [allStudents, setAllStudents] = useState([]);
   // Per-student "classes seen / acquired" for the active semester, keyed by id.
@@ -48,7 +48,9 @@ export default function Step3Students({ groupId, records, onChange, onNext }) {
     }
 
     Promise.all([
-      api.get(`/groups/${groupId}/students`),
+      // date: solo cuentan las clases anteriores, así quien terminó su paquete
+      // en esta misma clase sigue en la lista al editar el reporte.
+      api.get(`/groups/${groupId}/students`, date ? { date } : undefined),
       api.get('/students', { active: 'true', excludeSuspended: 'true' }),
     ]).then(([group, all]) => {
       // Guarda el roster para poder tomar asistencia sin conexión.
@@ -61,7 +63,7 @@ export default function Step3Students({ groupId, records, onChange, onNext }) {
       const all = cacheGet(CACHE_KEYS.allStudents, []);
       if (group.length) apply(group, all);
     }).finally(() => setLoading(false));
-  }, [groupId]);
+  }, [groupId, date]);
 
   function setStatus(studentId, status) {
     onChange(records.map((r) =>
