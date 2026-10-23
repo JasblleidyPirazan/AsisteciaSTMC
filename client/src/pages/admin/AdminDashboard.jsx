@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { api } from '../../api/client';
 import { useAuth } from '../../hooks/useAuth';
+import CoordinatorStudentsPanel from '../../components/CoordinatorStudentsPanel';
 
 const DAYS = ['Lun', 'Mar', 'Mié', 'Jue', 'Vie', 'Sáb'];
 const AVATAR_COLORS = ['#3F52A8', '#4F9FB2', '#7A5AF8', '#E8A23B', '#1FA971', '#E8526A', '#6F7BA6'];
@@ -113,6 +114,8 @@ export default function AdminDashboard() {
             </button>
           </div>
         </div>
+
+        <CoordinatorStudentsPanel />
 
         {loading ? <div className="spinner" /> : !d ? (
           <div className="alert alert-info">No se pudo cargar el panel.</div>
