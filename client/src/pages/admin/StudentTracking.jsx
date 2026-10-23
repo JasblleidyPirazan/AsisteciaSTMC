@@ -72,6 +72,7 @@ export default function StudentTracking() {
   const [sort, setSort] = useState({ key: 'name', dir: 'asc' });
   const [exporting, setExporting] = useState(false);
   const [detail, setDetail] = useState(null); // { row, records, loading }
+  const [printing, setPrinting] = useState(false);
 
   useEffect(() => {
     let alive = true;
@@ -159,13 +160,28 @@ export default function StudentTracking() {
     }
   }
 
+  // Rango efectivo de la tabla (el semestre activo si no se eligieron fechas):
+  // el detalle clase a clase usa el mismo, para que cuadre con los totales.
+  const detailParams = {};
+  if (data?.from) detailParams.from = String(data.from).slice(0, 10);
+  if (data?.to) detailParams.to = String(data.to).slice(0, 10);
+
+  async function printWithDetail(list) {
+    if (printing || list.length === 0) return;
+    setPrinting(true);
+    try {
+      await printFichas(list, { rangeLabel, countAbsences, params: detailParams });
+    } catch (err) {
+      toast.error(err.message);
+    } finally {
+      setPrinting(false);
+    }
+  }
+
   async function openDetail(row) {
     setDetail({ row, records: [], loading: true });
     try {
-      const params = {};
-      if (from) params.from = from;
-      if (to) params.to = to;
-      const d = await api.get(`/reports/student/${row.id}`, params);
+      const d = await api.get(`/reports/student/${row.id}`, detailParams);
       setDetail({ row, records: d.records || [], loading: false });
     } catch (err) {
       toast.error(err.message);
@@ -190,10 +206,10 @@ export default function StudentTracking() {
         </div>
         <div className="flex gap-2" style={{ flexWrap: 'wrap' }}>
           <button className="btn btn-outline" style={{ minHeight: 36, fontSize: '0.82rem', padding: '0 12px' }}
-            onClick={() => printFichas(visible, { rangeLabel, countAbsences })}
-            disabled={visible.length === 0}
-            title="Abre las fichas listas para imprimir o guardar como PDF">
-            🖨️ Fichas PDF ({visible.length})
+            onClick={() => printWithDetail(visible)}
+            disabled={visible.length === 0 || printing}
+            title="Abre las fichas (con el detalle clase a clase) listas para imprimir o guardar como PDF">
+            {printing ? 'Preparando fichas…' : `🖨️ Fichas PDF (${visible.length})`}
           </button>
           <button className="btn btn-outline" style={{ minHeight: 36, fontSize: '0.82rem', padding: '0 12px' }}
             onClick={exportExcel} disabled={exporting}>
@@ -301,7 +317,8 @@ export default function StudentTracking() {
                     <td style={{ textAlign: 'center' }}>
                       <button className="btn btn-ghost" style={{ minHeight: 30, padding: '0 8px', fontSize: '0.9rem' }}
                         title={`Ficha PDF de ${r.name}`}
-                        onClick={(e) => { e.stopPropagation(); printFichas([r], { rangeLabel, countAbsences }); }}>
+                        disabled={printing}
+                        onClick={(e) => { e.stopPropagation(); printWithDetail([r]); }}>
                         📄
                       </button>
                     </td>
@@ -345,7 +362,8 @@ export default function StudentTracking() {
                   </div>
                   <button className="btn btn-ghost" style={{ minHeight: 32, padding: '0 8px', flexShrink: 0 }}
                     title={`Ficha PDF de ${r.name}`}
-                    onClick={(e) => { e.stopPropagation(); printFichas([r], { rangeLabel, countAbsences }); }}>
+                    disabled={printing}
+                        onClick={(e) => { e.stopPropagation(); printWithDetail([r]); }}>
                     📄
                   </button>
                 </div>
@@ -371,7 +389,10 @@ export default function StudentTracking() {
         % Avance = Total / Adq.
       </p>
 
-      {detail && <StudentDetailModal detail={detail} rangeLabel={rangeLabel} countAbsences={countAbsences} onClose={() => setDetail(null)} />}
+      {detail && (
+        <StudentDetailModal detail={detail} rangeLabel={rangeLabel} printing={printing} onClose={() => setDetail(null)}
+          onPrint={() => printWithDetail([{ ...detail.row, records: detail.records }])} />
+      )}
     </div>
   );
 }
@@ -380,7 +401,7 @@ export default function StudentTracking() {
 const ATTENDANCE_LABEL = { PRESENTE: 'P', AUSENTE: 'A', JUSTIFICADA: 'J', NO_APLICA: 'N/A' };
 const ATTENDANCE_COLOR = { PRESENTE: 'var(--green)', AUSENTE: 'var(--red)', JUSTIFICADA: 'var(--blue)', NO_APLICA: 'var(--gray-500)' };
 
-function StudentDetailModal({ detail, rangeLabel, countAbsences, onClose }) {
+function StudentDetailModal({ detail, rangeLabel, printing, onPrint, onClose }) {
   const { row, records, loading } = detail;
   return (
     <div className="modal-overlay" onClick={onClose}>
@@ -407,8 +428,8 @@ function StudentDetailModal({ detail, rangeLabel, countAbsences, onClose }) {
 
         <div className="flex gap-2 mt-3 mb-3">
           <button className="btn btn-outline btn-full" style={{ minHeight: 36, fontSize: '0.82rem' }}
-            onClick={() => printFichas([row], { rangeLabel, countAbsences })}>
-            🖨️ Ficha PDF
+            disabled={loading || printing} onClick={onPrint}>
+            {printing ? 'Preparando ficha…' : '🖨️ Ficha PDF'}
           </button>
         </div>
 
@@ -451,6 +472,57 @@ function esc(s) {
   return String(s ?? '').replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
 }
 
+// Etiqueta de la clase de un registro: grupo, reposición o festival.
+function classLabel(rec) {
+  const s = rec.session || {};
+  // El título de una reposición suele empezar ya con "Reposición": no se repite
+  const titled = (prefix) => (!s.title ? prefix
+    : s.title.toLowerCase().startsWith(prefix.toLowerCase()) ? s.title : `${prefix} · ${s.title}`);
+  if (s.kind === 'MAKEUP') return titled('Reposición');
+  if (s.kind === 'FESTIVAL') return titled('Festival');
+  return s.group?.code || '—';
+}
+
+const MARK = {
+  PRESENTE: ['P', 'Asistió', '#1FA971'],
+  AUSENTE: ['A', 'Faltó', '#E8526A'],
+  JUSTIFICADA: ['J', 'Justificada', '#3F52A8'],
+  NO_APLICA: ['N/A', 'No aplica', '#7C8BA8'],
+};
+
+function detailTableHtml(r) {
+  const records = [...(r.records || [])]
+    .sort((a, b) => String(a.session?.date || '').localeCompare(String(b.session?.date || '')));
+  if (records.length === 0) {
+    return '<h2>Detalle clase a clase</h2><p class="empty">Sin registros de asistencia en el período.</p>';
+  }
+  const start = r.classesStartDate ? String(r.classesStartDate).slice(0, 10) : null;
+  const rows = records.map((rec, i) => {
+    const date = String(rec.session?.date || '').slice(0, 10);
+    const [code, label, color] = MARK[rec.status] || [rec.status, rec.status, '#141E45'];
+    const notes = [];
+    if (rec.attendanceType === 'REPOSICION' && rec.session?.kind !== 'MAKEUP') notes.push('Repone una clase');
+    const units = Number(rec.session?.effectiveUnits);
+    if (rec.session?.kind === 'MAKEUP' && units && units !== 1) notes.push(`Cuenta por ${units} clases`);
+    if (rec.status === 'AUSENTE' && start && date < start) notes.push('Antes de su inicio de clases: no cuenta');
+    if (rec.status === 'JUSTIFICADA' && rec.justification) notes.push(rec.justification);
+    const weekday = date ? new Date(`${date}T12:00:00`).toLocaleDateString('es-CO', { weekday: 'short' }) : '';
+    const fdate = date ? new Date(`${date}T12:00:00`).toLocaleDateString('es-CO', { day: '2-digit', month: 'short', year: 'numeric' }) : '—';
+    return `<tr>
+      <td class="n">${i + 1}</td>
+      <td>${esc(weekday)} ${esc(fdate)}</td>
+      <td>${esc(classLabel(rec))}</td>
+      <td><span class="mark" style="color:${color};background:${color}1f">${esc(code)}</span> ${esc(label)}</td>
+      <td class="obs">${esc(notes.join(' · '))}</td>
+    </tr>`;
+  }).join('');
+  return `<h2>Detalle clase a clase (${records.length})</h2>
+    <table class="detail">
+      <thead><tr><th>#</th><th>Fecha</th><th>Clase</th><th>Asistencia</th><th>Observación</th></tr></thead>
+      <tbody>${rows}</tbody>
+    </table>`;
+}
+
 function fichaHtml(r, rangeLabel, countAbsences) {
   const pct = r.pct == null ? null : r.pct;
   const barColor = pct == null ? '#8B96BE' : pct >= 85 ? '#1FA971' : pct >= 60 ? '#E8A23B' : '#E8526A';
@@ -489,12 +561,31 @@ function fichaHtml(r, rangeLabel, countAbsences) {
       Las justificadas y los días marcados "no aplica" no consumen clase.
       Las clases canceladas por lluvia no se cobran del paquete.
     </p>
+    ${detailTableHtml(r)}
     <footer>Generado el ${new Date().toLocaleDateString('es-CO', { day: '2-digit', month: 'long', year: 'numeric' })}</footer>
   </section>`;
 }
 
-export function printFichas(rows, { rangeLabel = '', countAbsences = true } = {}) {
-  if (!rows || rows.length === 0) return;
+// Trae el detalle clase a clase de los estudiantes que aún no lo tienen
+// (de a 4 en paralelo para no saturar el servidor con muchas fichas).
+async function withRecords(rows, params) {
+  const out = [...rows];
+  let next = 0;
+  async function worker() {
+    while (next < out.length) {
+      const i = next++;
+      if (Array.isArray(out[i].records)) continue;
+      const d = await api.get(`/reports/student/${out[i].id}`, params);
+      out[i] = { ...out[i], records: d.records || [] };
+    }
+  }
+  await Promise.all(Array.from({ length: Math.min(4, out.length) }, worker));
+  return out;
+}
+
+export async function printFichas(list, { rangeLabel = '', countAbsences = true, params = {} } = {}) {
+  if (!list || list.length === 0) return;
+  const rows = await withRecords(list, params);
   const html = `<!doctype html><html lang="es"><head><meta charset="utf-8">
 <title>Seguimiento de estudiantes</title>
 <style>
@@ -519,6 +610,17 @@ export function printFichas(rows, { rangeLabel = '', countAbsences = true } = {}
   .mv { font-size: 20px; font-weight: 700; line-height: 1; }
   .ml { font-size: 10px; color: #6F7BA6; margin-top: 5px; text-transform: uppercase; letter-spacing: 0.04em; }
   .note { font-size: 10px; color: #8B96BE; margin-top: 18px; line-height: 1.5; }
+  h2 { font-size: 14px; margin: 22px 0 8px; }
+  .empty { font-size: 12px; color: #6F7BA6; }
+  table.detail { width: 100%; border-collapse: collapse; font-size: 11px; }
+  table.detail th { text-align: left; font-size: 10px; text-transform: uppercase; letter-spacing: 0.04em;
+    color: #6F7BA6; border-bottom: 1.5px solid #C9D0E6; padding: 5px 6px; }
+  table.detail td { border-bottom: 1px solid #E6EAF3; padding: 5px 6px; vertical-align: top; }
+  table.detail tr { page-break-inside: avoid; }
+  table.detail thead { display: table-header-group; }
+  table.detail .n { color: #8B96BE; width: 24px; }
+  table.detail .obs { color: #6F7BA6; }
+  .mark { display: inline-block; min-width: 26px; text-align: center; font-weight: 700; border-radius: 10px; padding: 1px 5px; }
   footer { font-size: 10px; color: #8B96BE; margin-top: 26px; border-top: 1px solid #E6EAF3; padding-top: 8px; }
   @media print { body { -webkit-print-color-adjust: exact; print-color-adjust: exact; } }
 </style></head><body>${rows.map((r) => fichaHtml(r, rangeLabel, countAbsences)).join('')}</body></html>`;
