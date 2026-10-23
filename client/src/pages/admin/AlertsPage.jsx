@@ -66,7 +66,7 @@ export default function AlertsPage() {
           <button className={`btn ${tab === 'holidays' ? 'btn-primary' : 'btn-outline'}`}
             style={{ flex: 1, minHeight: 38, fontSize: '0.85rem' }}
             onClick={() => setTab('holidays')}>
-            Festivos
+            Calendario
           </button>
         </div>
 
@@ -198,28 +198,31 @@ export default function AlertsPage() {
 
 const fmtShort = (d) => new Date(`${d}T12:00:00`).toLocaleDateString('es-CO', { weekday: 'short', day: 'numeric', month: 'short' });
 
-// Desvío por festivos: cuántas clases pierde cada grupo porque su día cae en
-// una fecha excluida del semestre. Los grupos con más pérdida salen primero.
+// Calendario por grupo contra el ideal (todas las clases dictadas desde el
+// inicio hasta el fin del semestre): cuántas clases pierde por festivos y por
+// lluvia, y la fecha final estimada al recuperarlas.
 function HolidaysTab({ data, navigate }) {
   const groups = data?.groups || [];
   if (!data?.semester) {
     return <div className="alert alert-info">No hay un semestre activo — no hay calendario con el cual comparar.</div>;
   }
-  const affected = groups.filter((g) => g.lost > 0);
+  const affected = groups.filter((g) => g.totalLost > 0);
   return (
     <>
       <p className="text-sm text-gray mb-3">
-        Clases que cada grupo <strong>pierde por festivos o fechas excluidas</strong> del semestre
-        {' '}<strong>{data.semester.name}</strong>. Si un grupo pierde más clases que otros, quedará atrás
-        en su avance y habrá que reponérselas.
+        Cada grupo contra el calendario ideal del semestre <strong>{data.semester.name}</strong> (todas las
+        clases dictadas, del inicio al fin). Se descuentan los <strong>festivos / fechas excluidas</strong> y
+        las clases <strong>canceladas por lluvia</strong>; la <strong>fecha final estimada</strong> es cuándo
+        terminaría el grupo si recupera esas clases con su mismo horario.
       </p>
       {affected.length === 0 ? (
-        <div className="alert alert-success">🎾 Ningún grupo pierde clases por festivos.</div>
+        <div className="alert alert-success">🎾 Ningún grupo pierde clases.</div>
       ) : (
         <div className="text-sm mb-3"><strong>{affected.length}</strong> de {groups.length} grupos pierden clases.</div>
       )}
       {groups.map((g) => {
-        const color = g.lost === 0 ? 'var(--green)' : g.extraVsBest > 0 ? 'var(--red)' : 'var(--yellow)';
+        const color = g.totalLost === 0 ? 'var(--green)' : g.extraVsBest > 0 ? 'var(--red)' : 'var(--yellow)';
+        const badge = g.totalLost === 0 ? 'badge-green' : g.extraVsBest > 0 ? 'badge-red' : 'badge-yellow';
         return (
           <div key={g.groupId} className="card mb-2" style={{ borderLeft: `4px solid ${color}` }}>
             <div className="flex items-center justify-between" style={{ gap: 8 }}>
@@ -230,15 +233,19 @@ function HolidaysTab({ data, navigate }) {
                 </button>
                 <div className="text-xs text-gray">{g.days} · {g.professor?.name}</div>
               </div>
-              <div style={{ textAlign: 'right' }}>
-                <span className={`badge ${g.lost === 0 ? 'badge-green' : g.extraVsBest > 0 ? 'badge-red' : 'badge-yellow'}`}>
-                  {g.lost === 0 ? 'Sin pérdida' : `−${g.lost} clase${g.lost !== 1 ? 's' : ''}`}
-                </span>
-              </div>
+              <span className={`badge ${badge}`}>
+                {g.totalLost === 0 ? 'Sin pérdida' : `−${g.totalLost} clase${g.totalLost !== 1 ? 's' : ''}`}
+              </span>
             </div>
             <div className="text-xs text-gray mt-1">
-              Le quedan <strong>{g.scheduled}</strong> clases en el semestre (sin festivos serían {g.withoutHolidays})
+              Plan: <strong>{g.withoutHolidays}</strong> clases
+              {g.lost > 0 && <> · festivos −{g.lost}</>}
+              {g.rain > 0 && <> · lluvia −{g.rain}</>}
               {g.extraVsBest > 0 && <> · pierde {g.extraVsBest} más que el grupo menos afectado</>}
+            </div>
+            <div className="text-xs mt-1">
+              🏁 Fin del plan: {g.plannedEnd ? fmtShort(g.plannedEnd) : '—'}
+              {g.totalLost > 0 && <> · <strong>Fecha final estimada: {g.estimatedEnd ? fmtShort(g.estimatedEnd) : '—'}</strong></>}
             </div>
             {g.lostDates.length > 0 && (
               <div className="text-xs mt-1">

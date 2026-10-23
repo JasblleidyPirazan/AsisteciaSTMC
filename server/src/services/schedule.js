@@ -40,4 +40,23 @@ function expectedDatesForGroup(group, semester, exclusions = [], until = new Dat
   return dates;
 }
 
-module.exports = { expectedDatesForGroup, DAY_FIELDS };
+/**
+ * Fechas de clase de un grupo entre dos días (YYYY-MM-DD, ambos inclusive), sin
+ * limitarse al semestre: sirve para proyectar fechas finales que se corren más
+ * allá del cierre del semestre cuando se pierden clases. Descarta las fechas
+ * excluidas.
+ */
+function scheduledDatesBetween(group, exclusions, fromStr, untilStr) {
+  const excluded = new Set(exclusions.map((e) => dbDateStr(e.date)));
+  const dates = [];
+  const cursor = new Date(`${fromStr}T00:00:00.000Z`);
+  const end = new Date(`${untilStr}T00:00:00.000Z`);
+  while (cursor <= end) {
+    const dateStr = cursor.toISOString().slice(0, 10);
+    if (group[DAY_FIELDS[cursor.getUTCDay()]] && !excluded.has(dateStr)) dates.push(dateStr);
+    cursor.setUTCDate(cursor.getUTCDate() + 1);
+  }
+  return dates;
+}
+
+module.exports = { expectedDatesForGroup, scheduledDatesBetween, DAY_FIELDS };

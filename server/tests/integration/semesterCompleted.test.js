@@ -75,7 +75,9 @@ describe('GET /alerts/coordinator', () => {
     id: 'g1', code: 'G1', active: true, createdAt: new Date('2026-01-01'),
     lunes: true, martes: false, miercoles: false, jueves: false, viernes: false, sabado: false, domingo: false,
   };
-  const enr = (s) => ({ ...s, enrollments: [{ enrolledAt: new Date('2026-01-01'), group: GROUP }] });
+  const enr = (s) => ({ ...s, enrollments: [{ groupId: 'g1', enrolledAt: new Date('2026-01-01'), group: GROUP }] });
+  const rain = (d) => ({ groupId: 'g1', date: new Date(d) });
+  const just = (studentId, d) => ({ studentId, session: { date: new Date(d) } });
 
   beforeEach(() => {
     resetPrisma();
@@ -84,28 +86,52 @@ describe('GET /alerts/coordinator', () => {
         startDate: new Date('2026-01-05'), endDate: new Date('2026-12-28'), exclusions: [],
       }),
     };
-    // 'near' vio 8 de 10 (le faltan 2); 'late' vio 0 de 40 en un semestre de muchos lunes
     prismaMock.student = {
       findMany: vi.fn().mockResolvedValue([
-        enr({ ...base, id: 'near', name: 'Casi', classesAcquired: 10 }),
-        enr({ ...base, id: 'late', name: 'Atrasada', classesAcquired: 40 }),
+        enr({ ...base, id: 'near', name: 'Casi', classesAcquired: 10 }),     // vio 8 → le faltan 2
+        enr({ ...base, id: 'debt', name: 'Debe', classesAcquired: 40 }),     // 2 lluvia + 2 justificadas
+        enr({ ...base, id: 'abs', name: 'Falta', classesAcquired: 40 }),     // solo ausencias: NO debe
         enr({ ...base, id: 'done', name: 'Lista', classesAcquired: 1 }),
       ]),
     };
     const seen = (id, n) => Array.from({ length: n }, (_, i) => rec(id, `2026-02-${String(i + 1).padStart(2, '0')}`));
-    prismaMock.attendanceRecord = { findMany: vi.fn().mockResolvedValue([...seen('near', 8), ...seen('done', 1)]) };
+    prismaMock.classSession = {
+      findMany: vi.fn().mockResolvedValue([rain('2026-02-02'), rain('2026-02-09')]),
+    };
+    prismaMock.attendanceRecord = {
+      findMany: vi.fn().mockImplementation(({ where }) => {
+        if (where.status === 'JUSTIFICADA') {
+          return Promise.resolve([just('debt', '2026-02-16'), just('debt', '2026-02-23')]);
+        }
+        if (JSON.stringify(where).includes('REPOSICION')) return Promise.resolve([]);
+        return Promise.resolve([...seen('near', 8), ...seen('done', 1)]); // clases vistas
+      }),
+    };
   });
 
-  it('separa los que deben reponer de los que están por terminar', async () => {
+  it('por reponer = lluvia + justificadas (la ausencia no cuenta)', async () => {
     const res = await request(alertsApp).get('/api/alerts/coordinator')
       .set('Authorization', `Bearer ${authAs('PHYSICAL_TRAINER')}`);
     expect(res.status).toBe(200);
     const { makeups, nearEnd, completedCount } = res.body.data;
+    const debt = makeups.find((m) => m.studentId === 'debt');
+    expect(debt).toMatchObject({ pending: 4, rain: 2, justified: 2 });
+    expect(makeups.map((m) => m.studentId)).not.toContain('abs');
     expect(nearEnd.map((s) => s.studentId)).toEqual(['near']);
     expect(nearEnd[0].remaining).toBe(2);
-    expect(makeups.map((s) => s.studentId)).toContain('late');
-    expect(makeups.map((s) => s.studentId)).not.toContain('done'); // ya completó: no repone
     expect(completedCount).toBe(1);
+  });
+
+  it('descuenta lo ya repuesto', async () => {
+    const original = prismaMock.attendanceRecord.findMany.getMockImplementation();
+    prismaMock.attendanceRecord.findMany.mockImplementation((args) =>
+      JSON.stringify(args.where).includes('REPOSICION')
+        ? Promise.resolve([{ studentId: 'debt', session: { effectiveUnits: 2 } }])
+        : original(args));
+    const res = await request(alertsApp).get('/api/alerts/coordinator')
+      .set('Authorization', `Bearer ${authAs('PHYSICAL_TRAINER')}`);
+    // debía 4, repuso 2 (una reposición doble) → 2: ya no llega al umbral de 3
+    expect(res.body.data.makeups.map((m) => m.studentId)).not.toContain('debt');
   });
 
   it('un profesor no puede ver el panel', async () => {
@@ -113,10 +139,16 @@ describe('GET /alerts/coordinator', () => {
       .set('Authorization', `Bearer ${authAs('TEACHER')}`);
     expect(res.status).toBe(403);
   });
+
+  it('ADMIN también lo ve', async () => {
+    const res = await request(alertsApp).get('/api/alerts/coordinator')
+      .set('Authorization', `Bearer ${authAs('ADMIN')}`);
+    expect(res.status).toBe(200);
+  });
 });
 
 describe('GET /alerts/holidays', () => {
-  it('devuelve las clases que cada grupo pierde por fechas excluidas', async () => {
+  it('calendario por grupo: festivos + lluvia y fecha final estimada', async () => {
     resetPrisma();
     prismaMock.semester = {
       findFirst: vi.fn().mockResolvedValue({
@@ -130,11 +162,12 @@ describe('GET /alerts/holidays', () => {
         { id: 'b', code: 'B1', martes: true, createdAt: new Date('2026-01-01'), professor: null },
       ]),
     };
+    prismaMock.classSession = { findMany: vi.fn().mockResolvedValue([{ groupId: 'a' }]) };
     const res = await request(alertsApp).get('/api/alerts/holidays')
       .set('Authorization', `Bearer ${authAs('PHYSICAL_TRAINER')}`);
     expect(res.status).toBe(200);
     const [first, second] = res.body.data.groups;
-    expect(first).toMatchObject({ code: 'A1', lost: 1, extraVsBest: 1 });
-    expect(second).toMatchObject({ code: 'B1', lost: 0, extraVsBest: 0 });
+    expect(first).toMatchObject({ code: 'A1', lost: 1, rain: 1, totalLost: 2, extraVsBest: 2, estimatedEnd: '2026-10-12' });
+    expect(second).toMatchObject({ code: 'B1', totalLost: 0, extraVsBest: 0 });
   });
 });

@@ -4,7 +4,7 @@ const { requireRole } = require('../middleware/auth');
 const { expectedDatesForGroup } = require('../services/schedule');
 const { computeAttendanceDeviations, RED_THRESHOLD, YELLOW_THRESHOLD } = require('../services/attendanceAlerts');
 const {
-  computeStudentProgress, computeGroupHolidayDeviation,
+  computeStudentProgress, computeGroupHolidayDeviation, computeMakeupDebt,
   MAKEUP_ALERT_THRESHOLD, SEMESTER_END_THRESHOLD,
 } = require('../services/semesterProgress');
 const { attachStudentStatus } = require('../services/studentStatus');
@@ -293,8 +293,9 @@ router.get('/preinscritos', requireRole('ADMIN', 'PHYSICAL_TRAINER'), async (req
 
 /**
  * Panel del coordinador al entrar: estudiantes a punto de necesitar atención.
- *  - makeups: les faltan 3 clases o más por reponer (desviación vs. el
- *    calendario del semestre, misma regla de las alertas de asistencia).
+ *  - makeups: les faltan 3 clases o más por reponer = clases canceladas por
+ *    lluvia + clases justificadas, desde su ingreso, menos lo ya repuesto.
+ *    La ausencia sin justificar y los festivos NO cuentan.
  *  - nearEnd: les faltan 3 clases o menos para completar su paquete del
  *    semestre (con la fecha estimada de su última clase).
  * Quien ya completó el semestre no aparece en ninguna lista.
@@ -304,13 +305,14 @@ router.get('/coordinator', requireRole('ADMIN', 'PHYSICAL_TRAINER'), async (req,
     const { rows: progress } = await computeStudentProgress();
     const completedIds = new Set(progress.filter((p) => p.completed).map((p) => p.studentId));
 
-    const deviations = await computeAttendanceDeviations();
-    const makeups = deviations
-      .filter((d) => d.deviation >= MAKEUP_ALERT_THRESHOLD && !completedIds.has(d.studentId))
-      .sort((a, b) => b.deviation - a.deviation)
+    // Por reponer = lluvia + justificadas − lo ya repuesto (ver computeMakeupDebt)
+    const { rows: debt } = await computeMakeupDebt();
+    const makeups = debt
+      .filter((d) => d.pending >= MAKEUP_ALERT_THRESHOLD && !completedIds.has(d.studentId))
+      .sort((a, b) => b.pending - a.pending)
       .map((d) => ({
         studentId: d.studentId, name: d.name, groups: d.groups,
-        pending: d.deviation, expected: d.expected, seen: d.seen,
+        pending: d.pending, rain: d.rain, justified: d.justified, madeUp: d.madeUp,
       }));
 
     const nearEnd = progress
