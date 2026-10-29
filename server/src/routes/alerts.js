@@ -328,6 +328,7 @@ router.get('/coordinator', requireRole('ADMIN', 'PHYSICAL_TRAINER'), async (req,
       success: true,
       data: {
         makeups, nearEnd,
+        makeupsTotal: makeups.reduce((sum, m) => sum + m.pending, 0),
         completedCount: completedIds.size,
         thresholds: { makeups: MAKEUP_ALERT_THRESHOLD, nearEnd: SEMESTER_END_THRESHOLD },
         total: makeups.length + nearEnd.length,

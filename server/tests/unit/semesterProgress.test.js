@@ -106,3 +106,17 @@ describe('holidayDeviationForGroup — plan de 40 clases', () => {
     expect(r.estimatedEnd).toBe(r.plannedEnd);
   });
 });
+
+describe('notMyDays — días N/A del estudiante', () => {
+  const { notMyDays } = require('../../src/services/semesterProgress');
+  const rec = (status, date, groupId = 'g1') => ({ status, session: { groupId, date: new Date(`${date}T00:00:00Z`) } });
+  it('un día con solo N/A no le toca; uno mezclado sí', () => {
+    // 2026-10-05 lunes (1), 2026-10-07 miércoles (3), 2026-10-12 lunes
+    const skip = notMyDays([rec('NO_APLICA', '2026-10-05'), rec('PRESENTE', '2026-10-07'), rec('NO_APLICA', '2026-10-12')]);
+    expect(skip.has('g1:1')).toBe(true);
+    expect(skip.has('g1:3')).toBe(false);
+  });
+  it('un lunes con N/A y también asistencia sí le toca', () => {
+    expect(notMyDays([rec('NO_APLICA', '2026-10-05'), rec('PRESENTE', '2026-10-12')]).size).toBe(0);
+  });
+});
