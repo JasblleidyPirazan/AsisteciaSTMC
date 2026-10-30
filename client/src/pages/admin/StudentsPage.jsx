@@ -137,6 +137,7 @@ export default function StudentsPage() {
 
   // Registro de pagos (dentro de la ficha)
   const [payments, setPayments] = useState(null);
+  const [makeupDebt, setMakeupDebt] = useState(null);
   const emptyPayForm = { paymentDate: bogotaTodayStr(), method: 'TRANSFERENCIA', amount: '', note: '' };
   const [payForm, setPayForm] = useState(emptyPayForm);
   const [paySaving, setPaySaving] = useState(false);
@@ -234,6 +235,8 @@ export default function StudentsPage() {
     setDetailTarget(s); setDetail(null); setDetailLoading(true); setPrevAmount('');
     api.get(`/students/${s.id}/report`)
       .then(setDetail).catch(() => setDetail({ error: true })).finally(() => setDetailLoading(false));
+    setMakeupDebt(null);
+    api.get(`/students/${s.id}/makeup-debt`).then((d) => setMakeupDebt(d || { none: true })).catch(() => setMakeupDebt({ error: true }));
     if (canSeePayments) {
       setPayments(null); setPayForm(emptyPayForm); setPayError('');
       api.get(`/students/${s.id}/payments`).then(setPayments).catch(() => setPayments({ error: true }));
@@ -730,6 +733,47 @@ export default function StudentsPage() {
               </div>
             )}
           </div>
+        )}
+
+        {makeupDebt && !makeupDebt.error && !makeupDebt.none && (makeupDebt.items.length > 0 || makeupDebt.madeUpItems.length > 0) && (
+          <>
+            <div className="flex items-center justify-between mb-2" style={{ flexWrap: 'wrap', gap: 6 }}>
+              <h3>Clases por reponer</h3>
+              <span className={`badge ${makeupDebt.pending > 0 ? 'badge-red' : 'badge-green'}`}>
+                {makeupDebt.pending} por reponer
+              </span>
+            </div>
+            <div className="card mb-3" style={{ maxHeight: 260, overflowY: 'auto' }}>
+              {makeupDebt.items.map((it, i) => (
+                <div key={`o${i}`} className="home-list-row">
+                  <span className="text-sm text-gray" style={{ width: 56 }}>{fmtDay(it.date)}</span>
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <div className="text-sm font-medium">{it.groupCode || '—'}</div>
+                    {it.reason && <div className="text-xs text-gray">{it.reason}</div>}
+                  </div>
+                  {it.type === 'RAIN' && <span className="badge badge-gray">🌧️ Lluvia</span>}
+                  {it.type === 'JUSTIFIED' && <span className="badge badge-blue">Justificada</span>}
+                  {it.type === 'HOLIDAY' && <span className="badge" style={{ background: 'var(--blue)', color: '#fff' }}>Festivo</span>}
+                </div>
+              ))}
+              {makeupDebt.madeUpItems.map((it, i) => (
+                <div key={`m${i}`} className="home-list-row">
+                  <span className="text-sm text-gray" style={{ width: 56 }}>{fmtDay(it.date)}</span>
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <div className="text-sm font-medium">{it.label}</div>
+                  </div>
+                  <span className="badge badge-green">✔ Repuso{it.units !== 1 ? ` ${it.units}` : ''}</span>
+                </div>
+              ))}
+              <div className="text-xs text-gray" style={{ paddingTop: 6 }}>
+                {makeupDebt.items.length} clase{makeupDebt.items.length !== 1 ? 's' : ''} que originan reposición
+                {' − '}{makeupDebt.madeUp} ya repuesta{makeupDebt.madeUp !== 1 ? 's' : ''}
+                {makeupDebt.items.length - makeupDebt.madeUp > makeupDebt.pending
+                  ? ` · tope: le quedan ${makeupDebt.remaining} clase${makeupDebt.remaining !== 1 ? 's' : ''} del paquete`
+                  : ''}
+              </div>
+            </div>
+          </>
         )}
 
         <div className="flex items-center justify-between mb-2" style={{ flexWrap: 'wrap', gap: 6 }}>

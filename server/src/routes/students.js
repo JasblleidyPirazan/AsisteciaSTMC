@@ -7,6 +7,7 @@ const { notSuspended } = require('../lib/filters');
 const { importFromBuffer } = require('../services/enrollmentImport');
 const { absenceCounts, seenUnits, roundUnits } = require('../services/attendanceStats');
 const { attachStudentStatus, attachStudentStatusOne, stripTuition } = require('../services/studentStatus');
+const { computeMakeupDebt } = require('../services/semesterProgress');
 
 const router = express.Router();
 
@@ -633,6 +634,19 @@ router.delete('/:id/enrollments/:groupId', requireRole('ADMIN', 'SUPERADMIN', 'P
 
 // Ficha del estudiante: datos + historial de asistencia (combina sesiones del
 // grupo —para incluir cancelaciones— con los registros del estudiante).
+// Clases por reponer del estudiante con su origen (lluvia, justificadas,
+// festivos) y las reposiciones que ya vio — misma cuenta del panel del
+// coordinador (computeMakeupDebt). null si no hay semestre activo o el
+// estudiante no entra al cálculo (inactivo, prueba, suspendido).
+router.get('/:id/makeup-debt', requireRole('ADMIN', 'SUPERADMIN', 'PHYSICAL_TRAINER', 'RECEPTION'), async (req, res, next) => {
+  try {
+    const { rows } = await computeMakeupDebt({ studentIds: [req.params.id] });
+    res.json({ success: true, data: rows[0] || null });
+  } catch (err) {
+    next(err);
+  }
+});
+
 router.get('/:id/report', requireRole('ADMIN', 'SUPERADMIN', 'PHYSICAL_TRAINER', 'RECEPTION'), async (req, res, next) => {
   try {
     const student = await prisma.student.findUnique({
