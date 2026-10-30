@@ -28,6 +28,22 @@ function computeCompletion({ acquired = 0, previous = 0, seen = 0 } = {}) {
   return { total, remaining, completed: total > 0 && seen >= total };
 }
 
+// Días de la semana de un grupo que NO le tocan al estudiante: aquellos donde
+// su historial solo tiene N/A (compró menos clases que los días del grupo).
+// Lluvia y festivos de esos días no le generan reposición. Devuelve un Set de
+// "groupId:díaSemana". Un día con N/A y también P/A/J sí le toca (se mezcla).
+function notMyDays(records) {
+  const na = new Set();
+  const mine = new Set();
+  for (const r of records) {
+    const g = r.session?.groupId;
+    if (!g || !r.session?.date) continue;
+    const key = `${g}:${new Date(`${dbDateStr(r.session.date)}T00:00:00Z`).getUTCDay()}`;
+    (r.status === 'NO_APLICA' ? na : mine).add(key);
+  }
+  return new Set([...na].filter((k) => !mine.has(k)));
+}
+
 // Días máximos que se camina hacia adelante buscando la fecha final estimada.
 const PROJECTION_MAX_DAYS = 400;
 
@@ -349,8 +365,12 @@ async function computeMakeupDebt({ studentIds = null } = {}) {
   const range = { gte: new Date(semester.startDate), lte: new Date(semester.endDate) };
   const upToToday = { gte: new Date(semester.startDate), lte: today < new Date(semester.endDate) ? today : new Date(semester.endDate) };
 
-  const [seenById, rainSessions, justified, makeupSeen] = await Promise.all([
+  const [seenById, regularRecords, rainSessions, justified, makeupSeen] = await Promise.all([
     loadSeenById(students, semester),
+    prisma.attendanceRecord.findMany({
+      where: { studentId: { in: ids }, session: { kind: 'REGULAR', date: range } },
+      select: { studentId: true, status: true, session: { select: { groupId: true, date: true } } },
+    }),
     prisma.classSession.findMany({
       where: {
         kind: 'REGULAR', status: 'CANCELADA', cancellationCategory: 'LLUVIA',
@@ -380,6 +400,9 @@ async function computeMakeupDebt({ studentIds = null } = {}) {
 
   const rainByGroup = {};
   for (const r of rainSessions) (rainByGroup[r.groupId] ||= []).push(dbDateStr(r.date));
+  const recordsByStudent = {};
+  for (const r of regularRecords) (recordsByStudent[r.studentId] ||= []).push(r);
+  const dow = (d) => new Date(`${d}T00:00:00Z`).getUTCDay();
   const justifiedByStudent = {};
   const startById = Object.fromEntries(students.map((s) => [s.id, s.classesStartDate]));
   for (const r of justified) {
@@ -391,11 +414,27 @@ async function computeMakeupDebt({ studentIds = null } = {}) {
   for (const r of makeupSeen) madeUpById[r.studentId] = (madeUpById[r.studentId] || 0) + attendanceUnits(r.session);
 
   const todayStr = dbDateStr(today);
-  const exclusionDates = semester.exclusions.map((e) => dbDateStr(e.date)).filter((d) => d <= todayStr);
+  // Sin repetidos: una misma fecha cargada dos veces es un solo festivo
+  const exclusionDates = [...new Set(semester.exclusions.map((e) => dbDateStr(e.date)))].filter((d) => d <= todayStr);
+  // Festivo en el que el grupo igual tuvo clase (o ya se contó como lluvia):
+  // no se perdió nada por el festivo
+  const heldOnHoliday = new Set();
+  if (exclusionDates.length > 0 && groupIds.length > 0) {
+    const held = await prisma.classSession.findMany({
+      where: {
+        kind: 'REGULAR', groupId: { in: groupIds },
+        date: { in: exclusionDates.map((d) => new Date(`${d}T00:00:00.000Z`)) },
+        OR: [{ status: { in: ['REALIZADA', 'CANCELADA_MITAD'] } }, { status: 'CANCELADA', cancellationCategory: 'LLUVIA' }],
+      },
+      select: { groupId: true, date: true },
+    });
+    for (const h of held) heldOnHoliday.add(`${h.groupId}:${dbDateStr(h.date)}`);
+  }
 
   const rows = students.map((s) => {
     let rain = 0;
     let holidays = 0;
+    const skip = notMyDays(recordsByStudent[s.id] || []);
     for (const e of s.enrollments) {
       if (!e.group?.active) continue;
       const floor = new Date(Math.max(
@@ -403,9 +442,10 @@ async function computeMakeupDebt({ studentIds = null } = {}) {
         ...(s.classesStartDate ? [new Date(s.classesStartDate)] : [])
       ));
       const floorStr = dbDateStr(floor);
-      rain += (rainByGroup[e.groupId] || []).filter((d) => d >= floorStr).length;
+      rain += (rainByGroup[e.groupId] || []).filter((d) => d >= floorStr && !skip.has(`${e.groupId}:${dow(d)}`)).length;
       // Festivos / fechas excluidas ya pasadas que caían en un día de su grupo
-      holidays += exclusionDates.filter((d) => d >= floorStr && e.group[DAY_FIELDS[new Date(`${d}T00:00:00Z`).getUTCDay()]]).length;
+      holidays += exclusionDates.filter((d) => d >= floorStr && e.group[DAY_FIELDS[dow(d)]]
+        && !skip.has(`${e.groupId}:${dow(d)}`) && !heldOnHoliday.has(`${e.groupId}:${d}`)).length;
     }
     const justifiedCount = justifiedByStudent[s.id] || 0;
     const madeUp = roundUnits(madeUpById[s.id] || 0);
@@ -508,6 +548,7 @@ module.exports = {
   MAKEUP_ALERT_THRESHOLD,
   SEMESTER_END_THRESHOLD,
   computeCompletion,
+  notMyDays,
   projectEndDate,
   holidayDeviationForGroup,
   loadSeenById,

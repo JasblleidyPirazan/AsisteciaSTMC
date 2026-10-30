@@ -24,13 +24,13 @@ export default function CoordinatorStudentsPanel() {
   const openStudent = (id) => navigate('/admin/students', { state: { focusStudentId: id } });
   const toggle = (k) => setOpen((o) => ({ ...o, [k]: !o[k] }));
 
-  function Section({ id, color, title, hint, rows, detail }) {
+  function Section({ id, color, title, hint, rows, detail, extra }) {
     if (rows.length === 0) return null;
     return (
       <div style={{ marginTop: 10 }}>
         <button className="btn btn-ghost" onClick={() => toggle(id)}
           style={{ width: '100%', justifyContent: 'space-between', minHeight: 40, padding: '0 4px' }}>
-          <span className="font-medium">{title} <span className={`badge ${color}`}>{rows.length}</span></span>
+          <span className="font-medium">{title} <span className={`badge ${color}`}>{rows.length}</span>{extra}</span>
           <span>{open[id] ? '▾' : '▸'}</span>
         </button>
         {open[id] && (
@@ -57,7 +57,8 @@ export default function CoordinatorStudentsPanel() {
     <div className="card mb-4" style={{ borderLeft: '4px solid var(--yellow)' }}>
       <div className="font-medium">📋 Estudiantes que requieren tu atención</div>
       <Section id="makeups" color="badge-red"
-        title="Clases por reponer"
+        title="Estudiantes con clases por reponer"
+        extra={<span className="text-xs text-gray" style={{ marginLeft: 6 }}>({data.makeupsTotal} clases por reponer en total)</span>}
         hint={`Tienen ${thresholds.makeups} clases o más por reponer: lluvia + justificadas + festivos / fechas excluidas, menos las que ya repusieron.`}
         rows={makeups}
         detail={(r) => (
