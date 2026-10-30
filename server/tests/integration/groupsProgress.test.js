@@ -84,9 +84,11 @@ describe('GET /reports/groups-progress', () => {
     const res = await request(app).get('/api/reports/groups-progress')
       .set('Authorization', `Bearer ${authAs('ADMIN')}`);
     const g = res.body.data.groups[0];
-    // Ana: 1 festivo ya pasado (lunes 14) cuenta en lo que debe, sin tope de paquete
-    expect(g).toMatchObject({ studentsCount: 1, studentsWithMakeups: 1, makeupClasses: 1 });
-    expect(g.students[0]).toMatchObject({ name: 'Ana', holidays: 1, pending: 1 });
+    // Ana: 1 festivo ya pasado (lunes 14) NO es reposición: es clase por recuperar por calendario
+    expect(g).toMatchObject({
+      studentsCount: 1, studentsWithMakeups: 0, makeupClasses: 0, studentsWithCalendar: 1, calendarClasses: 1,
+    });
+    expect(g.students[0]).toMatchObject({ name: 'Ana', holidays: 1, pending: 0, calendar: 1 });
   });
 
   it('desplegable: avance de cada estudiante del grupo', async () => {

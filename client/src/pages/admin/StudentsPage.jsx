@@ -735,46 +735,65 @@ export default function StudentsPage() {
           </div>
         )}
 
-        {makeupDebt && !makeupDebt.error && !makeupDebt.none && (makeupDebt.items.length > 0 || makeupDebt.madeUpItems.length > 0) && (
-          <>
-            <div className="flex items-center justify-between mb-2" style={{ flexWrap: 'wrap', gap: 6 }}>
-              <h3>Clases por reponer</h3>
-              <span className={`badge ${makeupDebt.pending > 0 ? 'badge-red' : 'badge-green'}`}>
-                {makeupDebt.pending} por reponer
-              </span>
-            </div>
-            <div className="card mb-3" style={{ maxHeight: 260, overflowY: 'auto' }}>
-              {makeupDebt.items.map((it, i) => (
-                <div key={`o${i}`} className="home-list-row">
-                  <span className="text-sm text-gray" style={{ width: 56 }}>{fmtDay(it.date)}</span>
-                  <div style={{ flex: 1, minWidth: 0 }}>
-                    <div className="text-sm font-medium">{it.groupCode || '—'}</div>
-                    {it.reason && <div className="text-xs text-gray">{it.reason}</div>}
-                  </div>
-                  {it.type === 'RAIN' && <span className="badge badge-gray">🌧️ Lluvia</span>}
-                  {it.type === 'JUSTIFIED' && <span className="badge badge-blue">Justificada</span>}
-                  {it.type === 'HOLIDAY' && <span className="badge" style={{ background: 'var(--blue)', color: '#fff' }}>Festivo</span>}
-                </div>
-              ))}
-              {makeupDebt.madeUpItems.map((it, i) => (
-                <div key={`m${i}`} className="home-list-row">
-                  <span className="text-sm text-gray" style={{ width: 56 }}>{fmtDay(it.date)}</span>
-                  <div style={{ flex: 1, minWidth: 0 }}>
-                    <div className="text-sm font-medium">{it.label}</div>
-                  </div>
-                  <span className="badge badge-green">✔ Repuso{it.units !== 1 ? ` ${it.units}` : ''}</span>
-                </div>
-              ))}
-              <div className="text-xs text-gray" style={{ paddingTop: 6 }}>
-                {makeupDebt.items.length} clase{makeupDebt.items.length !== 1 ? 's' : ''} que originan reposición
-                {' − '}{makeupDebt.madeUp} ya repuesta{makeupDebt.madeUp !== 1 ? 's' : ''}
-                {makeupDebt.items.length - makeupDebt.madeUp > makeupDebt.pending
-                  ? ` · tope: le quedan ${makeupDebt.remaining} clase${makeupDebt.remaining !== 1 ? 's' : ''} del paquete`
-                  : ''}
+        {makeupDebt && !makeupDebt.error && !makeupDebt.none && (() => {
+          // Dos conceptos separados (trazabilidad: cada clase con su origen)
+          const makeupItems = makeupDebt.items.filter((it) => it.type !== 'HOLIDAY');
+          const calendarItems = makeupDebt.items.filter((it) => it.type === 'HOLIDAY');
+          const row = (it, i, badge) => (
+            <div key={i} className="home-list-row">
+              <span className="text-sm text-gray" style={{ width: 56 }}>{fmtDay(it.date)}</span>
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <div className="text-sm font-medium">{it.groupCode || it.label || '—'}</div>
+                {it.reason && <div className="text-xs text-gray">{it.reason}</div>}
               </div>
+              {badge}
             </div>
-          </>
-        )}
+          );
+          return (
+            <>
+              {(makeupItems.length > 0 || makeupDebt.madeUpItems.length > 0) && (
+                <>
+                  <div className="flex items-center justify-between mb-2" style={{ flexWrap: 'wrap', gap: 6 }}>
+                    <h3>Clases de reposición</h3>
+                    <span className={`badge ${makeupDebt.pending > 0 ? 'badge-red' : 'badge-green'}`}>
+                      {makeupDebt.pending} por reponer
+                    </span>
+                  </div>
+                  <div className="card mb-3" style={{ maxHeight: 260, overflowY: 'auto' }}>
+                    {makeupItems.map((it, i) => row(it, `o${i}`, it.type === 'RAIN'
+                      ? <span className="badge badge-gray">🌧️ Lluvia</span>
+                      : <span className="badge badge-blue">Justificada</span>))}
+                    {makeupDebt.madeUpItems.map((it, i) => row(it, `m${i}`,
+                      <span className="badge badge-green">✔ Repuso{it.units !== 1 ? ` ${it.units}` : ''}</span>))}
+                    <div className="text-xs text-gray" style={{ paddingTop: 6 }}>
+                      Lluvia + justificadas: {makeupItems.length} − {makeupDebt.madeUp} ya repuesta{makeupDebt.madeUp !== 1 ? 's' : ''}
+                      {makeupItems.length - makeupDebt.madeUp > makeupDebt.pending
+                        ? ` · tope: le quedan ${makeupDebt.remaining} clase${makeupDebt.remaining !== 1 ? 's' : ''} del paquete`
+                        : ''}
+                    </div>
+                  </div>
+                </>
+              )}
+              {calendarItems.length > 0 && (
+                <>
+                  <div className="flex items-center justify-between mb-2" style={{ flexWrap: 'wrap', gap: 6 }}>
+                    <h3>Por recuperar por calendario</h3>
+                    <span className="badge" style={{ background: 'var(--blue)', color: '#fff' }}>
+                      {makeupDebt.calendar} por calendario
+                    </span>
+                  </div>
+                  <div className="card mb-3" style={{ maxHeight: 220, overflowY: 'auto' }}>
+                    {calendarItems.map((it, i) => row(it, `h${i}`,
+                      <span className="badge" style={{ background: 'var(--blue)', color: '#fff' }}>Festivo / receso</span>))}
+                    <div className="text-xs text-gray" style={{ paddingTop: 6 }}>
+                      No son reposición: el calendario regular se corre y se las devuelve, siempre que alcance antes del cierre del semestre.
+                    </div>
+                  </div>
+                </>
+              )}
+            </>
+          );
+        })()}
 
         <div className="flex items-center justify-between mb-2" style={{ flexWrap: 'wrap', gap: 6 }}>
           <h3>Historial de asistencia</h3>

@@ -3,7 +3,6 @@ import { useNavigate } from 'react-router-dom';
 import { api } from '../api/client';
 import { useAuth } from '../hooks/useAuth';
 import GroupCard from '../components/GroupCard';
-import CoordinatorStudentsPanel from '../components/CoordinatorStudentsPanel';
 import OfflineBanner from '../components/OfflineBanner';
 import AssistantDayView from '../components/AssistantDayView';
 import { fmtDate, bogotaTodayStr } from '../utils/dates';
@@ -149,7 +148,6 @@ export default function DashboardPage() {
           <AssistantDayView groups={groups} loading={loading} date={date} showRegular={!isExcluded} />
         ) : (
           <>
-            <CoordinatorStudentsPanel />
             <PendingReportsAlert />
             <ReportConflictsAlert />
             <PendingMakeups />

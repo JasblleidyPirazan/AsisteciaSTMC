@@ -1,4 +1,5 @@
 const express = require('express');
+const { roundUnits } = require('../services/attendanceStats');
 const prisma = require('../lib/prisma');
 const { requireRole } = require('../middleware/auth');
 const { expectedDatesForGroup } = require('../services/schedule');
@@ -292,28 +293,46 @@ router.get('/preinscritos', requireRole('ADMIN', 'PHYSICAL_TRAINER'), async (req
 });
 
 /**
- * Panel del coordinador al entrar: estudiantes a punto de necesitar atención.
- *  - makeups: les faltan 3 clases o más por reponer = clases canceladas por
- *    lluvia + justificadas + festivos / fechas excluidas ya pasadas, desde su
- *    ingreso, menos lo ya repuesto. La ausencia sin justificar NO cuenta.
- *  - nearEnd: les faltan 3 clases o menos para completar su paquete del
- *    semestre (con la fecha estimada de su última clase).
+ * Panel de Gestión — "¿estamos dando las clases que los estudiantes pagaron?"
+ *  - summary: cumplimiento global del semestre (pagadas, vistas, faltan) y de
+ *    dónde vendrá lo que falta: calendario regular, reposición, calendario
+ *    corrido por festivos, y lo que el calendario ya no alcanza a cubrir.
+ *  - makeups: 3+ CLASES DE REPOSICIÓN (lluvia + justificadas − repuestas).
+ *    La Escuela debe programarlas.
+ *  - shortfall: estudiantes a quienes el calendario regular que queda no les
+ *    alcanza para ver su paquete antes del cierre del semestre.
+ *  - nearEnd: les faltan 3 clases o menos para completar su paquete.
+ * Los festivos / recesos son CLASES POR RECUPERAR POR CALENDARIO: no son
+ * reposición, se recuperan corriendo el calendario (ver splitDebt).
  * Quien ya completó el semestre no aparece en ninguna lista.
  */
 router.get('/coordinator', requireRole('ADMIN', 'PHYSICAL_TRAINER'), async (req, res, next) => {
   try {
-    const { rows: progress } = await computeStudentProgress();
+    const [{ rows: progress }, { rows: debt }] = await Promise.all([computeStudentProgress(), computeMakeupDebt()]);
+    const debtById = Object.fromEntries(debt.map((d) => [d.studentId, d]));
     const completedIds = new Set(progress.filter((p) => p.completed).map((p) => p.studentId));
+    const withPackage = progress.filter((p) => p.total > 0);
 
-    // Por reponer = lluvia + justificadas − lo ya repuesto (ver computeMakeupDebt)
-    const { rows: debt } = await computeMakeupDebt();
     const makeups = debt
       .filter((d) => d.pending >= MAKEUP_ALERT_THRESHOLD && !completedIds.has(d.studentId))
       .sort((a, b) => b.pending - a.pending)
       .map((d) => ({
         studentId: d.studentId, name: d.name, groups: d.groups,
-        pending: d.pending, rain: d.rain, justified: d.justified, holidays: d.holidays, madeUp: d.madeUp,
+        pending: d.pending, rain: d.rain, justified: d.justified, madeUp: d.madeUp, calendar: d.calendar,
       }));
+
+    const shortfall = withPackage
+      .filter((p) => p.shortfall > 0)
+      .sort((a, b) => b.shortfall - a.shortfall || a.name.localeCompare(b.name, 'es'))
+      .map((p) => {
+        const d = debtById[p.studentId] || {};
+        return {
+          studentId: p.studentId, name: p.name, groups: p.groups,
+          remaining: p.remaining, leftInSemester: p.leftInSemester, shortfall: p.shortfall,
+          pending: d.pending || 0, calendar: d.calendar || 0,
+          projectedEnd: p.projectedEnd,
+        };
+      });
 
     const nearEnd = progress
       .filter((p) => p.nearEnd)
@@ -324,14 +343,34 @@ router.get('/coordinator', requireRole('ADMIN', 'PHYSICAL_TRAINER'), async (req,
         projectedEnd: p.projectedEnd, endsBeyondSemester: p.endsBeyondSemester,
       }));
 
+    const sum = (list, f) => roundUnits(list.reduce((acc, x) => acc + (f(x) || 0), 0));
+    const paid = sum(withPackage, (p) => p.total);
+    const seen = sum(withPackage, (p) => Math.min(p.seen, p.total));
+    const summary = {
+      students: withPackage.length,
+      completed: completedIds.size,
+      paid,
+      seen,
+      remaining: sum(withPackage, (p) => p.remaining),
+      pct: paid > 0 ? Math.round((seen / paid) * 100) : null,
+      // De dónde sale lo que falta
+      coveredByCalendar: sum(withPackage, (p) => Math.min(p.remaining, p.leftInSemester)),
+      makeupPending: sum(debt, (d) => d.pending),
+      makeupStudents: debt.filter((d) => d.pending > 0).length,
+      calendarPending: sum(debt, (d) => d.calendar),
+      calendarStudents: debt.filter((d) => d.calendar > 0).length,
+      shortfall: sum(withPackage, (p) => p.shortfall),
+      shortfallStudents: shortfall.length,
+    };
+
     res.json({
       success: true,
       data: {
-        makeups, nearEnd,
-        makeupsTotal: makeups.reduce((sum, m) => sum + m.pending, 0),
+        summary, makeups, shortfall, nearEnd,
+        makeupsTotal: sum(makeups, (m) => m.pending),
         completedCount: completedIds.size,
         thresholds: { makeups: MAKEUP_ALERT_THRESHOLD, nearEnd: SEMESTER_END_THRESHOLD },
-        total: makeups.length + nearEnd.length,
+        total: makeups.length + shortfall.length + nearEnd.length,
       },
     });
   } catch (err) {
