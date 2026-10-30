@@ -9,7 +9,7 @@
 const prisma = require('../lib/prisma');
 const { expectedDatesForGroup, scheduledDatesBetween, DAY_FIELDS } = require('./schedule');
 const {
-  seenAttendanceFilter, absenceCounts, attendanceUnits, roundUnits,
+  seenAttendanceFilter, absenceCounts, attendanceUnits, consumedUnits, roundUnits,
 } = require('./attendanceStats');
 const { notSuspended } = require('../lib/filters');
 const { bogotaToday, dbDateStr } = require('../lib/dates');
@@ -45,9 +45,8 @@ function consumptionFromRecords(records, { classesStartDate = null, total = 0 } 
   let completedOn = null;
   const sorted = [...records].sort((a, b) => new Date(a.session?.date) - new Date(b.session?.date));
   for (const r of sorted) {
-    if (r.status !== 'PRESENTE' && r.status !== 'AUSENTE') continue;
-    if (r.status === 'AUSENTE' && !absenceCounts(r.session?.date, classesStartDate)) continue;
-    const units = attendanceUnits(r.session);
+    const units = consumedUnits(r, r.session, classesStartDate);
+    if (units === 0) continue;
     if (r.status === 'PRESENTE' || r.session?.kind === 'FESTIVAL') seen += units;
     consumed += units;
     if (!completedOn && total > 0 && consumed >= total) completedOn = dbDateStr(r.session.date);

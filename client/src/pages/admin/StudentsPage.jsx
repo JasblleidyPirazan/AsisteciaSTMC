@@ -615,7 +615,7 @@ export default function StudentsPage() {
 
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(108px, 1fr))', gap: 8 }} className="mb-3">
           <div className="stat-box"><div className="num">{totalClasses}</div><div className="lbl">Clases adquiridas</div></div>
-          <div className="stat-box"><div className="num">{sum.attendanceRate != null ? `${sum.attendanceRate}%` : '—'}</div><div className="lbl">Asistencia · {sum.classesSeen} clases</div></div>
+          <div className="stat-box"><div className="num">{sum.attendanceRate != null ? `${sum.attendanceRate}%` : '—'}</div><div className="lbl" title="Vistas = asistencias + ausencias + reposiciones">Asistencia · {sum.classesSeen} vistas</div></div>
           <div className="stat-box"><div className="num" style={{ color: 'var(--red)' }}>{sum.absent}</div><div className="lbl">Faltas</div></div>
           <div className="stat-box"><div className="num" style={{ color: 'var(--blue)' }}>{sum.cancelledRain}</div><div className="lbl">Canceladas · lluvia</div></div>
           {makeupDebt?.progress?.total > 0 && (

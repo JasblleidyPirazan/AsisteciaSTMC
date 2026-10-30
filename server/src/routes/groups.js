@@ -245,14 +245,15 @@ router.get('/:id/students', async (req, res, next) => {
       : null;
     const before = /^\d{4}-\d{2}-\d{2}$/.test(req.query.date || '')
       ? new Date(`${req.query.date}T00:00:00.000Z`) : undefined;
-    const { seenById, consumedById } = await loadConsumption(students, activeSemester, { before });
+    const { consumedById } = await loadConsumption(students, activeSemester, { before });
 
     // Estado derivado + error de fecha de nacimiento, visibles en el roster
     // del flujo de asistencia (ícono al lado de cada estudiante). Los montos
     // (tuition) solo van a roles con acceso económico.
     const decorated = stripTuition(await attachStudentStatus(students), req.user.role);
     const rows = decorated.map((s) => {
-      const classesSeen = seenById[s.id] || 0;
+      // "Vistas" = asistencias + ausencias + reposiciones (lo consumido del paquete)
+      const classesSeen = consumedById[s.id] || 0;
       return {
         ...s,
         classesSeen,

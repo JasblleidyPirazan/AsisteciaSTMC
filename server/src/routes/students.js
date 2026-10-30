@@ -5,7 +5,7 @@ const { requireRole } = require('../middleware/auth');
 const { bogotaToday } = require('../lib/dates');
 const { notSuspended } = require('../lib/filters');
 const { importFromBuffer } = require('../services/enrollmentImport');
-const { absenceCounts, seenUnits, roundUnits } = require('../services/attendanceStats');
+const { absenceCounts, consumedUnits, roundUnits } = require('../services/attendanceStats');
 const { attachStudentStatus, attachStudentStatusOne, stripTuition } = require('../services/studentStatus');
 const { computeMakeupDebt, computeStudentProgress } = require('../services/semesterProgress');
 
@@ -718,9 +718,9 @@ router.get('/:id/report', requireRole('ADMIN', 'SUPERADMIN', 'PHYSICAL_TRAINER',
       else if (r.status === 'AUSENTE' && absenceCounts(r.session?.date, student.classesStartDate)) absent++;
       else if (r.status === 'JUSTIFICADA') justified++;
       else if (r.status === 'NO_APLICA') na++;
-      // Las clases vistas suman las unidades de la sesión: una reposición
-      // doble (effectiveUnits = 2) recupera 2 clases del paquete.
-      classesSeen += seenUnits(r, r.session, student.classesStartDate);
+      // "Vistas" = asistencias + ausencias + reposiciones (lo consumido del
+      // paquete), con las unidades de la sesión: una reposición doble vale 2.
+      classesSeen += consumedUnits(r, r.session, student.classesStartDate);
     }
     classesSeen = roundUnits(classesSeen);
     for (const s of groupSessions) if (s.status === 'CANCELADA' && s.cancellationCategory === 'LLUVIA') cancelledRain++;

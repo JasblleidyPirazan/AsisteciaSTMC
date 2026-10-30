@@ -3,7 +3,7 @@ const XLSX = require('xlsx');
 const prisma = require('../lib/prisma');
 const { requireRole } = require('../middleware/auth');
 const { getCurrentPeriod } = require('../services/costEngine');
-const { absenceCounts, seenUnits, attendanceUnits, roundUnits } = require('../services/attendanceStats');
+const { absenceCounts, consumedUnits, attendanceUnits, roundUnits } = require('../services/attendanceStats');
 const { computeAttendanceDeviations } = require('../services/attendanceAlerts');
 const { byGroupCode } = require('../lib/sort');
 const { bogotaToday, bogotaDateStr, bogotaMinutesOfDay, dbDateStr } = require('../lib/dates');
@@ -103,10 +103,10 @@ router.get('/student/:studentId', requireRole('ADMIN', 'PHYSICAL_TRAINER', 'TEAC
       r.status === 'AUSENTE' && absenceCounts(r.session?.date, student.classesStartDate)
     ).length;
     const justified = records.filter((r) => r.status === 'JUSTIFICADA').length;
-    // "Clases vistas": PRESENTE, más AUSENTE en festivales (J se omite). Cada
-    // una vale las unidades de su sesión — una reposición doble cuenta por 2.
+    // "Vistas" = asistencias + ausencias + reposiciones (lo consumido del
+    // paquete; J y N/A no). Cada una vale las unidades de su sesión.
     const classesSeen = roundUnits(records.reduce(
-      (acc, r) => acc + seenUnits(r, r.session, student.classesStartDate), 0
+      (acc, r) => acc + consumedUnits(r, r.session, student.classesStartDate), 0
     ));
     // Denominador: P + A + J (N/A y faltas previas al inicio quedan fuera).
     const denom = present + absent + justified;

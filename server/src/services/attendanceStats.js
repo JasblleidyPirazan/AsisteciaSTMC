@@ -51,10 +51,21 @@ function seenUnits(record, session, classesStartDate) {
   return attendanceUnits(session);
 }
 
+// Clases CONSUMIDAS del paquete por este registro — lo que el sistema muestra
+// como "vistas" (decisión del cliente): asistencias + ausencias + reposiciones.
+// PRESENTE (clase, reposición o festival) y AUSENTE desde la fecha de inicio de
+// clases (la falta se pierde: gasta la clase). JUSTIFICADA y N/A no consumen.
+// Vale las unidades de la sesión (2 en una reposición doble).
+function consumedUnits(record, session, classesStartDate) {
+  if (record?.status === 'PRESENTE') return attendanceUnits(session);
+  if (record?.status === 'AUSENTE' && absenceCounts(session?.date, classesStartDate)) return attendanceUnits(session);
+  return 0;
+}
+
 // Las unidades admiten medios (0.5), así que los acumulados se redondean a un
 // decimal para no arrastrar ruido de punto flotante en las vistas.
 function roundUnits(total) {
   return Math.round((total + Number.EPSILON) * 10) / 10;
 }
 
-module.exports = { seenAttendanceFilter, isSeenRecord, absenceCounts, attendanceUnits, seenUnits, roundUnits };
+module.exports = { seenAttendanceFilter, isSeenRecord, absenceCounts, attendanceUnits, seenUnits, consumedUnits, roundUnits };
