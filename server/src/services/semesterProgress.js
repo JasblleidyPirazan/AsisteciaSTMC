@@ -414,7 +414,22 @@ async function computeMakeupDebt({ studentIds = null } = {}) {
   for (const r of makeupSeen) madeUpById[r.studentId] = (madeUpById[r.studentId] || 0) + attendanceUnits(r.session);
 
   const todayStr = dbDateStr(today);
-  const exclusionDates = semester.exclusions.map((e) => dbDateStr(e.date)).filter((d) => d <= todayStr);
+  // Sin repetidos: una misma fecha cargada dos veces es un solo festivo
+  const exclusionDates = [...new Set(semester.exclusions.map((e) => dbDateStr(e.date)))].filter((d) => d <= todayStr);
+  // Festivo en el que el grupo igual tuvo clase (o ya se contó como lluvia):
+  // no se perdió nada por el festivo
+  const heldOnHoliday = new Set();
+  if (exclusionDates.length > 0 && groupIds.length > 0) {
+    const held = await prisma.classSession.findMany({
+      where: {
+        kind: 'REGULAR', groupId: { in: groupIds },
+        date: { in: exclusionDates.map((d) => new Date(`${d}T00:00:00.000Z`)) },
+        OR: [{ status: { in: ['REALIZADA', 'CANCELADA_MITAD'] } }, { status: 'CANCELADA', cancellationCategory: 'LLUVIA' }],
+      },
+      select: { groupId: true, date: true },
+    });
+    for (const h of held) heldOnHoliday.add(`${h.groupId}:${dbDateStr(h.date)}`);
+  }
 
   const rows = students.map((s) => {
     let rain = 0;
@@ -429,7 +444,8 @@ async function computeMakeupDebt({ studentIds = null } = {}) {
       const floorStr = dbDateStr(floor);
       rain += (rainByGroup[e.groupId] || []).filter((d) => d >= floorStr && !skip.has(`${e.groupId}:${dow(d)}`)).length;
       // Festivos / fechas excluidas ya pasadas que caían en un día de su grupo
-      holidays += exclusionDates.filter((d) => d >= floorStr && e.group[DAY_FIELDS[dow(d)]] && !skip.has(`${e.groupId}:${dow(d)}`)).length;
+      holidays += exclusionDates.filter((d) => d >= floorStr && e.group[DAY_FIELDS[dow(d)]]
+        && !skip.has(`${e.groupId}:${dow(d)}`) && !heldOnHoliday.has(`${e.groupId}:${d}`)).length;
     }
     const justifiedCount = justifiedByStudent[s.id] || 0;
     const madeUp = roundUnits(madeUpById[s.id] || 0);

@@ -100,6 +100,10 @@ router.post('/:id/exclusions', requireRole('ADMIN'), async (req, res, next) => {
   try {
     const { date, reason } = req.body;
     if (!date) return res.status(400).json({ success: false, error: 'Fecha requerida' });
+    const existing = await prisma.semesterExclusion.findFirst({
+      where: { semesterId: req.params.id, date: new Date(date) },
+    });
+    if (existing) return res.status(409).json({ success: false, error: 'Esa fecha ya está excluida' });
 
     const exclusion = await prisma.semesterExclusion.create({
       data: { semesterId: req.params.id, date: new Date(date), reason: reason || null },
