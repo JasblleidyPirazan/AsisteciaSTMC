@@ -59,17 +59,54 @@ function addDays(dateStr, n) {
 // corren la fecha final), y el cálculo SIGUE más allá del fin del semestre si
 // hace falta: `beyondSemester` avisa que termina después de esa fecha.
 // date es null solo si no tiene grupos o no alcanza en ~13 meses.
-function projectEndDate(groups, semester, exclusions, remaining, from) {
+// `skip` (de notMyDays) descarta los días del grupo que no le tocan (N/A).
+function studentDatesBetween(groups, exclusions, fromStr, untilStr, skip = new Set()) {
+  const dates = [];
+  for (const g of groups) {
+    for (const d of scheduledDatesBetween(g, exclusions, fromStr, untilStr)) {
+      if (!skip.has(`${g.id}:${new Date(`${d}T00:00:00Z`).getUTCDay()}`)) dates.push(d);
+    }
+  }
+  return dates.sort();
+}
+
+function projectEndDate(groups, semester, exclusions, remaining, from, skip = new Set()) {
   const needed = Math.ceil(remaining);
   if (!semester || needed <= 0) return { date: null, beyondSemester: false };
   const fromStr = dbDateStr(from);
   const untilStr = addDays(fromStr, PROJECTION_MAX_DAYS);
-  const dates = [];
-  for (const g of groups) dates.push(...scheduledDatesBetween(g, exclusions, fromStr, untilStr));
-  dates.sort();
+  const dates = studentDatesBetween(groups, exclusions, fromStr, untilStr, skip);
   if (dates.length < needed) return { date: null, beyondSemester: true };
   const date = dates[needed - 1];
   return { date, beyondSemester: date > dbDateStr(semester.endDate) };
+}
+
+// Clases regulares que el estudiante todavía puede ver en SUS días desde
+// `from` hasta el cierre del semestre (sin festivos / recesos ni días N/A).
+function classesLeftInSemester(groups, semester, exclusions, from, skip = new Set()) {
+  if (!semester) return 0;
+  const fromStr = dbDateStr(from);
+  const endStr = dbDateStr(semester.endDate);
+  if (fromStr > endStr) return 0;
+  return studentDatesBetween(groups, exclusions, fromStr, endStr, skip).length;
+}
+
+// Separa lo que le falta al estudiante en dos conceptos:
+//   pending  = CLASES DE REPOSICIÓN: lluvia + justificadas − reposiciones vistas.
+//              La Escuela debe programarlas (agenda de reposiciones).
+//   calendar = CLASES POR RECUPERAR POR CALENDARIO: festivos y recesos que
+//              cayeron en sus días. No se reponen: el calendario regular se
+//              corre y las devuelve, siempre que alcance antes del cierre.
+// Las reposiciones vistas se aplican primero a la reposición; si vio más de
+// las que debía, el excedente también recupera festivos (una clase vista es
+// una clase vista). Ambas cifras se topan en lo que le queda del paquete.
+function splitDebt({ rain = 0, justified = 0, holidays = 0, madeUp = 0, remaining = 0, total = 0 } = {}) {
+  if (!(total > 0)) return { pending: 0, calendar: 0 };
+  const owedMakeup = rain + justified;
+  const pending = Math.min(Math.max(0, roundUnits(owedMakeup - madeUp)), remaining);
+  const extra = Math.max(0, madeUp - owedMakeup);
+  const calendar = Math.min(Math.max(0, roundUnits(holidays - extra)), Math.max(0, roundUnits(remaining - pending)));
+  return { pending, calendar };
 }
 
 const DAY_SHORT = { lunes: 'Lun', martes: 'Mar', miercoles: 'Mié', jueves: 'Jue', viernes: 'Vie', sabado: 'Sáb', domingo: 'Dom' };
@@ -187,6 +224,24 @@ async function loadGroupSessionCounts(groups, semester, todayStr) {
 
 // ─── Consultas ────────────────────────────────────────────────────────────
 
+function groupBy(list, key) {
+  const out = {};
+  for (const x of list) (out[x[key]] ||= []).push(x);
+  return out;
+}
+
+// Registros de asistencia de clases regulares del semestre (para notMyDays).
+function loadRegularRecords(ids, semester) {
+  if (ids.length === 0) return Promise.resolve([]);
+  return prisma.attendanceRecord.findMany({
+    where: {
+      studentId: { in: ids },
+      session: { kind: 'REGULAR', date: { gte: new Date(semester.startDate), lte: new Date(semester.endDate) } },
+    },
+    select: { studentId: true, status: true, session: { select: { groupId: true, date: true } } },
+  });
+}
+
 // Clases vistas por estudiante (unidades) dentro del semestre dado — o
 // históricas si no hay semestre. `before` (Date) limita a sesiones ANTERIORES a
 // esa fecha: sirve para editar el reporte de la clase en que el estudiante
@@ -242,7 +297,12 @@ async function computeStudentProgress() {
     include: { enrollments: { include: { group: true } } },
     orderBy: { name: 'asc' },
   });
-  const seenById = await loadSeenById(students, semester);
+  const [seenById, regularRecords] = await Promise.all([
+    loadSeenById(students, semester),
+    loadRegularRecords(students.map((s) => s.id), semester),
+  ]);
+  const skipById = {};
+  for (const [id, recs] of Object.entries(groupBy(regularRecords, 'studentId'))) skipById[id] = notMyDays(recs);
 
   // ¿Ya tiene registro hoy? Entonces la clase de hoy ya está contada en
   // `seen` y la proyección arranca mañana.
@@ -267,9 +327,15 @@ async function computeStudentProgress() {
     const c = computeCompletion({ acquired: s.classesAcquired, previous: s.previousClasses, seen });
     const groups = s.enrollments.map((e) => e.group).filter((g) => g?.active);
     const nearEnd = c.total > 0 && !c.completed && c.remaining <= SEMESTER_END_THRESHOLD;
-    const end = c.total > 0 && !c.completed
-      ? projectEndDate(groups, semester, semester.exclusions, c.remaining, reportedToday.has(s.id) ? tomorrow : today)
+    const from = reportedToday.has(s.id) ? tomorrow : today;
+    const skip = skipById[s.id] || new Set();
+    const pendingPkg = c.total > 0 && !c.completed;
+    const end = pendingPkg
+      ? projectEndDate(groups, semester, semester.exclusions, c.remaining, from, skip)
       : { date: null, beyondSemester: false };
+    // ¿Le alcanza el calendario regular para ver lo que le falta antes del cierre?
+    const leftInSemester = pendingPkg ? classesLeftInSemester(groups, semester, semester.exclusions, from, skip) : 0;
+    const shortfall = pendingPkg ? Math.max(0, roundUnits(c.remaining - leftInSemester)) : 0;
     return {
       studentId: s.id,
       name: s.name,
@@ -282,6 +348,8 @@ async function computeStudentProgress() {
       nearEnd,
       projectedEnd: end.date,
       endsBeyondSemester: end.beyondSemester,
+      leftInSemester,
+      shortfall,
     };
   });
   return { semester, rows };
@@ -328,18 +396,19 @@ async function computeGroupHolidayDeviation() {
 }
 
 /**
- * Clases por reponer de cada estudiante activo (no de prueba), contadas desde
+ * Lo que le falta a cada estudiante activo (no de prueba), separado en
+ * REPOSICIÓN (lluvia + justificadas) y RECUPERAR POR CALENDARIO (festivos /
+ * recesos) — ver splitDebt. Contado desde
  * SU ingreso (el último entre inscripción, creación del grupo y fecha de inicio
  * de clases):
  *
- *   debe  = clases de sus grupos canceladas por LLUVIA + clases JUSTIFICADAS
- *           + clases que cayeron en FESTIVOS / fechas excluidas (ya pasadas)
- *   repuso = clases vistas en reposiciones (sesión MAKEUP o registro REPOSICION)
- *   por reponer = debe − repuso, con tope en lo que le queda del paquete
+ *   reposición = canceladas por LLUVIA + JUSTIFICADAS − repuestas (sesión
+ *                MAKEUP o registro REPOSICION)
+ *   calendario = FESTIVOS / fechas excluidas ya pasadas en días de su grupo
+ *                (sin los días N/A ni los festivos en que igual hubo clase)
  *
  * NO cuentan: la ausencia sin justificar (la perdió) ni las clases aún sin
- * reportar. Los festivos se suman pero se informan aparte (`holidays`) para
- * mostrarse en otro color.
+ * reportar. `items` lista cada clase de origen con su tipo (trazabilidad).
  */
 async function computeMakeupDebt({ studentIds = null } = {}) {
   const semester = await prisma.semester.findFirst({
@@ -367,10 +436,7 @@ async function computeMakeupDebt({ studentIds = null } = {}) {
 
   const [seenById, regularRecords, rainSessions, justified, makeupSeen] = await Promise.all([
     loadSeenById(students, semester),
-    prisma.attendanceRecord.findMany({
-      where: { studentId: { in: ids }, session: { kind: 'REGULAR', date: range } },
-      select: { studentId: true, status: true, session: { select: { groupId: true, date: true } } },
-    }),
+    loadRegularRecords(ids, semester),
     prisma.classSession.findMany({
       where: {
         kind: 'REGULAR', status: 'CANCELADA', cancellationCategory: 'LLUVIA',
@@ -403,8 +469,7 @@ async function computeMakeupDebt({ studentIds = null } = {}) {
 
   const rainByGroup = {};
   for (const r of rainSessions) (rainByGroup[r.groupId] ||= []).push(dbDateStr(r.date));
-  const recordsByStudent = {};
-  for (const r of regularRecords) (recordsByStudent[r.studentId] ||= []).push(r);
+  const recordsByStudent = groupBy(regularRecords, 'studentId');
   const dow = (d) => new Date(`${d}T00:00:00Z`).getUTCDay();
   const justifiedByStudent = {};
   const justifiedItems = {};
@@ -474,14 +539,17 @@ async function computeMakeupDebt({ studentIds = null } = {}) {
     const c = computeCompletion({
       acquired: s.classesAcquired, previous: s.previousClasses, seen: seenById[s.id] || 0,
     });
-    const owed = rain + justifiedCount + holidays;
     // Sin paquete registrado no hay contra qué topar: no se reporta deuda
-    const pending = c.total > 0 ? Math.min(Math.max(0, roundUnits(owed - madeUp)), c.remaining) : 0;
+    const { pending, calendar } = splitDebt({
+      rain, justified: justifiedCount, holidays, madeUp, remaining: c.remaining, total: c.total,
+    });
     return {
       studentId: s.id,
       name: s.name,
       groups: s.enrollments.map((e) => e.group).filter((g) => g?.active).map((g) => g.code),
-      rain, justified: justifiedCount, holidays, madeUp, pending,
+      // pending = clases de REPOSICIÓN (lluvia + justificadas − repuestas)
+      // calendar = clases por RECUPERAR POR CALENDARIO (festivos / recesos)
+      rain, justified: justifiedCount, holidays, madeUp, pending, calendar,
       remaining: c.remaining,
       // Detalle: clases que originan la deuda y reposiciones ya vistas
       items,
@@ -523,7 +591,8 @@ async function computeGroupsProgress() {
       (studentsByCode[code] ||= []).push({
         studentId: p.studentId, name: p.name, seen: p.seen, total: p.total, pct: p.pct,
         remaining: p.remaining, completed: p.completed,
-        pending: d.pending || 0, rain: d.rain || 0, justified: d.justified || 0, holidays: d.holidays || 0,
+        pending: d.pending || 0, calendar: d.calendar || 0,
+        rain: d.rain || 0, justified: d.justified || 0, holidays: d.holidays || 0,
         projectedEnd: p.projectedEnd, endsBeyondSemester: p.endsBeyondSemester,
       });
     }
@@ -557,6 +626,9 @@ async function computeGroupsProgress() {
       // Dónde poner el esfuerzo: reposiciones pendientes de sus estudiantes
       makeupClasses: roundUnits(students.reduce((acc, st) => acc + st.pending, 0)),
       studentsWithMakeups: students.filter((st) => st.pending > 0).length,
+      // Festivos / recesos que el calendario debe devolverles (no son reposición)
+      calendarClasses: roundUnits(students.reduce((acc, st) => acc + st.calendar, 0)),
+      studentsWithCalendar: students.filter((st) => st.calendar > 0).length,
       studentsCount: students.length,
       students,
     };
@@ -575,6 +647,8 @@ module.exports = {
   SEMESTER_END_THRESHOLD,
   computeCompletion,
   notMyDays,
+  splitDebt,
+  classesLeftInSemester,
   projectEndDate,
   holidayDeviationForGroup,
   loadSeenById,

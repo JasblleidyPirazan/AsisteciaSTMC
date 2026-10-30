@@ -120,3 +120,32 @@ describe('notMyDays — días N/A del estudiante', () => {
     expect(notMyDays([rec('NO_APLICA', '2026-10-05'), rec('PRESENTE', '2026-10-12')]).size).toBe(0);
   });
 });
+
+describe('splitDebt — reposición vs. recuperar por calendario', () => {
+  const { splitDebt } = require('../../src/services/semesterProgress');
+  it('lluvia + justificadas son reposición; festivos, calendario', () => {
+    expect(splitDebt({ rain: 1, justified: 2, holidays: 4, remaining: 20, total: 20 })).toEqual({ pending: 3, calendar: 4 });
+  });
+  it('lo repuesto baja primero la reposición y el excedente el calendario', () => {
+    expect(splitDebt({ rain: 2, holidays: 3, madeUp: 1, remaining: 20, total: 20 })).toEqual({ pending: 1, calendar: 3 });
+    expect(splitDebt({ rain: 2, holidays: 3, madeUp: 4, remaining: 20, total: 20 })).toEqual({ pending: 0, calendar: 1 });
+  });
+  it('ambas se topan en lo que le queda del paquete (reposición primero)', () => {
+    expect(splitDebt({ rain: 3, holidays: 4, remaining: 5, total: 20 })).toEqual({ pending: 3, calendar: 2 });
+  });
+  it('sin paquete no hay nada que reportar', () => {
+    expect(splitDebt({ rain: 3, holidays: 4, remaining: 0, total: 0 })).toEqual({ pending: 0, calendar: 0 });
+  });
+});
+
+describe('classesLeftInSemester', () => {
+  const { classesLeftInSemester } = require('../../src/services/semesterProgress');
+  it('cuenta sus días hasta el cierre, sin festivos ni días N/A', () => {
+    const lunMie = group({ lunes: true, miercoles: true }, { id: 'g1' });
+    // desde el 14 sep: lun 14, mié 16, lun 21, mié 23, lun 28, mié 30 = 6
+    expect(classesLeftInSemester([lunMie], semester, [], day('2026-09-14'))).toBe(6);
+    expect(classesLeftInSemester([lunMie], semester, [{ date: day('2026-09-21') }], day('2026-09-14'))).toBe(5);
+    // los lunes son N/A para este estudiante: solo miércoles
+    expect(classesLeftInSemester([lunMie], semester, [], day('2026-09-14'), new Set(['g1:1']))).toBe(3);
+  });
+});

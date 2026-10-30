@@ -140,10 +140,10 @@ export default function GroupsProgress() {
                     </div>
                     <div className="text-xs text-gray">
                       {s.pending > 0 && <span className="badge badge-red" style={{ marginRight: 6 }}>{s.pending} por reponer</span>}
-                      {s.holidays > 0 && (
+                      {s.calendar > 0 && (
                         <span style={{ color: 'var(--blue)', fontWeight: 600, marginRight: 6 }}
-                          title="Clases que cayeron en festivos o fechas excluidas">
-                          {s.holidays} festivo{s.holidays !== 1 ? 's' : ''}
+                          title="Festivos y recesos: no se reponen, el calendario regular se corre y los devuelve">
+                          {s.calendar} por calendario
                         </span>
                       )}
                       {s.completed ? 'Semestre completado'

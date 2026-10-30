@@ -111,31 +111,39 @@ describe('GET /alerts/coordinator', () => {
     };
   });
 
-  it('por reponer = lluvia + justificadas + festivos (la ausencia no cuenta)', async () => {
+  it('reposición = lluvia + justificadas; los festivos van aparte, por calendario', async () => {
     const res = await request(alertsApp).get('/api/alerts/coordinator')
       .set('Authorization', `Bearer ${authAs('PHYSICAL_TRAINER')}`);
     expect(res.status).toBe(200);
-    const { makeups, nearEnd, completedCount } = res.body.data;
-    const debt = makeups.find((m) => m.studentId === 'debt');
-    // 2 lluvia + 2 justificadas + 2 festivos (en color aparte)
-    expect(debt).toMatchObject({ pending: 6, rain: 2, justified: 2, holidays: 2 });
-    // 'abs' solo tiene ausencias sin justificar: no suman. Solo debe lo del grupo (2 lluvia + 2 festivos)
-    expect(makeups.find((m) => m.studentId === 'abs')).toMatchObject({ pending: 4, rain: 2, justified: 0, holidays: 2 });
+    const { makeups, nearEnd, completedCount, summary } = res.body.data;
+    // 'debt': 2 lluvia + 2 justificadas = 4 de reposición; los 2 festivos son calendario
+    expect(makeups.find((m) => m.studentId === 'debt'))
+      .toMatchObject({ pending: 4, rain: 2, justified: 2, calendar: 2 });
+    // 'abs' solo tiene ausencias sin justificar (no suman) + 2 lluvias: 2 < umbral
+    expect(makeups.find((m) => m.studentId === 'abs')).toBeUndefined();
     expect(nearEnd.map((s) => s.studentId)).toEqual(['near']);
     expect(nearEnd[0].remaining).toBe(2);
     expect(completedCount).toBe(1);
+    // Cumplimiento: pagadas 10+40+40+1, vistas 8+1
+    expect(summary).toMatchObject({ students: 4, completed: 1, paid: 91, seen: 9, remaining: 82 });
+    // Reposición: debt 4 + abs 2 + near 2. Calendario: debt 2 + abs 2; a 'near' solo le
+    // quedan 2 clases y ya las cubre la reposición (tope del paquete) → 0 por calendario
+    expect(summary).toMatchObject({ makeupPending: 8, makeupStudents: 3, calendarPending: 4, calendarStudents: 2 });
   });
 
-  it('descuenta lo ya repuesto', async () => {
+  it('descuenta lo ya repuesto, primero de la reposición y el excedente del calendario', async () => {
+    const { computeMakeupDebt } = await import('../../src/services/semesterProgress.js');
     const original = prismaMock.attendanceRecord.findMany.getMockImplementation();
-    prismaMock.attendanceRecord.findMany.mockImplementation((args) =>
+    const repuso = (units) => prismaMock.attendanceRecord.findMany.mockImplementation((args) =>
       JSON.stringify(args.where).includes('REPOSICION')
-        ? Promise.resolve([{ studentId: 'debt', session: { date: new Date('2026-09-20T00:00:00Z'), kind: 'MAKEUP', title: 'Reposición', effectiveUnits: 2 } }])
+        ? Promise.resolve([{ studentId: 'debt', session: { date: new Date('2026-09-20T00:00:00Z'), kind: 'MAKEUP', title: 'Reposición', effectiveUnits: units } }])
         : original(args));
-    const res = await request(alertsApp).get('/api/alerts/coordinator')
-      .set('Authorization', `Bearer ${authAs('PHYSICAL_TRAINER')}`);
-    // debía 6, repuso 2 → 4: sigue sobre el umbral
-    expect(res.body.data.makeups.find((m) => m.studentId === 'debt').pending).toBe(4);
+    repuso(2);
+    let debt = (await computeMakeupDebt()).rows.find((r) => r.studentId === 'debt');
+    expect(debt).toMatchObject({ madeUp: 2, pending: 2, calendar: 2 });
+    repuso(5); // debía 4 de reposición: el excedente (1) recupera un festivo
+    debt = (await computeMakeupDebt()).rows.find((r) => r.studentId === 'debt');
+    expect(debt).toMatchObject({ madeUp: 5, pending: 0, calendar: 1 });
   });
 
   it('detalle por estudiante: lista las clases que originan la deuda', async () => {
