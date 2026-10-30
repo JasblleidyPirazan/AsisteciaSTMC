@@ -11,6 +11,7 @@ export default function Step3Students({ groupId, date, records, onChange, onNext
   const [students, setStudents] = useState([]);
   const [allStudents, setAllStudents] = useState([]);
   // Per-student "classes seen / acquired" for the active semester, keyed by id.
+  // "Seen" = asistencias + ausencias + reposiciones (lo consumido del paquete).
   const [meta, setMeta] = useState({});
   const [showRepoSearch, setShowRepoSearch] = useState(false);
   const [search, setSearch] = useState('');
@@ -201,7 +202,8 @@ export default function Step3Students({ groupId, date, records, onChange, onNext
               </button>
             )}
             {meta[r.studentId]?.seen != null && (
-              <div className="text-xs text-gray" style={{ fontWeight: 400, marginTop: 2 }}>
+              <div className="text-xs text-gray" style={{ fontWeight: 400, marginTop: 2 }}
+                title="Vistas = asistencias + ausencias + reposiciones / clases adquiridas">
                 Clases: {meta[r.studentId].seen}/{meta[r.studentId].acquired}
               </div>
             )}

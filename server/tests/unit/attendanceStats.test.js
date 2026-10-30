@@ -118,3 +118,24 @@ describe('roundUnits — las medias unidades no arrastran ruido', () => {
     expect(roundUnits(4)).toBe(4);
   });
 });
+
+describe('consumedUnits — "vistas" = asistencias + ausencias + reposiciones', () => {
+  const { consumedUnits } = require('../../src/services/attendanceStats.js');
+  const d = (s) => new Date(`${s}T00:00:00.000Z`);
+  const reg = { kind: 'REGULAR', date: d('2026-09-10'), effectiveUnits: 1 };
+  it('asistencia y ausencia consumen la clase; justificada y N/A no', () => {
+    expect(consumedUnits({ status: 'PRESENTE' }, reg)).toBe(1);
+    expect(consumedUnits({ status: 'AUSENTE' }, reg)).toBe(1);
+    expect(consumedUnits({ status: 'JUSTIFICADA' }, reg)).toBe(0);
+    expect(consumedUnits({ status: 'NO_APLICA' }, reg)).toBe(0);
+  });
+  it('reposición doble vale 2 (asista o falte)', () => {
+    const doble = { kind: 'MAKEUP', date: d('2026-09-10'), effectiveUnits: 2 };
+    expect(consumedUnits({ status: 'PRESENTE' }, doble)).toBe(2);
+    expect(consumedUnits({ status: 'AUSENTE' }, doble)).toBe(2);
+  });
+  it('una ausencia anterior al inicio de clases no consume', () => {
+    expect(consumedUnits({ status: 'AUSENTE' }, reg, d('2026-09-15'))).toBe(0);
+    expect(consumedUnits({ status: 'PRESENTE' }, reg, d('2026-09-15'))).toBe(1);
+  });
+});

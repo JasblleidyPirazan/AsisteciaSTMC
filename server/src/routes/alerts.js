@@ -295,7 +295,8 @@ router.get('/preinscritos', requireRole('ADMIN', 'PHYSICAL_TRAINER'), async (req
 // Solo cuentan los estudiantes ✅ matriculados y 🔵 inscritos: un 📝 preinscrito
 // (sin pagos ni asistencia) todavía no es una clase comprometida por la Escuela.
 // Pruebas, suspendidos e inactivos ya quedan fuera del cálculo de avance.
-const COMMITTED_STATUSES = ['INSCRITO', 'MATRICULADO'];
+// Los 🎓 graduados también: son clases que la Escuela ya entregó.
+const COMMITTED_STATUSES = ['INSCRITO', 'MATRICULADO', 'GRADUADO'];
 async function committedStudentIds() {
   const students = await prisma.student.findMany({ where: { active: true, isTrial: false } });
   const decorated = await attachStudentStatus(students);
@@ -360,7 +361,8 @@ router.get('/coordinator', requireRole('ADMIN', 'PHYSICAL_TRAINER'), async (req,
 
     const sum = (list, f) => roundUnits(list.reduce((acc, x) => acc + (f(x) || 0), 0));
     const paid = sum(withPackage, (p) => p.total);
-    const seen = sum(withPackage, (p) => Math.min(p.seen, p.total));
+    // Consumidas = vistas + faltas sin justificar (la falta consume la clase)
+    const seen = sum(withPackage, (p) => Math.min(p.consumed, p.total));
     const summary = {
       students: withPackage.length,
       completed: completedIds.size,

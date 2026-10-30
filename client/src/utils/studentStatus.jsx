@@ -6,6 +6,8 @@
 //   🔵 INSCRITO     tiene alguna asistencia y/o algún pago
 //   📝 PREINSCRITO  registrado, sin asistencia ni pagos
 //   🧪 PRUEBA       ha ido a clases de prueba
+//   🎓 GRADUADO     ya consumió todo su paquete del semestre (vistas + faltas);
+//                  sale de las listas de asistencia. `graduatedOn` = fecha de fin
 //   ⏸️ SUSPENDIDO   suspensión temporal vigente
 //   ⛔ INACTIVO     desactivado
 //
@@ -17,6 +19,7 @@ export const STUDENT_STATUS = {
   INSCRITO: { icon: '🔵', label: 'Inscrito', cls: 'badge-blue' },
   PREINSCRITO: { icon: '📝', label: 'Preinscrito', cls: 'badge-gray' },
   PRUEBA: { icon: '🧪', label: 'Prueba', cls: 'badge-yellow' },
+  GRADUADO: { icon: '🎓', label: 'Graduado', cls: 'badge-green' },
   SUSPENDIDO: { icon: '⏸️', label: 'Suspendido', cls: 'badge-yellow' },
   INACTIVO: { icon: '⛔', label: 'Inactivo', cls: 'badge-gray' },
 };

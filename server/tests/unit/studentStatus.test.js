@@ -151,6 +151,7 @@ describe('attachStudentStatus — "al menos una asistencia" = regla canónica de
       findMany: vi.fn().mockResolvedValue(festivalRows),
     };
     prismaMock.student = { findMany: vi.fn().mockResolvedValue(starts) };
+    prismaMock.semester = { findFirst: vi.fn().mockResolvedValue(null) }; // sin semestre: nadie gradúa
     return { attachStudentStatus, prismaMock };
   }
 
@@ -180,5 +181,34 @@ describe('attachStudentStatus — "al menos una asistencia" = regla canónica de
     });
     const [out] = await attachStudentStatus([{ ...base }]);
     expect(out.studentStatus).toBe('PREINSCRITO');
+  });
+});
+
+describe('attachStudentStatus — 🎓 GRADUADO (consumió todo su paquete)', () => {
+  it('vistas + faltas ≥ paquete → GRADUADO con su fecha de fin; conserva el estado de pago', async () => {
+    const { attachStudentStatus } = require('../../src/services/studentStatus.js');
+    const { prismaMock } = await import('../helpers/mockPrisma.js');
+    const { vi } = await import('vitest');
+    const d = (s) => new Date(`${s}T00:00:00.000Z`);
+    const rec = (studentId, status, date) => ({ studentId, status, session: { date: d(date), kind: 'REGULAR', effectiveUnits: 1 } });
+    prismaMock.systemConfig = { findMany: vi.fn().mockResolvedValue([]) };
+    // g1 pagó completo (3 clases de pequeño ≈ 181.875) · g2 no ha pagado
+    prismaMock.studentPayment = { groupBy: vi.fn().mockResolvedValue([{ studentId: 'g1', _sum: { amount: 200000 } }]) };
+    prismaMock.semester = { findFirst: vi.fn().mockResolvedValue({ startDate: d('2026-08-01'), endDate: d('2026-12-15') }) };
+    prismaMock.attendanceRecord = {
+      groupBy: vi.fn().mockResolvedValue([{ studentId: 'g1', _count: { _all: 2 } }, { studentId: 'g2', _count: { _all: 1 } }]),
+      findMany: vi.fn().mockImplementation(({ where }) => Promise.resolve(where.status?.in ? [
+        rec('g1', 'PRESENTE', '2026-09-01'), rec('g1', 'AUSENTE', '2026-09-03'), rec('g1', 'PRESENTE', '2026-09-08'),
+        rec('g2', 'PRESENTE', '2026-09-01'), rec('g2', 'JUSTIFICADA', '2026-09-03'),
+      ] : [])),
+    };
+    const base = { active: true, isTrial: false, birthDate: d('2015-01-01'), previousClasses: 0, classesStartDate: null };
+    const [g1, g2] = await attachStudentStatus([
+      { ...base, id: 'g1', classesAcquired: 3 },
+      { ...base, id: 'g2', classesAcquired: 3 },
+    ]);
+    expect(g1).toMatchObject({ studentStatus: 'GRADUADO', graduatedOn: '2026-09-08', tuitionStatus: 'MATRICULADO' });
+    // g2: 1 vista; la justificada no consume → sigue en curso
+    expect(g2).toMatchObject({ studentStatus: 'INSCRITO', graduatedOn: null });
   });
 });

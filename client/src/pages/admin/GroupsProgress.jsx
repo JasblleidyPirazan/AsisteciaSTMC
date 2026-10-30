@@ -128,10 +128,10 @@ export default function GroupsProgress() {
                   <div key={s.studentId} className="mb-2">
                     <div className="flex items-center justify-between" style={{ gap: 8 }}>
                       <span className="font-medium">
-                        {s.name} {s.completed && <span title="Semestre completado">🎓</span>}
+                        {s.name} {s.completed && <span title="Graduado">🎓</span>}
                       </span>
                       <span className="text-sm">
-                        {s.seen} / {s.total || '—'}
+                        <span title="Asistencias + faltas: la falta consume la clase">{s.consumed ?? s.seen} / {s.total || '—'}</span>
                       </span>
                     </div>
                     <div className="flex items-center gap-2">
@@ -146,7 +146,7 @@ export default function GroupsProgress() {
                           {s.calendar} por calendario
                         </span>
                       )}
-                      {s.completed ? 'Semestre completado'
+                      {s.completed ? 'Graduado'
                         : s.projectedEnd ? `Termina ~${short(s.projectedEnd)}${s.endsBeyondSemester ? ' (después del semestre)' : ''}`
                         : s.total ? '' : 'Sin clases adquiridas'}
                     </div>

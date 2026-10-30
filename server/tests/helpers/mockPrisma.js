@@ -42,4 +42,6 @@ export async function mockStudentStatusDeps() {
     findMany: vi.fn().mockResolvedValue([]),
     ...(prismaMock.attendanceRecord || {}),
   };
+  // GRADUADO: semestre activo (null = sin semestre, nadie se gradúa)
+  prismaMock.semester = { findFirst: vi.fn().mockResolvedValue(null), ...(prismaMock.semester || {}) };
 }

@@ -7,7 +7,6 @@ import PageBack from '../../components/PageBack';
 import EmptyState from '../../components/EmptyState';
 import { toast } from '../../utils/toast';
 import { STUDENT_STATUS, StudentStatusBadge } from '../../utils/studentStatus';
-import { useSemesterCompleted, SemesterCompletedBadge } from '../../utils/semesterCompleted';
 
 const BALL_COLOR = { Roja: '#E8526A', Naranja: '#EA8A2E', Verde: '#1FA971', Amarilla: '#E8A23B' };
 const AVATAR_COLORS = ['#3F52A8', '#4F9FB2', '#7A5AF8', '#E8A23B', '#1FA971', '#E8526A', '#6F7BA6'];
@@ -163,7 +162,6 @@ export default function StudentsPage() {
   const [groupError, setGroupError] = useState('');
 
   const location = useLocation();
-  const semesterCompleted = useSemesterCompleted();
 
   useEffect(() => {
     Promise.all([
@@ -188,13 +186,14 @@ export default function StudentsPage() {
 
   // Resumen por estado (tarjeta superior)
   const summary = useMemo(() => {
-    const c = { total: students.length, activos: 0, matriculados: 0, inscritos: 0, preinscritos: 0, prueba: 0, suspendidos: 0, inactivos: 0, sinGrupo: 0, sinNacimiento: 0 };
+    const c = { total: students.length, activos: 0, matriculados: 0, inscritos: 0, graduados: 0, preinscritos: 0, prueba: 0, suspendidos: 0, inactivos: 0, sinGrupo: 0, sinNacimiento: 0 };
     for (const s of students) {
       if (s.studentStatus === 'INACTIVO') c.inactivos++;
       else {
         c.activos++;
         if (s.studentStatus === 'MATRICULADO') c.matriculados++;
         else if (s.studentStatus === 'INSCRITO') c.inscritos++;
+        else if (s.studentStatus === 'GRADUADO') c.graduados++;
         else if (s.studentStatus === 'PREINSCRITO') c.preinscritos++;
         else if (s.studentStatus === 'PRUEBA') c.prueba++;
         else if (s.studentStatus === 'SUSPENDIDO') c.suspendidos++;
@@ -316,7 +315,6 @@ export default function StudentsPage() {
             <div className="flex items-center gap-2" style={{ flexWrap: 'wrap' }}>
               <span className="font-medium">{s.name}</span>
               <StudentStatusBadge status={s.studentStatus} missingBirthDate={s.missingBirthDate} />
-              {semesterCompleted.has(s.id) && <SemesterCompletedBadge />}
               {hasNoGroup(s) && !s.isTrial && <span className="badge badge-red">Sin grupo</span>}
             </div>
             <div className="text-xs text-gray" style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
@@ -584,7 +582,6 @@ export default function StudentsPage() {
             <div className="flex items-center gap-2" style={{ flexWrap: 'wrap' }}>
               <h3>{st.name}</h3>
               <StudentStatusBadge status={st.studentStatus} missingBirthDate={st.missingBirthDate} />
-              {semesterCompleted.has(st.id) && <SemesterCompletedBadge />}
             </div>
             <div className="flex items-center gap-2 mt-1" style={{ flexWrap: 'wrap' }}>
               {g?.ballLevel && <span className="chip"><span className="legend-dot" style={{ background: BALL_COLOR[g.ballLevel] || 'var(--gray-400)' }} /> {g.ballLevel}{g.subLevel || ''}</span>}
@@ -603,6 +600,12 @@ export default function StudentsPage() {
           {st.email && <>✉️ {st.email}</>}
           {primaryEnrollment(st)?.enrolledAt && <> · Ingreso {fmtFullDate(primaryEnrollment(st).enrolledAt)}</>}
           {st.classesStartDate && <> · Inicio de clases {fmtFullDate(st.classesStartDate)}</>}
+          {/* Fecha de fin de semestre: real si ya se graduó, estimada si sigue en curso */}
+          {st.graduatedOn
+            ? <> · <strong style={{ color: 'var(--green)' }}>🎓 Fin de semestre {fmtFullDate(st.graduatedOn)}</strong></>
+            : makeupDebt?.progress?.projectedEnd && (
+              <> · Fin de semestre estimado {fmtFullDate(makeupDebt.progress.projectedEnd)}{makeupDebt.progress.endsBeyondSemester ? ' (después del cierre)' : ''}</>
+            )}
         </div>
 
         <div className="flex gap-2 mb-3">
@@ -612,9 +615,15 @@ export default function StudentsPage() {
 
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(108px, 1fr))', gap: 8 }} className="mb-3">
           <div className="stat-box"><div className="num">{totalClasses}</div><div className="lbl">Clases adquiridas</div></div>
-          <div className="stat-box"><div className="num">{sum.attendanceRate != null ? `${sum.attendanceRate}%` : '—'}</div><div className="lbl">Asistencia · {sum.classesSeen} clases</div></div>
+          <div className="stat-box"><div className="num">{sum.attendanceRate != null ? `${sum.attendanceRate}%` : '—'}</div><div className="lbl" title="Vistas = asistencias + ausencias + reposiciones">Asistencia · {sum.classesSeen} vistas</div></div>
           <div className="stat-box"><div className="num" style={{ color: 'var(--red)' }}>{sum.absent}</div><div className="lbl">Faltas</div></div>
           <div className="stat-box"><div className="num" style={{ color: 'var(--blue)' }}>{sum.cancelledRain}</div><div className="lbl">Canceladas · lluvia</div></div>
+          {makeupDebt?.progress?.total > 0 && (
+            <div className="stat-box" title="Las faltas sin justificar consumen la clase: el estudiante la pagó y no vino">
+              <div className="num" style={{ color: 'var(--green)' }}>{makeupDebt.progress.consumed}/{makeupDebt.progress.total}</div>
+              <div className="lbl">Avance (asistencias + faltas) · le quedan {makeupDebt.progress.remaining}</div>
+            </div>
+          )}
         </div>
 
         {isAdmin && (
@@ -763,10 +772,11 @@ export default function StudentsPage() {
                     {makeupItems.map((it, i) => row(it, `o${i}`, it.type === 'RAIN'
                       ? <span className="badge badge-gray">🌧️ Lluvia</span>
                       : <span className="badge badge-blue">Justificada</span>))}
-                    {makeupDebt.madeUpItems.map((it, i) => row(it, `m${i}`,
-                      <span className="badge badge-green">✔ Repuso{it.units !== 1 ? ` ${it.units}` : ''}</span>))}
+                    {makeupDebt.madeUpItems.map((it, i) => row(it, `m${i}`, it.absent
+                      ? <span className="badge badge-red" title="Faltó a la reposición: la perdió y salda la deuda">✖ Faltó (perdida)</span>
+                      : <span className="badge badge-green">✔ Repuso{it.units !== 1 ? ` ${it.units}` : ''}</span>))}
                     <div className="text-xs text-gray" style={{ paddingTop: 6 }}>
-                      Lluvia + justificadas: {makeupItems.length} − {makeupDebt.madeUp} ya repuesta{makeupDebt.madeUp !== 1 ? 's' : ''}
+                      Lluvia + justificadas: {makeupItems.length} − {makeupDebt.madeUp} ya repuesta{makeupDebt.madeUp !== 1 ? 's' : ''} o perdida{makeupDebt.madeUp !== 1 ? 's' : ''}
                       {makeupItems.length - makeupDebt.madeUp > makeupDebt.pending
                         ? ` · tope: le quedan ${makeupDebt.remaining} clase${makeupDebt.remaining !== 1 ? 's' : ''} del paquete`
                         : ''}
@@ -869,6 +879,9 @@ export default function StudentsPage() {
           <div className="stat-box" style={{ cursor: 'pointer' }} onClick={() => setStatusFilter('INSCRITO')}>
             <div className="num" style={{ color: 'var(--blue)' }}>{summary.inscritos}</div><div className="lbl">🔵 Inscritos</div>
           </div>
+          <div className="stat-box" style={{ cursor: 'pointer' }} onClick={() => setStatusFilter('GRADUADO')}>
+            <div className="num" style={{ color: 'var(--green)' }}>{summary.graduados}</div><div className="lbl">🎓 Graduados</div>
+          </div>
           <div className="stat-box" style={{ cursor: 'pointer' }} onClick={() => setStatusFilter('PREINSCRITO')}>
             <div className="num" style={{ color: 'var(--gray-600)' }}>{summary.preinscritos}</div><div className="lbl">📝 Preinscritos</div>
           </div>
@@ -920,6 +933,7 @@ export default function StudentsPage() {
             <option value="TODOS">Todos</option>
             <option value="MATRICULADO">✅ Matriculados</option>
             <option value="INSCRITO">🔵 Inscritos</option>
+            <option value="GRADUADO">🎓 Graduados</option>
             <option value="PREINSCRITO">📝 Preinscritos</option>
             <option value="PRUEBA">🧪 Clases de prueba</option>
             <option value="SUSPENDIDO">⏸️ Suspendidos</option>

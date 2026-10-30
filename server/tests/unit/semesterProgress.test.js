@@ -12,18 +12,52 @@ const group = (flags, extra = {}) => ({
 const semester = { startDate: day('2026-09-01'), endDate: day('2026-09-30') };
 
 describe('computeCompletion', () => {
-  it('completo cuando vio todo el paquete (adquiridas + previas)', () => {
-    expect(computeCompletion({ acquired: 30, previous: 10, seen: 40 }))
+  it('completo cuando consumió todo el paquete (adquiridas + previas)', () => {
+    expect(computeCompletion({ acquired: 30, previous: 10, consumed: 40 }))
       .toEqual({ total: 40, remaining: 0, completed: true });
   });
   it('aún no completo: informa cuántas le faltan', () => {
-    expect(computeCompletion({ acquired: 40, seen: 37 })).toEqual({ total: 40, remaining: 3, completed: false });
+    expect(computeCompletion({ acquired: 40, consumed: 37 })).toEqual({ total: 40, remaining: 3, completed: false });
   });
   it('sin paquete nunca queda "completado"', () => {
-    expect(computeCompletion({ acquired: 0, seen: 0 }).completed).toBe(false);
+    expect(computeCompletion({ acquired: 0, consumed: 0 }).completed).toBe(false);
   });
   it('respeta medias unidades', () => {
-    expect(computeCompletion({ acquired: 10, seen: 8.5 }).remaining).toBe(1.5);
+    expect(computeCompletion({ acquired: 10, consumed: 8.5 }).remaining).toBe(1.5);
+  });
+});
+
+describe('consumptionFromRecords — las faltas consumen la clase', () => {
+  const { consumptionFromRecords } = require('../../src/services/semesterProgress');
+  const r = (status, date, kind = 'REGULAR', effectiveUnits = 1) =>
+    ({ status, session: { date: day(date), kind, effectiveUnits } });
+  it('caso Aria: 12 presentes + 15 faltas = 27 consumidas de 47 (le quedan 20)', () => {
+    const recs = [
+      ...Array.from({ length: 12 }, (_, i) => r('PRESENTE', `2026-08-${String(i + 1).padStart(2, '0')}`)),
+      ...Array.from({ length: 15 }, (_, i) => r('AUSENTE', `2026-09-${String(i + 1).padStart(2, '0')}`)),
+    ];
+    const c = consumptionFromRecords(recs, { total: 47 });
+    expect(c).toEqual({ seen: 12, consumed: 27, completedOn: null });
+    expect(computeCompletion({ acquired: 47, consumed: c.consumed }).remaining).toBe(20);
+  });
+  it('justificadas y N/A no consumen; faltas antes del inicio de clases tampoco', () => {
+    const c = consumptionFromRecords(
+      [r('JUSTIFICADA', '2026-09-01'), r('NO_APLICA', '2026-09-02'), r('AUSENTE', '2026-09-03'), r('AUSENTE', '2026-09-10')],
+      { classesStartDate: day('2026-09-07'), total: 10 },
+    );
+    expect(c).toMatchObject({ seen: 0, consumed: 1 });
+  });
+  it('AUSENTE en festival es clase vista; una reposición doble vale 2', () => {
+    const c = consumptionFromRecords([r('AUSENTE', '2026-09-01', 'FESTIVAL'), r('PRESENTE', '2026-09-02', 'MAKEUP', 2)], { total: 10 });
+    expect(c).toMatchObject({ seen: 3, consumed: 3 });
+  });
+  it('completedOn = la clase con la que llegó al total (graduado)', () => {
+    const c = consumptionFromRecords(
+      [r('PRESENTE', '2026-09-03'), r('AUSENTE', '2026-09-01'), r('PRESENTE', '2026-09-08'), r('PRESENTE', '2026-09-10')],
+      { total: 3 },
+    );
+    expect(c.completedOn).toBe('2026-09-08');
+    expect(c.consumed).toBe(4);
   });
 });
 

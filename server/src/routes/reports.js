@@ -3,7 +3,7 @@ const XLSX = require('xlsx');
 const prisma = require('../lib/prisma');
 const { requireRole } = require('../middleware/auth');
 const { getCurrentPeriod } = require('../services/costEngine');
-const { absenceCounts, seenUnits, attendanceUnits, roundUnits } = require('../services/attendanceStats');
+const { absenceCounts, consumedUnits, attendanceUnits, roundUnits } = require('../services/attendanceStats');
 const { computeAttendanceDeviations } = require('../services/attendanceAlerts');
 const { byGroupCode } = require('../lib/sort');
 const { bogotaToday, bogotaDateStr, bogotaMinutesOfDay, dbDateStr } = require('../lib/dates');
@@ -103,10 +103,10 @@ router.get('/student/:studentId', requireRole('ADMIN', 'PHYSICAL_TRAINER', 'TEAC
       r.status === 'AUSENTE' && absenceCounts(r.session?.date, student.classesStartDate)
     ).length;
     const justified = records.filter((r) => r.status === 'JUSTIFICADA').length;
-    // "Clases vistas": PRESENTE, más AUSENTE en festivales (J se omite). Cada
-    // una vale las unidades de su sesión — una reposición doble cuenta por 2.
+    // "Vistas" = asistencias + ausencias + reposiciones (lo consumido del
+    // paquete; J y N/A no). Cada una vale las unidades de su sesión.
     const classesSeen = roundUnits(records.reduce(
-      (acc, r) => acc + seenUnits(r, r.session, student.classesStartDate), 0
+      (acc, r) => acc + consumedUnits(r, r.session, student.classesStartDate), 0
     ));
     // Denominador: P + A + J (N/A y faltas previas al inicio quedan fuera).
     const denom = present + absent + justified;
@@ -621,7 +621,7 @@ router.get('/strategy', requireRole('ADMIN'), async (req, res, next) => {
       prisma.student.findMany({
         where: { active: true },
         select: {
-          id: true, active: true, isTrial: true, birthDate: true, classesAcquired: true,
+          id: true, active: true, isTrial: true, birthDate: true, classesAcquired: true, previousClasses: true, classesStartDate: true,
           suspendedFrom: true, suspendedUntil: true, createdAt: true,
           // Grupos del estudiante: la ocupación se calcula por ESTADO
           // (matriculados + inscritos ocupan cupo; preinscritos no).
@@ -675,11 +675,14 @@ router.get('/strategy', requireRole('ADMIN'), async (req, res, next) => {
       newThisPeriod = 0, missingBirthDate = 0;
     for (const s of decoratedStudents) {
       if (s.missingBirthDate) missingBirthDate += 1;
-      if (s.studentStatus === 'PRUEBA') { trial += 1; continue; }
-      if (s.studentStatus === 'SUSPENDIDO') suspendidos += 1;
-      else if (s.studentStatus === 'MATRICULADO') matriculados += 1;
-      else if (s.studentStatus === 'INSCRITO') inscritos += 1;
-      else if (s.studentStatus === 'PREINSCRITO') preinscritos += 1;
+      // Estado de pago sin la graduación: un 🎓 graduado sigue contando como
+      // matriculado/inscrito en la conversión (la ocupación sí lo libera)
+      const st = s.tuitionStatus || s.studentStatus;
+      if (st === 'PRUEBA') { trial += 1; continue; }
+      if (st === 'SUSPENDIDO') suspendidos += 1;
+      else if (st === 'MATRICULADO') matriculados += 1;
+      else if (st === 'INSCRITO') inscritos += 1;
+      else if (st === 'PREINSCRITO') preinscritos += 1;
       if (new Date(s.createdAt) >= from) newThisPeriod += 1;
     }
     const activeStudents = matriculados + inscritos + preinscritos + suspendidos;

@@ -1,7 +1,8 @@
 import { useState, useEffect } from 'react';
 import { api } from '../api/client';
 
-// Estudiantes que ya completaron su paquete de clases del semestre
+// Estudiantes 🎓 graduados: ya consumieron su paquete de clases del semestre
+// (vistas + faltas)
 // (derivado en el servidor: GET /alerts/semester-completed). Devuelve un Set de ids.
 export function useSemesterCompleted() {
   const [ids, setIds] = useState(() => new Set());
@@ -16,8 +17,8 @@ export function useSemesterCompleted() {
 export function SemesterCompletedBadge({ style }) {
   return (
     <span className="badge badge-green" style={style}
-      title="Ya vio todas las clases de su paquete del semestre">
-      🎓 Semestre completado
+      title="Ya consumió todas las clases de su paquete del semestre (vistas + faltas)">
+      🎓 Graduado
     </span>
   );
 }

@@ -53,7 +53,7 @@ export default function CoordinatorStudentsPanel() {
         <strong className="text-sm">{s.pct ?? '—'}%</strong>
       </div>
       <div className="text-xs text-gray mb-3">
-        {n(s.seen)} clases dadas de {n(s.paid)} pagadas · faltan {n(s.remaining)}
+        {n(s.seen)} clases consumidas de {n(s.paid)} pagadas (asistencias + faltas: la falta consume la clase) · faltan {n(s.remaining)}
       </div>
 
       <div className="text-sm font-medium mb-2">¿De dónde saldrán las {n(s.remaining)} que faltan?</div>

@@ -7,6 +7,9 @@
 //   INACTIVO     desactivado (soft delete)
 //   SUSPENDIDO   hoy dentro del rango de suspensión temporal
 //   PRUEBA       estudiante de clase de prueba (isTrial)
+//   GRADUADO     ya consumió todo su paquete del semestre activo (vistas +
+//                faltas, ver semesterProgress.consumptionFromRecords); sale
+//                de las listas de asistencia. `graduatedOn` = fecha de fin
 //   MATRICULADO  pago completo: total pagado >= valor esperado de sus clases
 //   INSCRITO     tiene alguna clase vista (regla de attendanceStats) y/o algún pago
 //   PREINSCRITO  registrado, sin asistencia ni pagos
@@ -21,6 +24,7 @@
 const prisma = require('../lib/prisma');
 const { bogotaToday } = require('../lib/dates');
 const { absenceCounts } = require('./attendanceStats');
+const { loadConsumption, computeCompletion } = require('./semesterProgress');
 
 const TUITION_KEYS = ['tuition_adult_total', 'tuition_child_total', 'tuition_plan_classes', 'tuition_adult_age'];
 
@@ -73,10 +77,11 @@ function isSuspendedOn(student, today) {
 }
 
 // Deriva el estado a partir del estudiante + sus agregados (pagos/asistencia).
-function deriveStudentStatus(student, { totalPaid = 0, hasAttendance = false, cfg = TUITION_DEFAULTS, today = bogotaToday() } = {}) {
+function deriveStudentStatus(student, { totalPaid = 0, hasAttendance = false, graduated = false, cfg = TUITION_DEFAULTS, today = bogotaToday() } = {}) {
   if (!student.active) return 'INACTIVO';
   if (isSuspendedOn(student, today)) return 'SUSPENDIDO';
   if (student.isTrial) return 'PRUEBA';
+  if (graduated) return 'GRADUADO';
   const expected = expectedTotal(student, cfg, today);
   if (expected != null && totalPaid >= expected) return 'MATRICULADO';
   if (totalPaid > 0 || hasAttendance) return 'INSCRITO';
@@ -84,12 +89,18 @@ function deriveStudentStatus(student, { totalPaid = 0, hasAttendance = false, cf
 }
 
 // Decora un estudiante con el estado y el detalle de pagos del plan.
-function decorateStudent(student, { totalPaid = 0, hasAttendance = false, cfg = TUITION_DEFAULTS, today = bogotaToday() } = {}) {
+function decorateStudent(student, { totalPaid = 0, hasAttendance = false, graduatedOn = null, cfg = TUITION_DEFAULTS, today = bogotaToday() } = {}) {
   const category = priceCategory(student, cfg, today);
   const expected = expectedTotal(student, cfg, today);
+  const studentStatus = deriveStudentStatus(student, { totalPaid, hasAttendance, graduated: !!graduatedOn, cfg, today });
   return {
     ...student,
-    studentStatus: deriveStudentStatus(student, { totalPaid, hasAttendance, cfg, today }),
+    studentStatus,
+    // Estado de pago/inscripción sin tener en cuenta la graduación: un graduado
+    // que pagó completo sigue siendo MATRICULADO para Contabilidad y conversión
+    tuitionStatus: deriveStudentStatus(student, { totalPaid, hasAttendance, cfg, today }),
+    // Fecha de fin de semestre: la clase con la que completó su paquete
+    graduatedOn: studentStatus === 'GRADUADO' ? graduatedOn : null,
     // Error de datos: estudiante regular activo sin fecha de nacimiento — no
     // se puede saber su tarifa (adulto/pequeño). Se marca en TODAS las vistas.
     missingBirthDate: !!student.active && !student.isTrial && !student.birthDate,
@@ -119,7 +130,7 @@ async function getTuitionConfig() {
 async function attachStudentStatus(students) {
   if (!students || students.length === 0) return [];
   const ids = students.map((s) => s.id);
-  const [cfg, paySums, presentCounts] = await Promise.all([
+  const [cfg, paySums, presentCounts, semester] = await Promise.all([
     getTuitionConfig(),
     prisma.studentPayment.groupBy({
       by: ['studentId'],
@@ -133,6 +144,7 @@ async function attachStudentStatus(students) {
       where: { studentId: { in: ids }, status: 'PRESENTE' },
       _count: { _all: true },
     }),
+    prisma.semester.findFirst({ where: { active: true } }),
   ]);
   const paidById = Object.fromEntries(paySums.map((p) => [p.studentId, parseFloat(p._sum.amount) || 0]));
   const presentById = Object.fromEntries(presentCounts.map((p) => [p.studentId, p._count._all]));
@@ -160,10 +172,23 @@ async function attachStudentStatus(students) {
     }
   }
 
+  // GRADUADO: solo con semestre activo (sin semestre no hay paquete que cerrar)
+  const graduatedOnById = {};
+  if (semester) {
+    const { consumedById, completedOnById } = await loadConsumption(students, semester);
+    for (const s of students) {
+      if (s.isTrial) continue;
+      const c = computeCompletion({ acquired: s.classesAcquired, previous: s.previousClasses, consumed: consumedById[s.id] || 0 });
+      // Completó ⇒ hay una clase con la que llegó al total (completedOn)
+      if (c.completed) graduatedOnById[s.id] = completedOnById[s.id];
+    }
+  }
+
   const today = bogotaToday();
   return students.map((s) => decorateStudent(s, {
     totalPaid: paidById[s.id] || 0,
     hasAttendance: (presentById[s.id] || 0) > 0 || festivalSeen.has(s.id),
+    graduatedOn: graduatedOnById[s.id] || null,
     cfg,
     today,
   }));
