@@ -1,5 +1,6 @@
 const express = require('express');
 const prisma = require('../lib/prisma');
+const { canReport, professorIdOf } = require('../lib/permissions');
 const { calculateCosts } = require('../services/costEngine');
 const { consolidateSession } = require('../services/consolidation');
 const { isSessionPeriodLocked } = require('../lib/payrollLock');
@@ -16,27 +17,6 @@ const CANCEL_AUTO_TEXT = {
   LLUVIA: 'Cancelada por lluvia',
   SIN_ESTUDIANTES: 'No llegaron estudiantes',
 };
-
-/**
- * Authorization for reporting attendance on a group (dual-report model):
- * - SUPERADMIN: any group (edits either report)
- * - PHYSICAL_TRAINER (coordinador): any group (writes the COORDINATOR report)
- * - TEACHER: only their own group (writes the PROFESSOR report)
- * - ADMIN: read-only — cannot report/edit (uses the reports views instead)
- * - PARENT / ASSISTANT: not allowed
- */
-async function canReportGroup(user, groupId) {
-  if (['SUPERADMIN', 'PHYSICAL_TRAINER'].includes(user.role)) return true;
-
-  if (user.role === 'TEACHER') {
-    const professor = await prisma.professor.findUnique({ where: { userId: user.id } });
-    if (!professor) return false;
-    const group = await prisma.group.findUnique({ where: { id: groupId } });
-    return !!group && group.professorId === professor.id;
-  }
-
-  return false;
-}
 
 // Which staging report a user writes. TEACHER → PROFESSOR, PHYSICAL_TRAINER
 // (coordinador) → COORDINATOR. SUPERADMIN edits either and must say which.
@@ -142,12 +122,12 @@ router.post('/', async (req, res, next) => {
       return res.status(400).json({ success: false, error: 'groupId y date requeridos' });
     }
 
-    if (!(await canReportGroup(req.user, groupId))) {
-      return res.status(403).json({ success: false, error: 'No tienes permiso para reportar este grupo' });
-    }
-
     const group = await prisma.group.findUnique({ where: { id: groupId } });
     if (!group) return res.status(404).json({ success: false, error: 'Grupo no encontrado' });
+
+    if (!canReport(req.user, { kind: 'REGULAR', group }, await professorIdOf(req.user))) {
+      return res.status(403).json({ success: false, error: 'No tienes permiso para reportar este grupo' });
+    }
 
     const session = await prisma.classSession.upsert({
       where: { groupId_date: { groupId, date: new Date(date) } },
@@ -211,7 +191,7 @@ router.post('/:id/finalize', async (req, res, next) => {
     });
     if (!session) return res.status(404).json({ success: false, error: 'Sesión no encontrada' });
 
-    if (!(await canReportGroup(req.user, session.groupId))) {
+    if (!canReport(req.user, { kind: 'REGULAR', group: session.group }, await professorIdOf(req.user))) {
       return res.status(403).json({ success: false, error: 'No tienes permiso para reportar este grupo' });
     }
 
@@ -330,10 +310,10 @@ router.post('/:id/cancel', async (req, res, next) => {
       return res.status(400).json({ success: false, error: 'Describe el motivo de la cancelación' });
     }
 
-    const existing = await prisma.classSession.findUnique({ where: { id: req.params.id } });
+    const existing = await prisma.classSession.findUnique({ where: { id: req.params.id }, include: { group: true } });
     if (!existing) return res.status(404).json({ success: false, error: 'Sesión no encontrada' });
 
-    if (!(await canReportGroup(req.user, existing.groupId))) {
+    if (!canReport(req.user, { kind: 'REGULAR', group: existing.group }, await professorIdOf(req.user))) {
       return res.status(403).json({ success: false, error: 'No tienes permiso para reportar este grupo' });
     }
 

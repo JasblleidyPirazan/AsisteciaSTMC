@@ -1,5 +1,6 @@
 const express = require('express');
 const prisma = require('../lib/prisma');
+const { canReport } = require('../lib/permissions');
 const { requireRole } = require('../middleware/auth');
 const { calculateCosts } = require('../services/costEngine');
 const { attachStudentStatus } = require('../services/studentStatus');
@@ -12,17 +13,6 @@ const CANCEL_AUTO_TEXT = {
   LLUVIA: 'Cancelada por lluvia',
   SIN_ESTUDIANTES: 'No llegaron estudiantes',
 };
-
-/**
- * Who may report a festival: SUPERADMIN / ADMIN / PHYSICAL_TRAINER (coordinador).
- * Professors do NOT report festivals — the coordinator does. A professor who
- * participates in a festival still gets paid via its CostRecord (payroll), which
- * is independent of who reports the attendance.
- */
-// eslint-disable-next-line no-unused-vars
-async function canReportFestival(user, session) {
-  return ['SUPERADMIN', 'ADMIN', 'PHYSICAL_TRAINER'].includes(user.role);
-}
 
 function festivalInclude() {
   return {
@@ -243,7 +233,7 @@ router.post('/:id/finalize', async (req, res, next) => {
     if (!session || session.kind !== 'FESTIVAL') {
       return res.status(404).json({ success: false, error: 'Festival no encontrado' });
     }
-    if (!(await canReportFestival(req.user, session))) {
+    if (!canReport(req.user, session)) {
       return res.status(403).json({ success: false, error: 'No tienes permiso para reportar este festival' });
     }
 
@@ -322,7 +312,7 @@ router.post('/:id/cancel', async (req, res, next) => {
     if (!session || session.kind !== 'FESTIVAL') {
       return res.status(404).json({ success: false, error: 'Festival no encontrado' });
     }
-    if (!(await canReportFestival(req.user, session))) {
+    if (!canReport(req.user, session)) {
       return res.status(403).json({ success: false, error: 'No tienes permiso para cancelar este festival' });
     }
 

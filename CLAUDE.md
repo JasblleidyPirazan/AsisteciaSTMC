@@ -390,7 +390,7 @@ pura se prueba directo y las rutas usan un Prisma mockeado.
   - `attendanceStats` → regla P/A/J (`isSeenRecord`, `seenAttendanceFilter`)
 - `tests/integration/` — rutas con **supertest**:
   - `auth.middleware` → `authMiddleware` (401 sin/mal token, usuario inactivo) + `requireRole` (403)
-  - `sessions.guards` → guard `canReportGroup()` de `POST /sessions` por cada rol
+  - `sessions.guards` → permisos de `POST /sessions` por cada rol (`lib/permissions.js`); `permissions`/`semesterWindow` (unit) y `makeups.flow` cubren el resto
 - `tests/helpers/mockPrisma.js` — el server es CommonJS, así que los `require('../lib/prisma')`
   anidados van por el `require.cache` de Node, que **vitest no intercepta** con `vi.mock`. El
   helper inyecta un mock de Prisma en `require.cache` **antes** de importar cualquier router
@@ -440,7 +440,7 @@ Si un test revela un bug real de la lógica de negocio, reportarlo antes de corr
 
 ### Autorización por recurso (server-side)
 
-- **Sesiones (crear/finalizar/cancelar):** guard `canReportGroup()` en `sessions.js` — ADMIN/PF cualquier grupo; TEACHER solo grupos donde es titular; PARENT solo grupos con un hijo inscrito; ASSISTANT denegado (usa `/assist`)
+- **Reportar / cancelar (clases regulares, reposiciones y festivales):** una sola función, `canReport(user, session, professorId)` en `server/src/lib/permissions.js` (reemplaza a los antiguos `canReportGroup`, `canReportMakeup` y `canReportFestival`, que no coincidían entre sí) — SUPERADMIN y Coordinador siempre; ADMIN solo MAKEUP y FESTIVAL (en clases regulares es solo-lectura); TEACHER en REGULAR si es el titular del grupo, en MAKEUP si es el profesor asignado o el sustituto, en FESTIVAL nunca; PARENT, ASSISTANT y Recepción nunca (el asistente acompaña por `/assist`). `professorIdOf(user)` resuelve el `Professor` vinculado al usuario
 - **Reportes:** grupo/clase → ADMIN, PF, TEACHER; estudiante → + PARENT (solo su hijo); asistente → ASSISTANT solo el propio; profesor → TEACHER solo el propio, PF lo ve **sin montos de pago**
 - **Reporte de clase:** `totalCost` solo para ADMIN o el profesor que dictó (titular o sustituto); para el resto va `null`
 - **Dashboard:** `totalPayableThisPeriod` (pago de la quincena actual, agregado por `period`) solo se envía a ADMIN (`null` para los demás — no solo oculto en UI). Reemplazó al total mensual
@@ -807,6 +807,11 @@ cd client && npm run build
     - **UI:** en `StudentsPage`, diálogo **"Gestionar grupos"** — casillas por día del grupo en cada matrícula actual (con botón "Guardar días") y al elegir el grupo destino al cambiar/agregar (todas marcadas = `null`; no deja desmarcar el último). La **ficha** muestra un chip por matrícula con sus días ("LMV1 · Lun · Vie") cuando toma solo algunos.
     - **Estado:** por ahora solo se **registra** el dato; lo usará el ledger (`takesDay` / `isMine`, tareas T4–T6) para no generarle lluvia, festivos ni clases esperadas en los días que no toma. Hasta entonces N/A sigue siendo la fuente en el cálculo actual.
     - Tests: `tests/unit/weekdays.test.js`, `tests/integration/enrollmentWeekdays.test.js`.
+
+57. **Ventana del semestre y permisos de reporte (D4, tarea T3):**
+    - **`server/src/lib/semesterWindow.js`** — `semesterWindow(semester, allSemesters)` → `{ from, to }` con `from` = `startDate` del semestre y `to` = `startDate` del semestre inmediatamente posterior (**exclusivo**), o `null` si no hay uno posterior; `inWindow(window, date)`. `Semester.endDate` **no** es el límite: una clase dictada después del cierre y antes del siguiente semestre sigue siendo del semestre actual (solo se usa para proyecciones). Todavía no la usa ningún cálculo — la consume el cargador del ledger (T5); el código actual sigue filtrando por `startDate`–`endDate`.
+    - **`server/src/lib/permissions.js`** — `canReport(user, session, professorId)` (ver "Autorización por recurso"). Corrige el 403 que recibía SUPERADMIN al finalizar o cancelar una reposición (`canReportMakeup` no lo contemplaba); ADMIN conserva su acceso a reposiciones y festivales. `routes/sessions.js`, `makeups.js` y `festivals.js` llaman a `canReport` directamente.
+    - Tests: `tests/unit/semesterWindow.test.js`, `tests/unit/permissions.test.js`, `tests/integration/makeups.flow.test.js` (SUPERADMIN/ADMIN finalizan y cancelan una reposición).
 
 45. **Estado de asistencia N/A (`NO_APLICA`):** para estudiantes que **compran menos clases** que los días del grupo (p. ej. vienen 1 vez/semana en un grupo de 3 días). No cuenta **ni como asistencia ni como ausencia**: no consume paquete (no es "clase vista" — allowlist de `attendanceStats`), no genera reposición, no suma al pago del profesor (costEngine solo cuenta PRESENTE), no dispara INSCRITO, queda **fuera del denominador** de `attendanceRate` (reportes de clase/estudiante/profesor y portal padres) y **fuera de la distribución** del dashboard. (Las alertas de asistencia que descontaban N/A de las clases esperadas están **obsoletas**: D8. Desde D9 los días que toma el estudiante se registran en la matrícula, `StudentEnrollment.weekdays`; N/A queda como excepción puntual.) Cuarto botón **N/A** (gris) solo en el flujo regular (Step3); reposiciones y festivales no lo muestran (participantes asignados a mano) aunque el server lo acepta en las 3 whitelists. En la doble consolidación ambos reportes deben coincidir también en N/A (igualdad de string). Migración aislada `20260725010000_attendance_status_no_aplica` (`ADD VALUE IF NOT EXISTS`). Tests: `attendanceStats`, `consolidation`, `attendanceAlerts` (nuevo) y whitelist en `finalize.dual`.
 

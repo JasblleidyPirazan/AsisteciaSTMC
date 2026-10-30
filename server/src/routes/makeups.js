@@ -1,5 +1,6 @@
 const express = require('express');
 const prisma = require('../lib/prisma');
+const { canReport, professorIdOf } = require('../lib/permissions');
 const { requireRole } = require('../middleware/auth');
 const { calculateCosts } = require('../services/costEngine');
 const { attachStudentStatus } = require('../services/studentStatus');
@@ -13,22 +14,6 @@ const LOCKED_MSG = 'La quincena de esta reposición está cerrada. Reábrela en 
 // Roles que declaran la información del coordinador: lo que ellos asignan o
 // reportan ES el dato del coordinador para la triple coincidencia del asistente.
 const COORDINATOR_ROLES = ['ADMIN', 'SUPERADMIN', 'PHYSICAL_TRAINER'];
-
-/**
- * Who may report a makeup class:
- * - ADMIN / PHYSICAL_TRAINER: any makeup
- * - TEACHER: only makeups where they are the assigned professor or the substitute
- * (Assistants accompany via /sessions/:id/assist, same as regular classes.)
- */
-async function canReportMakeup(user, session) {
-  if (['ADMIN', 'PHYSICAL_TRAINER'].includes(user.role)) return true;
-  if (user.role === 'TEACHER') {
-    const professor = await prisma.professor.findUnique({ where: { userId: user.id } });
-    if (!professor) return false;
-    return session.makeupProfessorId === professor.id || session.substituteProfessorId === professor.id;
-  }
-  return false;
-}
 
 // Campos del estudiante: los mínimos + los que necesita el estado derivado
 // (ícono junto al nombre en la página de asistencia de la reposición).
@@ -304,7 +289,7 @@ router.post('/:id/finalize', async (req, res, next) => {
     if (!session || session.kind !== 'MAKEUP') {
       return res.status(404).json({ success: false, error: 'Reposición no encontrada' });
     }
-    if (!(await canReportMakeup(req.user, session))) {
+    if (!canReport(req.user, session, await professorIdOf(req.user))) {
       return res.status(403).json({ success: false, error: 'No tienes permiso para reportar esta reposición' });
     }
     if (await isSessionPeriodLocked(session.date)) {
@@ -414,7 +399,7 @@ router.post('/:id/cancel', async (req, res, next) => {
     if (!session || session.kind !== 'MAKEUP') {
       return res.status(404).json({ success: false, error: 'Reposición no encontrada' });
     }
-    if (!(await canReportMakeup(req.user, session))) {
+    if (!canReport(req.user, session, await professorIdOf(req.user))) {
       return res.status(403).json({ success: false, error: 'No tienes permiso para cancelar esta reposición' });
     }
     if (await isSessionPeriodLocked(session.date)) {
