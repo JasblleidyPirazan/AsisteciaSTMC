@@ -32,7 +32,7 @@ function festivalInclude() {
         student: {
           select: {
             id: true, name: true, active: true, isTrial: true, birthDate: true,
-            classesAcquired: true, suspendedFrom: true, suspendedUntil: true,
+            classesAcquired: true, previousClasses: true, classesStartDate: true, suspendedFrom: true, suspendedUntil: true,
           },
         },
       },

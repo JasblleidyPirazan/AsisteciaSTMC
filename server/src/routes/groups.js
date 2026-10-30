@@ -5,7 +5,7 @@ const { requireRole } = require('../middleware/auth');
 const { notSuspended } = require('../lib/filters');
 const { byGroupCode } = require('../lib/sort');
 const { bogotaDayOfWeek } = require('../lib/dates');
-const { loadSeenById, computeCompletion } = require('../services/semesterProgress');
+const { loadConsumption, computeCompletion } = require('../services/semesterProgress');
 const { attachStudentStatus, stripTuition } = require('../services/studentStatus');
 
 const router = express.Router();
@@ -141,7 +141,7 @@ router.get('/schedule', async (req, res, next) => {
             student: {
               select: {
                 id: true, name: true, active: true, isTrial: true, birthDate: true,
-                classesAcquired: true, suspendedFrom: true, suspendedUntil: true,
+                classesAcquired: true, previousClasses: true, classesStartDate: true, suspendedFrom: true, suspendedUntil: true,
               },
             },
           },
@@ -245,7 +245,7 @@ router.get('/:id/students', async (req, res, next) => {
       : null;
     const before = /^\d{4}-\d{2}-\d{2}$/.test(req.query.date || '')
       ? new Date(`${req.query.date}T00:00:00.000Z`) : undefined;
-    const seenById = await loadSeenById(students, activeSemester, { before });
+    const { seenById, consumedById } = await loadConsumption(students, activeSemester, { before });
 
     // Estado derivado + error de fecha de nacimiento, visibles en el roster
     // del flujo de asistencia (ícono al lado de cada estudiante). Los montos
@@ -258,13 +258,13 @@ router.get('/:id/students', async (req, res, next) => {
         classesSeen,
         // Las clases pendientes del semestre anterior suman al total adquirido
         classesAcquired: (s.classesAcquired || 0) + (s.previousClasses || 0),
-        // Ya vio todo su paquete: "Semestre completado"
+        // Ya consumió todo su paquete (vistas + faltas): 🎓 Graduado
         semesterCompleted: !s.isTrial && computeCompletion({
-          acquired: s.classesAcquired, previous: s.previousClasses, seen: classesSeen,
+          acquired: s.classesAcquired, previous: s.previousClasses, consumed: consumedById[s.id] || 0,
         }).completed,
       };
     });
-    // Quien completó el semestre deja de aparecer en la lista del grupo
+    // Quien completó el semestre (graduado) deja de aparecer en la lista del grupo
     // (salvo que se pida explícitamente, p. ej. para vistas de gestión).
     const showCompleted = req.query.includeCompleted === 'true';
     res.json({ success: true, data: showCompleted ? rows : rows.filter((s) => !s.semesterCompleted) });

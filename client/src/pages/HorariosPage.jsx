@@ -122,7 +122,7 @@ export default function HorariosPage() {
 
         {/* Leyenda: estado de los estudiantes (mismos íconos de todo el sistema) + niveles */}
         <div className="flex items-center gap-3 mb-3 text-xs text-gray" style={{ flexWrap: 'wrap' }}>
-          {['MATRICULADO', 'INSCRITO', 'PREINSCRITO', 'PRUEBA', 'SUSPENDIDO'].map((k) => (
+          {['MATRICULADO', 'INSCRITO', 'GRADUADO', 'PREINSCRITO', 'PRUEBA', 'SUSPENDIDO'].map((k) => (
             <span key={k}>{STUDENT_STATUS[k].icon} {STUDENT_STATUS[k].label}</span>
           ))}
           <span>⚠️ Sin fecha de nac.</span>

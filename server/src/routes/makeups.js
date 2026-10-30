@@ -34,7 +34,7 @@ async function canReportMakeup(user, session) {
 // (ícono junto al nombre en la página de asistencia de la reposición).
 const PARTICIPANT_STUDENT_SELECT = {
   id: true, name: true, active: true, isTrial: true, birthDate: true,
-  classesAcquired: true, suspendedFrom: true, suspendedUntil: true,
+  classesAcquired: true, previousClasses: true, classesStartDate: true, suspendedFrom: true, suspendedUntil: true,
 };
 
 function makeupInclude() {

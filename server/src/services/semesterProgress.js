@@ -21,11 +21,38 @@ const SEMESTER_END_THRESHOLD = 3;
 // ─── Lógica pura ──────────────────────────────────────────────────────────
 
 // total = clases del paquete (adquiridas + pendientes del semestre pasado).
+// `consumed` = clases CONSUMIDAS del paquete (ver consumptionFromRecords): lo
+// que le queda y si ya completó (GRADUADO) salen de ahí, no solo de lo visto.
 // Sin paquete (total 0) no hay nada que "completar".
-function computeCompletion({ acquired = 0, previous = 0, seen = 0 } = {}) {
+function computeCompletion({ acquired = 0, previous = 0, consumed = 0 } = {}) {
   const total = (Number(acquired) || 0) + (Number(previous) || 0);
-  const remaining = Math.max(0, roundUnits(total - seen));
-  return { total, remaining, completed: total > 0 && seen >= total };
+  const remaining = Math.max(0, roundUnits(total - consumed));
+  return { total, remaining, completed: total > 0 && consumed >= total };
+}
+
+// Consumo del paquete de UN estudiante a partir de sus registros PRESENTE /
+// AUSENTE (con session.date, kind, effectiveUnits):
+//   seen      = clases vistas (regla canónica de attendanceStats): PRESENTE, o
+//               AUSENTE en festival
+//   consumed  = vistas + faltas sin justificar: la falta consume la clase (el
+//               estudiante la pagó y no vino: se perdió, no se repone)
+// Las faltas solo cuentan desde su fecha de inicio de clases; JUSTIFICADA y
+// N/A no consumen. Todo con unidades (una reposición doble vale 2).
+// `completedOn` = fecha de la clase con la que llegó a su paquete (`total`).
+function consumptionFromRecords(records, { classesStartDate = null, total = 0 } = {}) {
+  let seen = 0;
+  let consumed = 0;
+  let completedOn = null;
+  const sorted = [...records].sort((a, b) => new Date(a.session?.date) - new Date(b.session?.date));
+  for (const r of sorted) {
+    if (r.status !== 'PRESENTE' && r.status !== 'AUSENTE') continue;
+    if (r.status === 'AUSENTE' && !absenceCounts(r.session?.date, classesStartDate)) continue;
+    const units = attendanceUnits(r.session);
+    if (r.status === 'PRESENTE' || r.session?.kind === 'FESTIVAL') seen += units;
+    consumed += units;
+    if (!completedOn && total > 0 && consumed >= total) completedOn = dbDateStr(r.session.date);
+  }
+  return { seen: roundUnits(seen), consumed: roundUnits(consumed), completedOn };
 }
 
 // Días de la semana de un grupo que NO le tocan al estudiante: aquellos donde
@@ -242,13 +269,15 @@ function loadRegularRecords(ids, semester) {
   });
 }
 
-// Clases vistas por estudiante (unidades) dentro del semestre dado — o
-// históricas si no hay semestre. `before` (Date) limita a sesiones ANTERIORES a
-// esa fecha: sirve para editar el reporte de la clase en que el estudiante
-// justo terminó su paquete sin que desaparezca de su propio roster.
-async function loadSeenById(students, semester, { before } = {}) {
+// Clases vistas y consumidas por estudiante (unidades) dentro del semestre
+// dado — o históricas si no hay semestre. `before` (Date) limita a sesiones
+// ANTERIORES a esa fecha: sirve para editar el reporte de la clase en que el
+// estudiante justo terminó su paquete sin que desaparezca de su propio roster.
+async function loadConsumption(students, semester, { before } = {}) {
   const seenById = {};
-  if (students.length === 0) return seenById;
+  const consumedById = {};
+  const completedOnById = {};
+  if (students.length === 0) return { seenById, consumedById, completedOnById };
   const dateFilter = {};
   if (semester) {
     dateFilter.gte = semester.startDate;
@@ -259,32 +288,34 @@ async function loadSeenById(students, semester, { before } = {}) {
   const records = await prisma.attendanceRecord.findMany({
     where: {
       studentId: { in: students.map((s) => s.id) },
-      AND: [
-        seenAttendanceFilter(),
-        ...(hasFilter ? [{ session: { date: dateFilter } }] : []),
-      ],
+      status: { in: ['PRESENTE', 'AUSENTE'] },
+      ...(hasFilter ? { session: { date: dateFilter } } : {}),
     },
     select: {
       studentId: true, status: true,
-      session: { select: { date: true, effectiveUnits: true } },
+      session: { select: { date: true, kind: true, effectiveUnits: true } },
     },
   });
-  const startById = Object.fromEntries(students.map((s) => [s.id, s.classesStartDate]));
-  for (const r of records) {
-    // AUSENTE de festival anterior al inicio de clases: no consume paquete
-    if (r.status === 'AUSENTE' && !absenceCounts(r.session?.date, startById[r.studentId])) continue;
-    seenById[r.studentId] = (seenById[r.studentId] || 0) + attendanceUnits(r.session);
+  const byStudent = groupBy(records, 'studentId');
+  for (const st of students) {
+    const c = consumptionFromRecords(byStudent[st.id] || [], {
+      classesStartDate: st.classesStartDate,
+      total: (Number(st.classesAcquired) || 0) + (Number(st.previousClasses) || 0),
+    });
+    seenById[st.id] = c.seen;
+    consumedById[st.id] = c.consumed;
+    if (c.completedOn) completedOnById[st.id] = c.completedOn;
   }
-  for (const id of Object.keys(seenById)) seenById[id] = roundUnits(seenById[id]);
-  return seenById;
+  return { seenById, consumedById, completedOnById };
 }
 
 /**
  * Avance de todos los estudiantes activos (no de prueba) en el semestre activo.
- * [] si no hay semestre. Cada fila: total, seen, remaining, completed y, para
- * quienes están por terminar, la fecha estimada de su última clase.
+ * [] si no hay semestre. Cada fila: total, seen (vistas), consumed (vistas +
+ * faltas), remaining, completed (+ completedOn) y la fecha estimada de su
+ * última clase. `studentIds` limita el cálculo (ficha de un estudiante).
  */
-async function computeStudentProgress() {
+async function computeStudentProgress({ studentIds = null } = {}) {
   const semester = await prisma.semester.findFirst({
     where: { active: true },
     include: { exclusions: true },
@@ -293,22 +324,25 @@ async function computeStudentProgress() {
 
   const today = bogotaToday();
   const students = await prisma.student.findMany({
-    where: { active: true, isTrial: false, ...notSuspended(today) },
+    where: {
+      active: true, isTrial: false, ...notSuspended(today),
+      ...(studentIds ? { id: { in: studentIds } } : {}),
+    },
     include: { enrollments: { include: { group: true } } },
     orderBy: { name: 'asc' },
   });
-  const [seenById, regularRecords] = await Promise.all([
-    loadSeenById(students, semester),
+  const [{ seenById, consumedById, completedOnById }, regularRecords] = await Promise.all([
+    loadConsumption(students, semester),
     loadRegularRecords(students.map((s) => s.id), semester),
   ]);
   const skipById = {};
   for (const [id, recs] of Object.entries(groupBy(regularRecords, 'studentId'))) skipById[id] = notMyDays(recs);
 
   // ¿Ya tiene registro hoy? Entonces la clase de hoy ya está contada en
-  // `seen` y la proyección arranca mañana.
+  // lo consumido y la proyección arranca mañana.
   const reportedToday = new Set();
   const hasClassesLeft = (s) => {
-    const c = computeCompletion({ acquired: s.classesAcquired, previous: s.previousClasses, seen: seenById[s.id] || 0 });
+    const c = computeCompletion({ acquired: s.classesAcquired, previous: s.previousClasses, consumed: consumedById[s.id] || 0 });
     return c.total > 0 && !c.completed;
   };
   const leftIds = students.filter(hasClassesLeft).map((s) => s.id);
@@ -324,7 +358,8 @@ async function computeStudentProgress() {
 
   const rows = students.map((s) => {
     const seen = seenById[s.id] || 0;
-    const c = computeCompletion({ acquired: s.classesAcquired, previous: s.previousClasses, seen });
+    const consumed = consumedById[s.id] || 0;
+    const c = computeCompletion({ acquired: s.classesAcquired, previous: s.previousClasses, consumed });
     const groups = s.enrollments.map((e) => e.group).filter((g) => g?.active);
     const nearEnd = c.total > 0 && !c.completed && c.remaining <= SEMESTER_END_THRESHOLD;
     const from = reportedToday.has(s.id) ? tomorrow : today;
@@ -342,9 +377,12 @@ async function computeStudentProgress() {
       groups: groups.map((g) => g.code),
       total: c.total,
       seen,
-      pct: c.total > 0 ? Math.min(100, Math.round((seen / c.total) * 100)) : null,
+      consumed,
+      // Avance = consumidas / paquete (las faltas consumen la clase)
+      pct: c.total > 0 ? Math.min(100, Math.round((consumed / c.total) * 100)) : null,
       remaining: c.remaining,
       completed: c.completed,
+      completedOn: c.completed ? completedOnById[s.id] || null : null,
       nearEnd,
       projectedEnd: end.date,
       endsBeyondSemester: end.beyondSemester,
@@ -434,8 +472,8 @@ async function computeMakeupDebt({ studentIds = null } = {}) {
   const range = { gte: new Date(semester.startDate), lte: new Date(semester.endDate) };
   const upToToday = { gte: new Date(semester.startDate), lte: today < new Date(semester.endDate) ? today : new Date(semester.endDate) };
 
-  const [seenById, regularRecords, rainSessions, justified, makeupSeen] = await Promise.all([
-    loadSeenById(students, semester),
+  const [{ consumedById }, regularRecords, rainSessions, justified, makeupSeen] = await Promise.all([
+    loadConsumption(students, semester),
     loadRegularRecords(ids, semester),
     prisma.classSession.findMany({
       where: {
@@ -455,13 +493,14 @@ async function computeMakeupDebt({ studentIds = null } = {}) {
       where: {
         studentId: { in: ids },
         AND: [
-          seenAttendanceFilter(),
+          // Vista, o falta a una reposición: la perdió, también salda la deuda
+          { OR: [seenAttendanceFilter(), { status: 'AUSENTE', session: { kind: 'MAKEUP' } }] },
           { OR: [{ attendanceType: 'REPOSICION' }, { session: { kind: 'MAKEUP' } }] },
           { session: { date: range } },
         ],
       },
       select: {
-        studentId: true,
+        studentId: true, status: true,
         session: { select: { date: true, kind: true, title: true, effectiveUnits: true, group: { select: { code: true } } } },
       },
     }),
@@ -485,11 +524,15 @@ async function computeMakeupDebt({ studentIds = null } = {}) {
   const madeUpById = {};
   const madeUpItems = {};
   for (const r of makeupSeen) {
+    const absent = r.status === 'AUSENTE' && r.session?.kind === 'MAKEUP';
+    // Falta a una reposición antes de su inicio de clases: no cuenta
+    if (absent && !absenceCounts(r.session?.date, startById[r.studentId])) continue;
     madeUpById[r.studentId] = (madeUpById[r.studentId] || 0) + attendanceUnits(r.session);
     (madeUpItems[r.studentId] ||= []).push({
       date: dbDateStr(r.session.date),
       label: r.session.kind === 'MAKEUP' ? (r.session.title || 'Reposición') : (r.session.group?.code || 'Clase'),
       units: attendanceUnits(r.session),
+      absent,
     });
   }
   const reasonByDate = Object.fromEntries(semester.exclusions.map((e) => [dbDateStr(e.date), e.reason || null]));
@@ -537,7 +580,7 @@ async function computeMakeupDebt({ studentIds = null } = {}) {
     const justifiedCount = justifiedByStudent[s.id] || 0;
     const madeUp = roundUnits(madeUpById[s.id] || 0);
     const c = computeCompletion({
-      acquired: s.classesAcquired, previous: s.previousClasses, seen: seenById[s.id] || 0,
+      acquired: s.classesAcquired, previous: s.previousClasses, consumed: consumedById[s.id] || 0,
     });
     // Sin paquete registrado no hay contra qué topar: no se reporta deuda
     const { pending, calendar } = splitDebt({
@@ -589,7 +632,7 @@ async function computeGroupsProgress() {
     const d = debtById[p.studentId] || {};
     for (const code of p.groups) {
       (studentsByCode[code] ||= []).push({
-        studentId: p.studentId, name: p.name, seen: p.seen, total: p.total, pct: p.pct,
+        studentId: p.studentId, name: p.name, seen: p.seen, consumed: p.consumed, total: p.total, pct: p.pct,
         remaining: p.remaining, completed: p.completed,
         pending: d.pending || 0, calendar: d.calendar || 0,
         rain: d.rain || 0, justified: d.justified || 0, holidays: d.holidays || 0,
@@ -651,7 +694,8 @@ module.exports = {
   classesLeftInSemester,
   projectEndDate,
   holidayDeviationForGroup,
-  loadSeenById,
+  loadConsumption,
+  consumptionFromRecords,
   computeStudentProgress,
   computeGroupHolidayDeviation,
   computeMakeupDebt,

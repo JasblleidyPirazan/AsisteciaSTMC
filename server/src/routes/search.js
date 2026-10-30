@@ -25,7 +25,7 @@ router.get('/', requireRole('ADMIN', 'SUPERADMIN', 'PHYSICAL_TRAINER', 'RECEPTIO
         },
         select: {
           id: true, name: true, document: true, isTrial: true, active: true, birthDate: true,
-          classesAcquired: true, suspendedFrom: true, suspendedUntil: true,
+          classesAcquired: true, previousClasses: true, classesStartDate: true, suspendedFrom: true, suspendedUntil: true,
           enrollments: { select: { enrollmentType: true, group: { select: { code: true } } } },
         },
         take: 8,

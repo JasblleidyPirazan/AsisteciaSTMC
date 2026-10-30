@@ -621,7 +621,7 @@ router.get('/strategy', requireRole('ADMIN'), async (req, res, next) => {
       prisma.student.findMany({
         where: { active: true },
         select: {
-          id: true, active: true, isTrial: true, birthDate: true, classesAcquired: true,
+          id: true, active: true, isTrial: true, birthDate: true, classesAcquired: true, previousClasses: true, classesStartDate: true,
           suspendedFrom: true, suspendedUntil: true, createdAt: true,
           // Grupos del estudiante: la ocupación se calcula por ESTADO
           // (matriculados + inscritos ocupan cupo; preinscritos no).
@@ -675,11 +675,14 @@ router.get('/strategy', requireRole('ADMIN'), async (req, res, next) => {
       newThisPeriod = 0, missingBirthDate = 0;
     for (const s of decoratedStudents) {
       if (s.missingBirthDate) missingBirthDate += 1;
-      if (s.studentStatus === 'PRUEBA') { trial += 1; continue; }
-      if (s.studentStatus === 'SUSPENDIDO') suspendidos += 1;
-      else if (s.studentStatus === 'MATRICULADO') matriculados += 1;
-      else if (s.studentStatus === 'INSCRITO') inscritos += 1;
-      else if (s.studentStatus === 'PREINSCRITO') preinscritos += 1;
+      // Estado de pago sin la graduación: un 🎓 graduado sigue contando como
+      // matriculado/inscrito en la conversión (la ocupación sí lo libera)
+      const st = s.tuitionStatus || s.studentStatus;
+      if (st === 'PRUEBA') { trial += 1; continue; }
+      if (st === 'SUSPENDIDO') suspendidos += 1;
+      else if (st === 'MATRICULADO') matriculados += 1;
+      else if (st === 'INSCRITO') inscritos += 1;
+      else if (st === 'PREINSCRITO') preinscritos += 1;
       if (new Date(s.createdAt) >= from) newThisPeriod += 1;
     }
     const activeStudents = matriculados + inscritos + preinscritos + suspendidos;

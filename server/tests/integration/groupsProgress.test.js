@@ -57,6 +57,9 @@ beforeEach(() => {
     findMany: vi.fn().mockImplementation(({ where }) => {
       if (where.status === 'JUSTIFICADA') return Promise.resolve([]);
       if (JSON.stringify(where).includes('REPOSICION')) return Promise.resolve([]);
+      if (where.status?.in) { // consumo del paquete (PRESENTE / AUSENTE)
+        return Promise.resolve([{ studentId: 'st1', status: 'PRESENTE', session: { date: day('2026-09-07'), kind: 'REGULAR', effectiveUnits: 1 } }]);
+      }
       if (where.session?.date && !where.AND) return Promise.resolve([]); // registros de hoy
       return Promise.resolve([{ studentId: 'st1', status: 'PRESENTE', session: { date: day('2026-09-07'), effectiveUnits: 1 } }]);
     }),
