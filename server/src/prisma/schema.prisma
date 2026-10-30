@@ -192,6 +192,9 @@ model StudentEnrollment {
   groupId        String         @map("group_id")
   enrollmentType EnrollmentType @default(PRIMARY) @map("enrollment_type")
   enrolledAt     DateTime       @default(now()) @map("enrolled_at")
+  // Días de la semana que toma en este grupo (0 = domingo … 6 = sábado).
+  // null = todos los días del grupo.
+  weekdays       Int[]          @map("weekdays")
 
   student Student @relation(fields: [studentId], references: [id])
   group   Group   @relation(fields: [groupId], references: [id])

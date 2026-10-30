@@ -389,7 +389,7 @@ const TABLES = [
     table: 'student_enrollments',
     delegate: 'studentEnrollment',
     group: 'Catalogue',
-    description: 'Membership of a student in a group. Composite primary key (student, group): a student can belong to several groups, one of them PRIMARY.',
+    description: 'Membership of a student in a group. Composite primary key (student, group): a student can belong to several groups, one of them PRIMARY. Also has a `weekdays` integer-array column (0 = Sunday … 6 = Saturday) with the days of the week the student takes in this group; NULL or empty = every day of the group. It is a list column, so it is not part of the per-column dictionary below.',
     columns: [
       col('student_id', 'studentId', 'text', false, 'Student.', { key: 'PK, FK → students.id' }),
       col('group_id', 'groupId', 'text', false, 'Group.', { key: 'PK, FK → groups.id' }),

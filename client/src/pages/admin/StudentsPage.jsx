@@ -3,6 +3,7 @@ import { useNavigate, useLocation } from 'react-router-dom';
 import { api } from '../../api/client';
 import { useAuth } from '../../hooks/useAuth';
 import { bogotaTodayStr } from '../../utils/dates';
+import { WeekdayPicker, weekdaysLabel, storedWeekdays } from '../../utils/weekdays';
 import PageBack from '../../components/PageBack';
 import EmptyState from '../../components/EmptyState';
 import { toast } from '../../utils/toast';
@@ -157,6 +158,10 @@ export default function StudentsPage() {
   const [groupAction, setGroupAction] = useState('transfer'); // 'transfer' | 'add'
   const [fromGroupId, setFromGroupId] = useState('');
   const [targetGroupId, setTargetGroupId] = useState('');
+  // Días que toma en el grupo destino (null = todos) y borrador de días por matrícula actual
+  const [targetDays, setTargetDays] = useState(null);
+  const [daysDraft, setDaysDraft] = useState({}); // { [groupId]: días | null }
+  const [daysSaving, setDaysSaving] = useState('');
   const [groupReason, setGroupReason] = useState('');
   const [groupSaving, setGroupSaving] = useState(false);
   const [groupError, setGroupError] = useState('');
@@ -519,6 +524,8 @@ export default function StudentsPage() {
     setGroupAction('transfer');
     setFromGroupId(student.enrollments?.[0]?.group?.id || '');
     setTargetGroupId('');
+    setTargetDays(null);
+    setDaysDraft({});
     setGroupReason('');
     setGroupError('');
   }
@@ -534,11 +541,13 @@ export default function StudentsPage() {
           fromGroupId: fromGroupId || undefined,
           toGroupId: targetGroupId,
           reason: groupReason || undefined,
+          weekdays: targetDays,
         });
       } else {
         await api.post(`/students/${manageTarget.id}/enrollments`, {
           groupId: targetGroupId,
           enrollmentType: 'SECONDARY',
+          weekdays: targetDays,
         });
         updated = await api.get(`/students/${manageTarget.id}`);
       }
@@ -548,6 +557,29 @@ export default function StudentsPage() {
       setGroupError(err.message);
     } finally {
       setGroupSaving(false);
+    }
+  }
+
+  // Guarda los días que el estudiante toma en un grupo en el que ya está
+  async function saveEnrollmentDays(enrollment) {
+    const groupId = enrollment.group?.id;
+    const weekdays = groupId in daysDraft ? daysDraft[groupId] : storedWeekdays(enrollment.weekdays);
+    setDaysSaving(groupId);
+    setGroupError('');
+    try {
+      const saved = await api.patch(`/students/${manageTarget.id}/enrollments/${groupId}`, { weekdays });
+      const apply = (s) => (s.id === manageTarget.id
+        ? { ...s, enrollments: s.enrollments.map((e) => (e.group?.id === groupId ? { ...e, weekdays: saved.weekdays } : e)) }
+        : s);
+      setStudents((prev) => prev.map(apply));
+      setManageTarget((m) => apply(m));
+      setDetail((d) => (d?.student ? { ...d, student: apply(d.student) } : d));
+      setDaysDraft((d) => { const { [groupId]: _gone, ...rest } = d; return rest; });
+      toast.success('Días guardados');
+    } catch (err) {
+      setGroupError(err.message);
+    } finally {
+      setDaysSaving('');
     }
   }
 
@@ -585,7 +617,13 @@ export default function StudentsPage() {
             </div>
             <div className="flex items-center gap-2 mt-1" style={{ flexWrap: 'wrap' }}>
               {g?.ballLevel && <span className="chip"><span className="legend-dot" style={{ background: BALL_COLOR[g.ballLevel] || 'var(--gray-400)' }} /> {g.ballLevel}{g.subLevel || ''}</span>}
-              {g?.code && <span className="chip">{g.code}</span>}
+              {(st.enrollments || []).length > 0
+                ? [...st.enrollments].sort((a, b) => (a.enrollmentType === 'PRIMARY' ? -1 : 1) - (b.enrollmentType === 'PRIMARY' ? -1 : 1)).map((e) => (
+                  <span key={e.group?.id} className="chip" title={weekdaysLabel(e.weekdays) ? 'Días que toma en este grupo' : 'Toma todos los días del grupo'}>
+                    {e.group?.code}{weekdaysLabel(e.weekdays) ? ` · ${weekdaysLabel(e.weekdays)}` : ''}
+                  </span>
+                ))
+                : g?.code && <span className="chip">{g.code}</span>}
               {g?.professor?.name && <span className="chip">{g.professor.name}</span>}
               {age != null && <span className="chip">{age} años</span>}
             </div>
@@ -1401,18 +1439,33 @@ export default function StudentsPage() {
             {manageTarget.enrollments?.length > 0 && (
               <div className="mb-3">
                 <div className="text-xs text-gray mb-1">Grupos actuales:</div>
-                {manageTarget.enrollments.map((e) => (
-                  <div key={e.group?.id} className="flex items-center justify-between mb-1">
-                    <span className="text-sm">{e.group?.code} <span className="text-xs text-gray">({e.enrollmentType === 'PRIMARY' ? 'Principal' : 'Secundario'})</span></span>
-                    <button
-                      className="btn btn-ghost"
-                      style={{ minHeight: 26, padding: '0 6px', fontSize: '0.7rem', color: 'var(--red)' }}
-                      onClick={() => { handleRemoveGroup(manageTarget.id, e.group?.id); setManageTarget(null); }}
-                    >
-                      Quitar
-                    </button>
-                  </div>
-                ))}
+                {manageTarget.enrollments.map((e) => {
+                  const gid = e.group?.id;
+                  const draft = gid in daysDraft;
+                  return (
+                    <div key={gid} className="mb-2" style={{ paddingBottom: 6, borderBottom: '1px solid var(--border)' }}>
+                      <div className="flex items-center justify-between mb-1">
+                        <span className="text-sm">{e.group?.code} <span className="text-xs text-gray">({e.enrollmentType === 'PRIMARY' ? 'Principal' : 'Secundario'})</span></span>
+                        <button
+                          className="btn btn-ghost"
+                          style={{ minHeight: 26, padding: '0 6px', fontSize: '0.7rem', color: 'var(--red)' }}
+                          onClick={() => { handleRemoveGroup(manageTarget.id, gid); setManageTarget(null); }}
+                        >
+                          Quitar
+                        </button>
+                      </div>
+                      <div className="text-xs text-gray mb-1">Días que toma:</div>
+                      <WeekdayPicker group={groups.find((g) => g.id === gid) || e.group} value={draft ? daysDraft[gid] : e.weekdays}
+                        onChange={(v) => setDaysDraft({ ...daysDraft, [gid]: v })} />
+                      {draft && (
+                        <button className="btn btn-primary mt-1" style={{ minHeight: 28, fontSize: '0.75rem' }}
+                          disabled={daysSaving === gid} onClick={() => saveEnrollmentDays(e)}>
+                          {daysSaving === gid ? 'Guardando…' : 'Guardar días'}
+                        </button>
+                      )}
+                    </div>
+                  );
+                })}
               </div>
             )}
 
@@ -1451,13 +1504,20 @@ export default function StudentsPage() {
             <div className="form-group">
               <label className="form-label">Grupo destino *</label>
               <select className="form-input form-select" value={targetGroupId}
-                onChange={(e) => setTargetGroupId(e.target.value)}>
+                onChange={(e) => { setTargetGroupId(e.target.value); setTargetDays(null); }}>
                 <option value="">Seleccionar grupo</option>
                 {groups
                   .filter((g) => !manageTarget.enrollments?.some((e) => e.group?.id === g.id))
                   .map((g) => <option key={g.id} value={g.id}>{g.code}</option>)}
               </select>
             </div>
+
+            {targetGroupId && (
+              <div className="form-group">
+                <label className="form-label">Días que toma en el grupo</label>
+                <WeekdayPicker group={groups.find((g) => g.id === targetGroupId)} value={targetDays} onChange={setTargetDays} />
+              </div>
+            )}
 
             {groupAction === 'transfer' && (
               <div className="form-group">
