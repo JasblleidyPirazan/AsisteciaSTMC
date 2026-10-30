@@ -292,6 +292,16 @@ router.get('/preinscritos', requireRole('ADMIN', 'PHYSICAL_TRAINER'), async (req
   }
 });
 
+// Solo cuentan los estudiantes ✅ matriculados y 🔵 inscritos: un 📝 preinscrito
+// (sin pagos ni asistencia) todavía no es una clase comprometida por la Escuela.
+// Pruebas, suspendidos e inactivos ya quedan fuera del cálculo de avance.
+const COMMITTED_STATUSES = ['INSCRITO', 'MATRICULADO'];
+async function committedStudentIds() {
+  const students = await prisma.student.findMany({ where: { active: true, isTrial: false } });
+  const decorated = await attachStudentStatus(students);
+  return new Set(decorated.filter((s) => COMMITTED_STATUSES.includes(s.studentStatus)).map((s) => s.id));
+}
+
 /**
  * Panel de Gestión — "¿estamos dando las clases que los estudiantes pagaron?"
  *  - summary: cumplimiento global del semestre (pagadas, vistas, faltan) y de
@@ -304,11 +314,16 @@ router.get('/preinscritos', requireRole('ADMIN', 'PHYSICAL_TRAINER'), async (req
  *  - nearEnd: les faltan 3 clases o menos para completar su paquete.
  * Los festivos / recesos son CLASES POR RECUPERAR POR CALENDARIO: no son
  * reposición, se recuperan corriendo el calendario (ver splitDebt).
- * Quien ya completó el semestre no aparece en ninguna lista.
+ * Quien ya completó el semestre no aparece en ninguna lista. Solo cuentan
+ * los estudiantes inscritos y matriculados (ver committedStudentIds).
  */
 router.get('/coordinator', requireRole('ADMIN', 'PHYSICAL_TRAINER'), async (req, res, next) => {
   try {
-    const [{ rows: progress }, { rows: debt }] = await Promise.all([computeStudentProgress(), computeMakeupDebt()]);
+    const [{ rows: allProgress }, { rows: allDebt }, committed] = await Promise.all([
+      computeStudentProgress(), computeMakeupDebt(), committedStudentIds(),
+    ]);
+    const progress = allProgress.filter((p) => committed.has(p.studentId));
+    const debt = allDebt.filter((d) => committed.has(d.studentId));
     const debtById = Object.fromEntries(debt.map((d) => [d.studentId, d]));
     const completedIds = new Set(progress.filter((p) => p.completed).map((p) => p.studentId));
     const withPackage = progress.filter((p) => p.total > 0);

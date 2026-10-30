@@ -94,8 +94,15 @@ describe('GET /alerts/coordinator', () => {
         enr({ ...base, id: 'debt', name: 'Debe', classesAcquired: 40 }),     // 2 lluvia + 2 justificadas
         enr({ ...base, id: 'abs', name: 'Falta', classesAcquired: 40 }),     // solo ausencias: NO debe
         enr({ ...base, id: 'done', name: 'Lista', classesAcquired: 1 }),
+        // Preinscrito (sin pagos ni asistencia): no entra al cumplimiento
+        enr({ ...base, id: 'pre', name: 'Pre', classesAcquired: 40 }),
       ]),
     };
+    // Todos han pagado algo (inscritos) salvo 'pre'
+    prismaMock.studentPayment = {
+      groupBy: vi.fn().mockResolvedValue(['near', 'debt', 'abs', 'done'].map((studentId) => ({ studentId, _sum: { amount: 100000 } }))),
+    };
+    prismaMock.systemConfig = { findMany: vi.fn().mockResolvedValue([]) };
     const seen = (id, n) => Array.from({ length: n }, (_, i) => rec(id, `2026-02-${String(i + 1).padStart(2, '0')}`));
     prismaMock.classSession = {
       findMany: vi.fn().mockResolvedValue([rain('2026-02-02'), rain('2026-02-09')]),
@@ -108,6 +115,7 @@ describe('GET /alerts/coordinator', () => {
         if (JSON.stringify(where).includes('REPOSICION')) return Promise.resolve([]);
         return Promise.resolve([...seen('near', 8), ...seen('done', 1)]); // clases vistas
       }),
+      groupBy: vi.fn().mockResolvedValue([]),
     };
   });
 
@@ -124,6 +132,9 @@ describe('GET /alerts/coordinator', () => {
     expect(nearEnd.map((s) => s.studentId)).toEqual(['near']);
     expect(nearEnd[0].remaining).toBe(2);
     expect(completedCount).toBe(1);
+    // 'pre' (preinscrito) no aparece en ninguna lista ni suma al cumplimiento
+    expect(makeups.find((m) => m.studentId === 'pre')).toBeUndefined();
+    expect(res.body.data.shortfall.find((m) => m.studentId === 'pre')).toBeUndefined();
     // Cumplimiento: pagadas 10+40+40+1, vistas 8+1
     expect(summary).toMatchObject({ students: 4, completed: 1, paid: 91, seen: 9, remaining: 82 });
     // Reposición: debt 4 + abs 2 + near 2. Calendario: debt 2 + abs 2; a 'near' solo le

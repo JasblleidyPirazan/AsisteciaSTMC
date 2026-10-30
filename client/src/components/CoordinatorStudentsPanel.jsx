@@ -43,7 +43,7 @@ export default function CoordinatorStudentsPanel() {
         </span>
       </div>
       <p className="text-xs text-gray mb-3">
-        Semestre activo · {plural(s.students, 'estudiante', 'estudiantes')} con paquete · {n(s.completed)} ya completaron
+        Semestre activo · {plural(s.students, 'estudiante', 'estudiantes')} inscritos y matriculados · {n(s.completed)} ya completaron
       </p>
 
       <div className="flex items-center gap-2 mb-1">
