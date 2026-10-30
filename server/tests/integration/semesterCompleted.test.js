@@ -130,12 +130,22 @@ describe('GET /alerts/coordinator', () => {
     const original = prismaMock.attendanceRecord.findMany.getMockImplementation();
     prismaMock.attendanceRecord.findMany.mockImplementation((args) =>
       JSON.stringify(args.where).includes('REPOSICION')
-        ? Promise.resolve([{ studentId: 'debt', session: { effectiveUnits: 2 } }])
+        ? Promise.resolve([{ studentId: 'debt', session: { date: new Date('2026-09-20T00:00:00Z'), kind: 'MAKEUP', title: 'Reposición', effectiveUnits: 2 } }])
         : original(args));
     const res = await request(alertsApp).get('/api/alerts/coordinator')
       .set('Authorization', `Bearer ${authAs('PHYSICAL_TRAINER')}`);
     // debía 6, repuso 2 → 4: sigue sobre el umbral
     expect(res.body.data.makeups.find((m) => m.studentId === 'debt').pending).toBe(4);
+  });
+
+  it('detalle por estudiante: lista las clases que originan la deuda', async () => {
+    const { computeMakeupDebt } = await import('../../src/services/semesterProgress.js');
+    const { rows } = await computeMakeupDebt();
+    const debt = rows.find((r) => r.studentId === 'debt');
+    const byType = (t) => debt.items.filter((i) => i.type === t).length;
+    expect({ rain: byType('RAIN'), justified: byType('JUSTIFIED'), holidays: byType('HOLIDAY') })
+      .toEqual({ rain: 2, justified: 2, holidays: 2 });
+    expect(debt.items.map((i) => i.date)).toEqual([...debt.items.map((i) => i.date)].sort());
   });
 
   it('un profesor no puede ver el panel', async () => {

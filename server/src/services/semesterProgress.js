@@ -383,7 +383,7 @@ async function computeMakeupDebt({ studentIds = null } = {}) {
         studentId: { in: ids }, status: 'JUSTIFICADA',
         session: { kind: 'REGULAR', date: range },
       },
-      select: { studentId: true, session: { select: { date: true } } },
+      select: { studentId: true, session: { select: { date: true, group: { select: { code: true } } } } },
     }),
     prisma.attendanceRecord.findMany({
       where: {
@@ -394,7 +394,10 @@ async function computeMakeupDebt({ studentIds = null } = {}) {
           { session: { date: range } },
         ],
       },
-      select: { studentId: true, session: { select: { effectiveUnits: true } } },
+      select: {
+        studentId: true,
+        session: { select: { date: true, kind: true, title: true, effectiveUnits: true, group: { select: { code: true } } } },
+      },
     }),
   ]);
 
@@ -404,14 +407,27 @@ async function computeMakeupDebt({ studentIds = null } = {}) {
   for (const r of regularRecords) (recordsByStudent[r.studentId] ||= []).push(r);
   const dow = (d) => new Date(`${d}T00:00:00Z`).getUTCDay();
   const justifiedByStudent = {};
+  const justifiedItems = {};
   const startById = Object.fromEntries(students.map((s) => [s.id, s.classesStartDate]));
   for (const r of justified) {
     // Antes de que el estudiante empezara clases no es una falta real
     if (!absenceCounts(r.session?.date, startById[r.studentId])) continue;
     justifiedByStudent[r.studentId] = (justifiedByStudent[r.studentId] || 0) + 1;
+    (justifiedItems[r.studentId] ||= []).push({
+      type: 'JUSTIFIED', date: dbDateStr(r.session.date), groupCode: r.session.group?.code || null,
+    });
   }
   const madeUpById = {};
-  for (const r of makeupSeen) madeUpById[r.studentId] = (madeUpById[r.studentId] || 0) + attendanceUnits(r.session);
+  const madeUpItems = {};
+  for (const r of makeupSeen) {
+    madeUpById[r.studentId] = (madeUpById[r.studentId] || 0) + attendanceUnits(r.session);
+    (madeUpItems[r.studentId] ||= []).push({
+      date: dbDateStr(r.session.date),
+      label: r.session.kind === 'MAKEUP' ? (r.session.title || 'Reposición') : (r.session.group?.code || 'Clase'),
+      units: attendanceUnits(r.session),
+    });
+  }
+  const reasonByDate = Object.fromEntries(semester.exclusions.map((e) => [dbDateStr(e.date), e.reason || null]));
 
   const todayStr = dbDateStr(today);
   // Sin repetidos: una misma fecha cargada dos veces es un solo festivo
@@ -434,6 +450,7 @@ async function computeMakeupDebt({ studentIds = null } = {}) {
   const rows = students.map((s) => {
     let rain = 0;
     let holidays = 0;
+    const items = [...(justifiedItems[s.id] || [])];
     const skip = notMyDays(recordsByStudent[s.id] || []);
     for (const e of s.enrollments) {
       if (!e.group?.active) continue;
@@ -442,11 +459,16 @@ async function computeMakeupDebt({ studentIds = null } = {}) {
         ...(s.classesStartDate ? [new Date(s.classesStartDate)] : [])
       ));
       const floorStr = dbDateStr(floor);
-      rain += (rainByGroup[e.groupId] || []).filter((d) => d >= floorStr && !skip.has(`${e.groupId}:${dow(d)}`)).length;
+      const rainDates = (rainByGroup[e.groupId] || []).filter((d) => d >= floorStr && !skip.has(`${e.groupId}:${dow(d)}`));
       // Festivos / fechas excluidas ya pasadas que caían en un día de su grupo
-      holidays += exclusionDates.filter((d) => d >= floorStr && e.group[DAY_FIELDS[dow(d)]]
-        && !skip.has(`${e.groupId}:${dow(d)}`) && !heldOnHoliday.has(`${e.groupId}:${d}`)).length;
+      const holidayDates = exclusionDates.filter((d) => d >= floorStr && e.group[DAY_FIELDS[dow(d)]]
+        && !skip.has(`${e.groupId}:${dow(d)}`) && !heldOnHoliday.has(`${e.groupId}:${d}`));
+      rain += rainDates.length;
+      holidays += holidayDates.length;
+      for (const d of rainDates) items.push({ type: 'RAIN', date: d, groupCode: e.group.code });
+      for (const d of holidayDates) items.push({ type: 'HOLIDAY', date: d, groupCode: e.group.code, reason: reasonByDate[d] });
     }
+    items.sort((a, b) => a.date.localeCompare(b.date));
     const justifiedCount = justifiedByStudent[s.id] || 0;
     const madeUp = roundUnits(madeUpById[s.id] || 0);
     const c = computeCompletion({
@@ -460,6 +482,10 @@ async function computeMakeupDebt({ studentIds = null } = {}) {
       name: s.name,
       groups: s.enrollments.map((e) => e.group).filter((g) => g?.active).map((g) => g.code),
       rain, justified: justifiedCount, holidays, madeUp, pending,
+      remaining: c.remaining,
+      // Detalle: clases que originan la deuda y reposiciones ya vistas
+      items,
+      madeUpItems: (madeUpItems[s.id] || []).sort((a, b) => a.date.localeCompare(b.date)),
     };
   });
   return { semester, rows };
