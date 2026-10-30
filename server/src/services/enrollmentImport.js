@@ -7,6 +7,7 @@
  */
 const XLSX = require('xlsx');
 const prisma = require('../lib/prisma');
+const { parseDayLetters, normalizeWeekdays } = require('../lib/weekdays');
 
 // ---------- helpers de parseo ----------
 
@@ -50,6 +51,23 @@ function parseDays(diasStr, code) {
   return out;
 }
 
+// Días que toma el estudiante en el grupo según la columna "Días" del Excel.
+// Devuelve null (todos los días del grupo) o la lista de días; agrega un aviso
+// a `warnings` cuando la celda trae letras desconocidas o días que el grupo no tiene.
+function enrollmentWeekdays(rec, group, warnings = []) {
+  if (rec.weekdaysText == null) return null;
+  const { days, invalid } = parseDayLetters(rec.weekdaysText);
+  const who = `${rec.name} · grupo ${rec.code}`;
+  if (invalid.length) warnings.push(`${who}: letras de día no reconocidas (${invalid.join(', ')}); usa L, M, X, J, V, S, D`);
+  if (!days) return null;
+  const r = normalizeWeekdays(days, group);
+  if (r.error) {
+    warnings.push(`${who}: ${r.error}; se dejó con todos los días del grupo`);
+    return null;
+  }
+  return r.value;
+}
+
 function parseHorario(h) {
   const m = String(h || '').match(/(\d{1,2}):(\d{2})\s*-\s*(\d{1,2}):(\d{2})/);
   if (!m) return { startTime: '00:00', endTime: '00:00', durationMinutes: 0 };
@@ -88,6 +106,9 @@ function parseRecords(wb) {
     doc: col('Documento'), birth: col('Fecha de nacimiento'), wa: col('Número de WA'),
     guardian: col('Acudiente'), email: col('Correo electrónico'), start: col('Fecha de inicio'),
     pago: col('Estado de pago'), clases: col('Clases canceladas'),
+    // OJO: 'Días' (días que TOMA el estudiante: L, M, X, J, V, S, D) no es
+    // 'DÍAS' (horario del grupo). La búsqueda distingue mayúsculas a propósito.
+    studentDays: col('Días'),
   };
   return rows.slice(hIdx + 1)
     .filter((r) => clean(r[idx.name]))
@@ -100,6 +121,8 @@ function parseRecords(wb) {
       professor: clean(r[idx.prof]),
       horario: clean(r[idx.horario]),
       dias: clean(r[idx.dias]),
+      // Días que toma el estudiante en este grupo (null = todos). Sin columna → null.
+      weekdaysText: idx.studentDays >= 0 ? clean(r[idx.studentDays]) : null,
       document: clean(r[idx.doc]),
       birthDate: excelDate(r[idx.birth]),
       phone: clean(r[idx.wa]),
@@ -338,6 +361,13 @@ async function importFromBuffer(buffer, { dryRun = false, user = null } = {}) {
     groupByCode[code] = g.id;
   }
 
+  // Días de clase de cada grupo (como lo dejó el paso 2), para validar la columna "Días"
+  const groupForDays = {};
+  for (const code of Object.keys(groupByCode)) {
+    const r = records.find((x) => x.code === code);
+    groupForDays[code] = { code, ...parseDays(r.dias, code) };
+  }
+
   // 3) Estudiantes + matrículas
   let created = 0, updated = 0, moved = 0;
   const idByDoc = {};
@@ -384,10 +414,14 @@ async function importFromBuffer(buffer, { dryRun = false, user = null } = {}) {
         }
       }
       const startAt = recs[i].startDate ? { enrolledAt: recs[i].startDate } : {};
+      // Días que toma: se valida contra el horario del grupo; si algo no cuadra
+      // se avisa y se deja "todos los días del grupo" (no se detiene la carga).
+      const days = enrollmentWeekdays(recs[i], groupForDays[code], warnings);
       await prisma.studentEnrollment.upsert({
         where: { studentId_groupId: { studentId: student.id, groupId } },
-        create: { studentId: student.id, groupId, enrollmentType: type, ...startAt },
-        update: { enrollmentType: type, ...startAt },  // aplica "Fecha de inicio" también al re-importar
+        create: { studentId: student.id, groupId, enrollmentType: type, weekdays: days || [], ...startAt },
+        // aplica "Fecha de inicio" y "Días" también al re-importar; sin columna "Días" no se pisa lo ya guardado
+        update: { enrollmentType: type, ...(recs[i].weekdaysText !== null ? { weekdays: days || [] } : {}), ...startAt },
       });
     }
   }
@@ -431,4 +465,4 @@ async function importFromBuffer(buffer, { dryRun = false, user = null } = {}) {
   };
 }
 
-module.exports = { importFromBuffer, parseRecords, parsePayments, parseBirthDates, importBirthDates };
+module.exports = { importFromBuffer, parseRecords, parsePayments, parseBirthDates, importBirthDates, enrollmentWeekdays };

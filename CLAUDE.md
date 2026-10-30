@@ -122,7 +122,7 @@ CORS_ORIGIN        # URL del dominio en Railway (ej: https://asisteciastmc.up.ra
 | `Assistant` | Asistentes (puede tener User vinculado) |
 | `Student` | Estudiantes, vinculados a un padre (parentUserId). `classesAcquired` = clases compradas. Estado derivado `studentStatus` (ver notas 44 y 55): PRUEBA/PREINSCRITO/INSCRITO/MATRICULADO/**GRADUADO**/SUSPENDIDO/INACTIVO — se calcula de pagos+tarifas (la asistencia ya no cambia el estado: D7) y de si consumió su paquete (GRADUADO), NO del checkbox `paymentComplete` (columna legacy sin uso). Suspensión temporal con `suspendedFrom/Until/Reason` (excluido de rosters por query, sin cron) |
 | `Group` | Grupos de clase: días, horario, cancha, nivel (Roja/Naranja/Verde/Amarilla/Intermedio/Avanzado) + `subLevel` A/B/C informativo (solo los 4 colores) |
-| `StudentEnrollment` | Relación estudiante↔grupo (PRIMARY o SECONDARY) |
+| `StudentEnrollment` | Relación estudiante↔grupo (PRIMARY o SECONDARY). `weekdays` (`Int[]`, 0 = domingo … 6 = sábado) = días que el estudiante toma en ese grupo; `null`/vacío = todos los días del grupo (D9, nota 56) |
 | `ClassSession` | Sesión de clase: PROGRAMADA/REALIZADA/CANCELADA/CANCELADA_MITAD(legacy). `kind` REGULAR/MAKEUP/FESTIVAL. Cancelación estructurada (`cancellationCategory` LLUVIA/SIN_ESTUDIANTES/OTRA). "No dicté la clase yo": `dictatedByOwner` + `notDictatedNote` obligatoria. Pago suspendido: `firstReportedAt` (solo primer reporte) + `paymentUnlocked*`. Triple coincidencia: `assistantConfirmedId/At` + `coordinatorValidated*`. Festivales: `festivalRate` |
 | `FestivalProfessor` | Profesores participantes de un festival (M2M sessionId+professorId); cada uno cobra `festivalRate` (pago igualitario) |
 | `MakeupParticipant` | Estudiantes asignados a una reposición grupal (sessionId + studentId). `bookedAt` = lo reservó el acudiente desde su enlace (nota 53) |
@@ -260,8 +260,9 @@ Desde la base de datos o el seed, crear un `User` con `role: 'PHYSICAL_TRAINER'`
 - `PATCH /api/makeup-booking/admin/suggestions/:id` (ADMIN/Coordinador) — `{ resolved }`
 
 ### Estudiantes — gestión de grupos
-- `POST /api/students/:id/transfer` — cambiar grupo (registra historial). Body: `{ fromGroupId?, toGroupId, reason? }`
-- `POST /api/students/:id/enrollments` — agregar a grupo adicional
+- `POST /api/students/:id/transfer` — cambiar grupo (registra historial). Body: `{ fromGroupId?, toGroupId, reason?, weekdays? }`
+- `POST /api/students/:id/enrollments` — agregar a grupo adicional. Body: `{ groupId, enrollmentType?, weekdays? }`
+- `PATCH /api/students/:id/enrollments/:groupId` — cambia solo los días que toma en ese grupo: `{ weekdays }` (`null` = todos) (ADMIN/SUPERADMIN/Coordinador)
 - `DELETE /api/students/:id/enrollments/:groupId` — quitar de un grupo
 - `DELETE /api/students/:id` — desactivar; **requiere `reason` en el body**
 
@@ -303,6 +304,11 @@ Desde la base de datos o el seed, crear un `User` con `role: 'PHYSICAL_TRAINER'`
 - `DELETE /api/semesters/:id` — eliminar semestre (ADMIN)
 - `POST /api/semesters/:id/exclusions` — agregar fecha excluida (ADMIN)
 - `DELETE /api/semesters/:id/exclusions/:exclId` — eliminar fecha excluida (ADMIN)
+
+### Ledger del paquete (nota 59)
+- `GET /api/ledger` (ADMIN/SUPERADMIN/Coordinador/Recepción) — `{ semester, window, today, summary, ledgers }`; filtros `groupId`, `semaforo` (VERDE/AMBAR/ROJO/GRIS), `q` (nombre o documento, sin tildes). Ordenado por urgencia (déficit → por agendar → sin consolidar)
+- `GET /api/ledger/groups` (ADMIN/SUPERADMIN/Coordinador) — por grupo: plan, dadas, festivos (con fecha y motivo), lluvia, fin planeado/estimado y agregados de sus estudiantes
+- `GET /api/ledger/:studentId` — un ledger (+ Profesor solo de sus grupos, Padre solo su hijo)
 
 ### Portal padres
 - `GET /api/parent/children`
@@ -389,7 +395,7 @@ pura se prueba directo y las rutas usan un Prisma mockeado.
   - `attendanceStats` → regla P/A/J (`isSeenRecord`, `seenAttendanceFilter`)
 - `tests/integration/` — rutas con **supertest**:
   - `auth.middleware` → `authMiddleware` (401 sin/mal token, usuario inactivo) + `requireRole` (403)
-  - `sessions.guards` → guard `canReportGroup()` de `POST /sessions` por cada rol
+  - `sessions.guards` → permisos de `POST /sessions` por cada rol (`lib/permissions.js`); `permissions`/`semesterWindow` (unit) y `makeups.flow` cubren el resto
 - `tests/helpers/mockPrisma.js` — el server es CommonJS, así que los `require('../lib/prisma')`
   anidados van por el `require.cache` de Node, que **vitest no intercepta** con `vi.mock`. El
   helper inyecta un mock de Prisma en `require.cache` **antes** de importar cualquier router
@@ -439,7 +445,7 @@ Si un test revela un bug real de la lógica de negocio, reportarlo antes de corr
 
 ### Autorización por recurso (server-side)
 
-- **Sesiones (crear/finalizar/cancelar):** guard `canReportGroup()` en `sessions.js` — ADMIN/PF cualquier grupo; TEACHER solo grupos donde es titular; PARENT solo grupos con un hijo inscrito; ASSISTANT denegado (usa `/assist`)
+- **Reportar / cancelar (clases regulares, reposiciones y festivales):** una sola función, `canReport(user, session, professorId)` en `server/src/lib/permissions.js` (reemplaza a los antiguos `canReportGroup`, `canReportMakeup` y `canReportFestival`, que no coincidían entre sí) — SUPERADMIN y Coordinador siempre; ADMIN solo MAKEUP y FESTIVAL (en clases regulares es solo-lectura); TEACHER en REGULAR si es el titular del grupo, en MAKEUP si es el profesor asignado o el sustituto, en FESTIVAL nunca; PARENT, ASSISTANT y Recepción nunca (el asistente acompaña por `/assist`). `professorIdOf(user)` resuelve el `Professor` vinculado al usuario
 - **Reportes:** grupo/clase → ADMIN, PF, TEACHER; estudiante → + PARENT (solo su hijo); asistente → ASSISTANT solo el propio; profesor → TEACHER solo el propio, PF lo ve **sin montos de pago**
 - **Reporte de clase:** `totalCost` solo para ADMIN o el profesor que dictó (titular o sustituto); para el resto va `null`
 - **Dashboard:** `totalPayableThisPeriod` (pago de la quincena actual, agregado por `period`) solo se envía a ADMIN (`null` para los demás — no solo oculto en UI). Reemplazó al total mensual
@@ -466,7 +472,7 @@ Las siguientes páginas admin están en el menú pero aún no tienen implementac
 
 ## Reglas de negocio del paquete
 
-> **Fuente de verdad.** Estas reglas son decisiones cerradas del cliente y **prevalecen** sobre cualquier nota técnica de abajo que las contradiga. El detalle completo, los casos de prueba y el plan de implementación (tareas T1–T10) están en `docs/brief-implementacion.md`. Hasta que se completen las tareas T4–T6, partes del código aún calculan con las reglas anteriores; la implementación objetivo es el servicio `studentLedger` descrito aquí.
+> **Fuente de verdad.** Estas reglas son decisiones cerradas del cliente y **prevalecen** sobre cualquier nota técnica de abajo que las contradiga. El detalle completo, los casos de prueba y el plan de implementación (tareas T1–T10) están en `docs/brief-implementacion.md`. `buildLedger` (T4, nota 58), su cargador `loadLedgers` y los endpoints `/api/ledger` (T5, nota 59) ya existen, pero las pantallas y rutas actuales **todavía no los usan**: hasta que se complete T6, el código existente (`semesterProgress.js`, `studentStatus.js`, rutas de reportes) sigue calculando con las reglas anteriores.
 
 ### 0. Decisiones de negocio (cerradas)
 
@@ -799,6 +805,32 @@ cd client && npm run build
     - **Ficha del estudiante**: "🎓 Fin de semestre <fecha>" si ya graduó, o "Fin de semestre estimado <fecha>" si sigue en curso (`GET /students/:id/makeup-debt` → `progress {total, seen, consumed, remaining, pct, completedOn, projectedEnd}`), más el recuadro "Avance (asistencias + faltas) · le quedan N".
     - Todos los `select` de estudiantes que alimentan `attachStudentStatus` incluyen `previousClasses` y `classesStartDate` (festivales, horarios, reposiciones, buscador, Visión Estratégica).
     - Tests: `tests/unit/semesterProgress.test.js` (`consumptionFromRecords`, caso Aria 12 P + 15 A de 47 → le quedan 20), `tests/unit/studentStatus.test.js` (GRADUADO + `tuitionStatus`), integración `semesterCompleted`, `groupsProgress`.
+
+56. **Días que toma el estudiante en cada grupo (D9, tarea T2):** `StudentEnrollment.weekdays` (`Int[]`, migración `20261101010000_enrollment_weekdays`, defensiva). Convención: números de `getUTCDay()` — 0 = domingo … 6 = sábado. **`null` o lista vacía = todos los días del grupo** (Prisma no distingue NULL de `{}` en listas, así que el servidor guarda `[]` para "todos" y `storedWeekdays()` lo lee como `null`). Lógica en `server/src/lib/weekdays.js` (`normalizeWeekdays`, `parseDayLetters`, `groupWeekdays`, `storedWeekdays`, unit-testeada) y en el cliente `utils/weekdays.jsx` (`WeekdayPicker`, `weekdaysLabel`).
+    - **API:** `POST /students` acepta `primaryWeekdays` / `secondaryWeekdays` (para `primaryGroupId` / `secondaryGroupId`); `transfer` y `enrollments` aceptan `weekdays`; `PATCH /students/:id/enrollments/:groupId` edita solo los días. Se **valida contra el horario del grupo**: un día que el grupo no tiene → 400 (nombrando el día), lista vacía/no-lista/fuera de 0–6 → 400, grupo inexistente → 404; marcar **todos** los días del grupo equivale a `null`. En `transfer` la validación ocurre **antes** de mover nada. Re-agregar a un grupo sin `weekdays` vuelve a "todos".
+    - **Importación** (`services/enrollmentImport.js`): columna **"Días"** (¡no confundir con **"DÍAS"**, que es el horario del grupo; la búsqueda distingue mayúsculas) con las letras **L M X J V S D** (L lunes, M martes, X miércoles, J jueves, V viernes, S sábado, D domingo), separadas por coma/guion/espacio o pegadas (`LXV`). Sin columna o celda vacía → todos los días. Letras desconocidas o un día que el grupo no tiene → **aviso** en `warnings` y la matrícula queda con todos los días (no se detiene la carga). Re-importar sin la columna **no pisa** los días ya guardados.
+    - **UI:** en `StudentsPage`, diálogo **"Gestionar grupos"** — casillas por día del grupo en cada matrícula actual (con botón "Guardar días") y al elegir el grupo destino al cambiar/agregar (todas marcadas = `null`; no deja desmarcar el último). La **ficha** muestra un chip por matrícula con sus días ("LMV1 · Lun · Vie") cuando toma solo algunos.
+    - **Estado:** por ahora solo se **registra** el dato; lo usará el ledger (`takesDay` / `isMine`, tareas T4–T6) para no generarle lluvia, festivos ni clases esperadas en los días que no toma. Hasta entonces N/A sigue siendo la fuente en el cálculo actual.
+    - Tests: `tests/unit/weekdays.test.js`, `tests/integration/enrollmentWeekdays.test.js`.
+
+57. **Ventana del semestre y permisos de reporte (D4, tarea T3):**
+    - **`server/src/lib/semesterWindow.js`** — `semesterWindow(semester, allSemesters)` → `{ from, to }` con `from` = `startDate` del semestre y `to` = `startDate` del semestre inmediatamente posterior (**exclusivo**), o `null` si no hay uno posterior; `inWindow(window, date)`. `Semester.endDate` **no** es el límite: una clase dictada después del cierre y antes del siguiente semestre sigue siendo del semestre actual (solo se usa para proyecciones). Todavía no la usa ningún cálculo — la consume el cargador del ledger (T5); el código actual sigue filtrando por `startDate`–`endDate`.
+    - **`server/src/lib/permissions.js`** — `canReport(user, session, professorId)` (ver "Autorización por recurso"). Corrige el 403 que recibía SUPERADMIN al finalizar o cancelar una reposición (`canReportMakeup` no lo contemplaba); ADMIN conserva su acceso a reposiciones y festivales. `routes/sessions.js`, `makeups.js` y `festivals.js` llaman a `canReport` directamente.
+    - Tests: `tests/unit/semesterWindow.test.js`, `tests/unit/permissions.test.js`, `tests/integration/makeups.flow.test.js` (SUPERADMIN/ADMIN finalizan y cancelan una reposición).
+
+58. **Servicio puro `studentLedger` (tarea T4):** `server/src/services/studentLedger.js` → `buildLedger(input)`, implementación literal de la sección 1 de "Reglas de negocio del paquete". **Función pura**: sin Prisma ni fecha del sistema (recibe `today`); fechas como `YYYY-MM-DD` (acepta `Date`, incluso en `exclusions`, que pueden ser cadena, `Date` o `{ date, reason }`). Devuelve `{ studentId, name, status, tuitionStatus, graduadoEl, semaforo, paquete, consumidas, noConsumen, reposicion, calendario, pendientes, sinConsolidar, proyeccion, asistencia, tuition }`.
+    - **Cómo está armado:** cada consumo (presente, ausencia que cuenta, reposición vista, ausencia derivada de SIN_ESTUDIANTES) es un *evento* con fecha; de ahí salen `consumidas.*` y `graduadoEl` (la fecha con la que se alcanzó el paquete), así que no puede haber dos definiciones. Las clases que le tocan son pares **(grupo, fecha)**: un estudiante en dos grupos el mismo día tiene dos clases (y suma un festivo por grupo). `pendientes.total` se reparte siempre entre cuatro cubetas — `cubreCalendario + agendadasAplicadas + porAgendar + deficit` — y la prueba lo verifica sobre 200 entradas aleatorias.
+    - **Notas de implementación:** `weekdays` null **o lista vacía** = todos los días del grupo (así guarda Prisma el "todos", nota 56). La ventana (D4) se aplica a registros, sesiones **y** exclusiones. Redondeos con `roundUnits` (un decimal). `heldOn` solo reconoce REALIZADA y CANCELADA (no el legado CANCELADA_MITAD).
+    - **Rendimiento:** ≈ 0,4 ms por estudiante (800 estudiantes ≈ 0,3 s).
+    - **Tests:** `tests/unit/studentLedger.test.js` — casos A–J del brief (Aria: consumidas 17, derecho 4, pendientes 23 = 13 + 1 + 2 + 7, semáforo ROJO), reglas D1/D2/D5/D7, semáforo, y el invariante de 200 semillas.
+    - **Siguiente:** T5 (cargador `loadLedgers` + endpoints `/api/ledger`) y T6 (migrar los endpoints existentes y borrar los motores duplicados).
+
+59. **Cargador y endpoints del ledger (tarea T5):**
+    - **`loadLedgers({ studentIds?, groupIds?, semester? })`** en `services/studentLedger.js`: lee todo en **una consulta por tabla** (estudiantes con matrículas, registros de asistencia de la ventana, sesiones REGULAR de sus grupos, participaciones `PROGRAMADA`, sumas de pago y tarifas), arma la ventana D4 con `semesterWindow` y llama a `buildLedger` por estudiante. Devuelve `{ semester, window, today, exclusions, ledgers }`; sin semestre activo, `ledgers: []`. Cada ledger lleva además `document`, `groups` (`{ id, code, enrollmentType }`) y `missingBirthDate`. `studentIds` carga a esos estudiantes aunque estén inactivos; sin él, solo activos. Los `require` de Prisma son perezosos para que `buildLedger` siga siendo probable sin base de datos.
+    - **`summarizeLedgers(ledgers)`** (pura): sumas sobre estudiantes con `paquete.total > 0` que no sean INACTIVO ni PRUEBA (D10) — `paquete`, `consumidas` (topadas en el paquete), `pct`, `pendientes.*` (las cuatro cubetas), `reposicion.*`, `calendario.*`, `sinConsolidar.*` y el conteo por semáforo. En `GET /ledger` el resumen cubre el grupo pedido (`groupId`), **no** el filtro de semáforo ni la búsqueda, así los contadores siguen sumando el total.
+    - **Rutas** (`routes/ledger.js`, montada en `/api/ledger`): ver "Ledger del paquete" en API Endpoints. `/groups` va antes de `/:studentId`. **`tuition` solo para ADMIN/SUPERADMIN** (y el padre en su propio hijo): Recepción, Coordinador y Profesor reciben el ledger sin `tuition` (brief §1.5; ojo, `stripTuition` de la nota 44 sí deja ver montos a Recepción — aquí se aplica la regla del brief). `/groups` usa `holidayDeviationForGroup` + `loadGroupSessionCounts` (ahora acepta la ventana D4) + `getPlanClasses`, exportados de `semesterProgress.js`.
+    - **Rendimiento:** cada petición a `/api/ledger` recalcula todos los ledgers (≈ 0,4 ms por estudiante); no hay caché.
+    - Tests: `tests/integration/ledger.routes.test.js` (roles, filtros, resumen, ledger individual idéntico al de la lista, una consulta por tabla, ventana en las consultas, `/groups`).
 
 45. **Estado de asistencia N/A (`NO_APLICA`):** para estudiantes que **compran menos clases** que los días del grupo (p. ej. vienen 1 vez/semana en un grupo de 3 días). No cuenta **ni como asistencia ni como ausencia**: no consume paquete (no es "clase vista" — allowlist de `attendanceStats`), no genera reposición, no suma al pago del profesor (costEngine solo cuenta PRESENTE), no dispara INSCRITO, queda **fuera del denominador** de `attendanceRate` (reportes de clase/estudiante/profesor y portal padres) y **fuera de la distribución** del dashboard. (Las alertas de asistencia que descontaban N/A de las clases esperadas están **obsoletas**: D8. Desde D9 los días que toma el estudiante se registran en la matrícula, `StudentEnrollment.weekdays`; N/A queda como excepción puntual.) Cuarto botón **N/A** (gris) solo en el flujo regular (Step3); reposiciones y festivales no lo muestran (participantes asignados a mano) aunque el server lo acepta en las 3 whitelists. En la doble consolidación ambos reportes deben coincidir también en N/A (igualdad de string). Migración aislada `20260725010000_attendance_status_no_aplica` (`ADD VALUE IF NOT EXISTS`). Tests: `attendanceStats`, `consolidation`, `attendanceAlerts` (nuevo) y whitelist en `finalize.dual`.
 

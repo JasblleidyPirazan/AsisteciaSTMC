@@ -75,6 +75,7 @@ app.use('/api/semesters', authMiddleware, require('./routes/semesters'));
 app.use('/api/parent', authMiddleware, require('./routes/parent'));
 app.use('/api/users', authMiddleware, require('./routes/users'));
 app.use('/api/alerts', authMiddleware, require('./routes/alerts'));
+app.use('/api/ledger', authMiddleware, require('./routes/ledger'));
 app.use('/api/audit', authMiddleware, require('./routes/audit'));
 app.use('/api/system', authMiddleware, require('./routes/system'));
 

@@ -339,7 +339,7 @@ Class groups: weekly schedule, court, level and owner professor. The seven weekd
 
 *Prisma model:* `StudentEnrollment` · *area:* Catalogue · *columns:* 4
 
-Membership of a student in a group. Composite primary key (student, group): a student can belong to several groups, one of them PRIMARY.
+Membership of a student in a group. Composite primary key (student, group): a student can belong to several groups, one of them PRIMARY. Also has a `weekdays` integer-array column (0 = Sunday … 6 = Saturday) with the days of the week the student takes in this group; NULL or empty = every day of the group. It is a list column, so it is not part of the per-column dictionary below.
 
 | Column | Type | Null | Key | Description |
 |---|---|---|---|---|

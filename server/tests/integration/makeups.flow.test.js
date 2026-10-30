@@ -167,3 +167,49 @@ describe('POST /api/makeups/:id/cancel — quincena cerrada', () => {
     expect(res.status).toBe(409);
   });
 });
+
+describe('SUPERADMIN y ADMIN pueden reportar y cancelar una reposición (lib/permissions)', () => {
+  const body = { attendanceRecords: [{ studentId: 's1', status: 'PRESENTE' }], assistantId: 'a1' };
+
+  beforeEach(() => {
+    prismaMock.attendanceRecord = { deleteMany: vi.fn(), createMany: vi.fn(), findMany: vi.fn().mockResolvedValue([]) };
+    prismaMock.costRecord = { deleteMany: vi.fn(), createMany: vi.fn() };
+    prismaMock.sessionEditLog = { create: vi.fn() };
+    prismaMock.systemConfig = { findMany: vi.fn().mockResolvedValue([]) };
+    // SUPERADMIN / ADMIN no son profesores: no hay ficha vinculada
+    prismaMock.professor.findUnique = vi.fn().mockResolvedValue(null);
+  });
+
+  for (const role of ['SUPERADMIN', 'ADMIN']) {
+    it(`${role} puede reportar la asistencia → 200 (antes SUPERADMIN recibía 403)`, async () => {
+      const res = await request(app)
+        .post('/api/makeups/m1/finalize').send(body)
+        .set('Authorization', `Bearer ${authAs(role)}`);
+      expect(res.status).toBe(200);
+    });
+
+    it(`${role} puede cancelarla → 200 (antes SUPERADMIN recibía 403)`, async () => {
+      const res = await request(app)
+        .post('/api/makeups/m1/cancel').send({ cancellationCategory: 'LLUVIA' })
+        .set('Authorization', `Bearer ${authAs(role)}`);
+      expect(res.status).toBe(200);
+    });
+  }
+
+  it('un profesor que no es el asignado ni el sustituto no puede cancelarla → 403', async () => {
+    prismaMock.professor.findUnique = vi.fn().mockResolvedValue({ id: 'p9', name: 'Otro' });
+    const res = await request(app)
+      .post('/api/makeups/m1/cancel').send({ cancellationCategory: 'LLUVIA' })
+      .set('Authorization', `Bearer ${authAs('TEACHER')}`);
+    expect(res.status).toBe(403);
+  });
+
+  it('el profesor sustituto sí puede reportarla', async () => {
+    prismaMock.classSession.findUnique = vi.fn().mockResolvedValue({ ...MAKEUP, makeupProfessorId: 'p7', substituteProfessorId: 'p1' });
+    prismaMock.professor.findUnique = vi.fn().mockResolvedValue({ id: 'p1', name: 'Ana' });
+    const res = await request(app)
+      .post('/api/makeups/m1/finalize').send(body)
+      .set('Authorization', `Bearer ${authAs('TEACHER')}`);
+    expect(res.status).toBe(200);
+  });
+});

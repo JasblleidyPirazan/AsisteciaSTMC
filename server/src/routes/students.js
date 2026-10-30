@@ -8,6 +8,7 @@ const { importFromBuffer } = require('../services/enrollmentImport');
 const { absenceCounts, consumedUnits, roundUnits } = require('../services/attendanceStats');
 const { attachStudentStatus, attachStudentStatusOne, stripTuition } = require('../services/studentStatus');
 const { computeMakeupDebt, computeStudentProgress } = require('../services/semesterProgress');
+const { normalizeWeekdays } = require('../lib/weekdays');
 
 const router = express.Router();
 
@@ -125,7 +126,8 @@ router.get('/', async (req, res, next) => {
     const include = {
       enrollments: {
         include: {
-          group: { select: { id: true, code: true, name: true, ballLevel: true, subLevel: true, professor: { select: { name: true } } } },
+          // Con los días del grupo: el diálogo "Grupos" los necesita para las casillas por día
+          group: { select: { id: true, code: true, name: true, ballLevel: true, subLevel: true, lunes: true, martes: true, miercoles: true, jueves: true, viernes: true, sabado: true, domingo: true, professor: { select: { name: true } } } },
         },
       },
     };
@@ -261,10 +263,22 @@ router.post('/trial', requireRole('ADMIN', 'SUPERADMIN', 'PHYSICAL_TRAINER', 'TE
   }
 });
 
+// Días que el estudiante toma en un grupo (StudentEnrollment.weekdays): se
+// valida contra el horario del grupo. Sin días → null (todos los del grupo).
+// Devuelve { value } o { error, status }; solo consulta el grupo si llegan días.
+async function resolveWeekdays(groupId, input) {
+  if (input === undefined || input === null) return { value: null };
+  const group = await prisma.group.findUnique({ where: { id: groupId } });
+  if (!group) return { error: 'Grupo no encontrado', status: 404 };
+  const r = normalizeWeekdays(input, group);
+  return r.error ? { error: r.error, status: 400 } : r;
+}
+
 router.post('/', requireRole('ADMIN', 'SUPERADMIN', 'PHYSICAL_TRAINER', 'RECEPTION'), async (req, res, next) => {
   try {
     const { name, email, parentUserId, primaryGroupId, secondaryGroupId, classesAcquired,
-      document, phone, guardianName, birthDate, classesStartDate } = req.body;
+      document, phone, guardianName, birthDate, classesStartDate,
+      primaryWeekdays, secondaryWeekdays } = req.body;
     if (!name) return res.status(400).json({ success: false, error: 'Nombre requerido' });
     // La fecha de nacimiento determina la tarifa (adulto/pequeño); sin ella el
     // estado de pago no se puede derivar. Obligatoria en la creación normal
@@ -272,6 +286,12 @@ router.post('/', requireRole('ADMIN', 'SUPERADMIN', 'PHYSICAL_TRAINER', 'RECEPTI
     if (!birthDate) {
       return res.status(400).json({ success: false, error: 'Fecha de nacimiento requerida (define la tarifa adulto/pequeño)' });
     }
+
+    // Días que toma en cada grupo (null = todos los días del grupo)
+    const primaryDays = primaryGroupId ? await resolveWeekdays(primaryGroupId, primaryWeekdays) : { value: null };
+    if (primaryDays.error) return res.status(primaryDays.status).json({ success: false, error: primaryDays.error });
+    const secondaryDays = secondaryGroupId ? await resolveWeekdays(secondaryGroupId, secondaryWeekdays) : { value: null };
+    if (secondaryDays.error) return res.status(secondaryDays.status).json({ success: false, error: secondaryDays.error });
 
     const student = await prisma.student.create({
       data: {
@@ -289,8 +309,8 @@ router.post('/', requireRole('ADMIN', 'SUPERADMIN', 'PHYSICAL_TRAINER', 'RECEPTI
         classesAcquired: (() => { const n = parseInt(classesAcquired, 10); return Number.isFinite(n) ? Math.max(0, n) : 0; })(),
         enrollments: {
           create: [
-            ...(primaryGroupId ? [{ groupId: primaryGroupId, enrollmentType: 'PRIMARY' }] : []),
-            ...(secondaryGroupId ? [{ groupId: secondaryGroupId, enrollmentType: 'SECONDARY' }] : []),
+            ...(primaryGroupId ? [{ groupId: primaryGroupId, enrollmentType: 'PRIMARY', weekdays: primaryDays.value || [] }] : []),
+            ...(secondaryGroupId ? [{ groupId: secondaryGroupId, enrollmentType: 'SECONDARY', weekdays: secondaryDays.value || [] }] : []),
           ],
         },
       },
@@ -520,10 +540,13 @@ router.delete('/:id/permanent', requireRole('ADMIN', 'SUPERADMIN'), async (req, 
 // Transfer student from one group to another (replaces primary enrollment, records history)
 router.post('/:id/transfer', requireRole('ADMIN', 'SUPERADMIN', 'PHYSICAL_TRAINER'), async (req, res, next) => {
   try {
-    const { fromGroupId, toGroupId, reason } = req.body;
+    const { fromGroupId, toGroupId, reason, weekdays } = req.body;
     if (!toGroupId) return res.status(400).json({ success: false, error: 'toGroupId requerido' });
 
     const studentId = req.params.id;
+    // Valida los días contra el grupo destino ANTES de mover nada
+    const days = await resolveWeekdays(toGroupId, weekdays);
+    if (days.error) return res.status(days.status).json({ success: false, error: days.error });
 
     // If fromGroupId provided, remove that enrollment; otherwise find and remove primary
     if (fromGroupId) {
@@ -540,8 +563,8 @@ router.post('/:id/transfer', requireRole('ADMIN', 'SUPERADMIN', 'PHYSICAL_TRAINE
     // Create new primary enrollment
     await prisma.studentEnrollment.upsert({
       where: { studentId_groupId: { studentId, groupId: toGroupId } },
-      update: { enrollmentType: 'PRIMARY' },
-      create: { studentId, groupId: toGroupId, enrollmentType: 'PRIMARY' },
+      update: { enrollmentType: 'PRIMARY', weekdays: days.value || [] },
+      create: { studentId, groupId: toGroupId, enrollmentType: 'PRIMARY', weekdays: days.value || [] },
     });
 
     // Record history
@@ -559,7 +582,8 @@ router.post('/:id/transfer', requireRole('ADMIN', 'SUPERADMIN', 'PHYSICAL_TRAINE
     const student = await prisma.student.findUnique({
       where: { id: studentId },
       include: {
-        enrollments: { include: { group: { select: { id: true, code: true, name: true } } } },
+        // Con los días del grupo: el diálogo "Grupos" los necesita para las casillas
+        enrollments: { include: { group: { select: { id: true, code: true, name: true, lunes: true, martes: true, miercoles: true, jueves: true, viernes: true, sabado: true, domingo: true } } } },
         groupHistory: {
           include: {
             fromGroup: { select: { id: true, code: true } },
@@ -579,13 +603,17 @@ router.post('/:id/transfer', requireRole('ADMIN', 'SUPERADMIN', 'PHYSICAL_TRAINE
 // Add student to an additional group (multigrupo)
 router.post('/:id/enrollments', requireRole('ADMIN', 'SUPERADMIN', 'PHYSICAL_TRAINER'), async (req, res, next) => {
   try {
-    const { groupId, enrollmentType } = req.body;
+    const { groupId, enrollmentType, weekdays } = req.body;
     const studentId = req.params.id;
+    if (!groupId) return res.status(400).json({ success: false, error: 'groupId requerido' });
+    const days = await resolveWeekdays(groupId, weekdays);
+    if (days.error) return res.status(days.status).json({ success: false, error: days.error });
 
     const enrollment = await prisma.studentEnrollment.upsert({
       where: { studentId_groupId: { studentId, groupId } },
-      update: { enrollmentType: enrollmentType || 'SECONDARY' },
-      create: { studentId, groupId, enrollmentType: enrollmentType || 'SECONDARY' },
+      // Al re-agregar sin días, vuelve a "todos los días del grupo"
+      update: { enrollmentType: enrollmentType || 'SECONDARY', weekdays: days.value || [] },
+      create: { studentId, groupId, enrollmentType: enrollmentType || 'SECONDARY', weekdays: days.value || [] },
     });
 
     // Record history
@@ -600,6 +628,32 @@ router.post('/:id/enrollments', requireRole('ADMIN', 'SUPERADMIN', 'PHYSICAL_TRA
       },
     });
 
+    res.json({ success: true, data: enrollment });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// Cambia SOLO los días que el estudiante toma en un grupo en el que ya está
+// (diálogo "Grupos" de la ficha). `weekdays: null` = todos los días del grupo.
+router.patch('/:id/enrollments/:groupId', requireRole('ADMIN', 'SUPERADMIN', 'PHYSICAL_TRAINER'), async (req, res, next) => {
+  try {
+    const { id: studentId, groupId } = req.params;
+    if (!('weekdays' in (req.body || {}))) {
+      return res.status(400).json({ success: false, error: 'weekdays requerido (null = todos los días del grupo)' });
+    }
+    const days = await resolveWeekdays(groupId, req.body.weekdays);
+    if (days.error) return res.status(days.status).json({ success: false, error: days.error });
+
+    const existing = await prisma.studentEnrollment.findUnique({
+      where: { studentId_groupId: { studentId, groupId } },
+    });
+    if (!existing) return res.status(404).json({ success: false, error: 'El estudiante no está en ese grupo' });
+
+    const enrollment = await prisma.studentEnrollment.update({
+      where: { studentId_groupId: { studentId, groupId } },
+      data: { weekdays: days.value || [] },
+    });
     res.json({ success: true, data: enrollment });
   } catch (err) {
     next(err);

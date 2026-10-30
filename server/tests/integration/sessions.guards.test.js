@@ -5,8 +5,8 @@ import { describe, it, expect, beforeAll, beforeEach, vi } from 'vitest';
 import request from 'supertest';
 import { JWT_SECRET, tokenFor, buildApp } from '../helpers/testApp.js';
 
-// Exercises the canReportGroup() authorization guard in routes/sessions.js
-// through POST /api/sessions, for every role.
+// Exercises the canReport() authorization (lib/permissions.js) for regular
+// classes through POST /api/sessions, for every role.
 let app;
 
 const GROUP = { id: 'g1', professorId: 'p1', name: 'Roja A' };
@@ -48,7 +48,7 @@ function createSession(token) {
     .send({ groupId: GROUP.id, date: '2025-06-10' });
 }
 
-describe('POST /api/sessions — guard canReportGroup', () => {
+describe('POST /api/sessions — permisos canReport (clase regular)', () => {
   it('valida el body (groupId y date requeridos) → 400', async () => {
     const token = authAs('ADMIN');
     const res = await request(app)
