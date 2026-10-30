@@ -305,6 +305,11 @@ Desde la base de datos o el seed, crear un `User` con `role: 'PHYSICAL_TRAINER'`
 - `POST /api/semesters/:id/exclusions` — agregar fecha excluida (ADMIN)
 - `DELETE /api/semesters/:id/exclusions/:exclId` — eliminar fecha excluida (ADMIN)
 
+### Ledger del paquete (nota 59)
+- `GET /api/ledger` (ADMIN/SUPERADMIN/Coordinador/Recepción) — `{ semester, window, today, summary, ledgers }`; filtros `groupId`, `semaforo` (VERDE/AMBAR/ROJO/GRIS), `q` (nombre o documento, sin tildes). Ordenado por urgencia (déficit → por agendar → sin consolidar)
+- `GET /api/ledger/groups` (ADMIN/SUPERADMIN/Coordinador) — por grupo: plan, dadas, festivos (con fecha y motivo), lluvia, fin planeado/estimado y agregados de sus estudiantes
+- `GET /api/ledger/:studentId` — un ledger (+ Profesor solo de sus grupos, Padre solo su hijo)
+
 ### Portal padres
 - `GET /api/parent/children`
 - `GET /api/parent/attendance/:studentId`
@@ -467,7 +472,7 @@ Las siguientes páginas admin están en el menú pero aún no tienen implementac
 
 ## Reglas de negocio del paquete
 
-> **Fuente de verdad.** Estas reglas son decisiones cerradas del cliente y **prevalecen** sobre cualquier nota técnica de abajo que las contradiga. El detalle completo, los casos de prueba y el plan de implementación (tareas T1–T10) están en `docs/brief-implementacion.md`. `buildLedger` ya existe (tarea T4, nota 58) pero todavía **no está conectado** a ningún endpoint: hasta que se completen T5–T6, el código existente (`semesterProgress.js`, `studentStatus.js`, rutas de reportes) sigue calculando con las reglas anteriores.
+> **Fuente de verdad.** Estas reglas son decisiones cerradas del cliente y **prevalecen** sobre cualquier nota técnica de abajo que las contradiga. El detalle completo, los casos de prueba y el plan de implementación (tareas T1–T10) están en `docs/brief-implementacion.md`. `buildLedger` (T4, nota 58), su cargador `loadLedgers` y los endpoints `/api/ledger` (T5, nota 59) ya existen, pero las pantallas y rutas actuales **todavía no los usan**: hasta que se complete T6, el código existente (`semesterProgress.js`, `studentStatus.js`, rutas de reportes) sigue calculando con las reglas anteriores.
 
 ### 0. Decisiones de negocio (cerradas)
 
@@ -819,6 +824,13 @@ cd client && npm run build
     - **Rendimiento:** ≈ 0,4 ms por estudiante (800 estudiantes ≈ 0,3 s).
     - **Tests:** `tests/unit/studentLedger.test.js` — casos A–J del brief (Aria: consumidas 17, derecho 4, pendientes 23 = 13 + 1 + 2 + 7, semáforo ROJO), reglas D1/D2/D5/D7, semáforo, y el invariante de 200 semillas.
     - **Siguiente:** T5 (cargador `loadLedgers` + endpoints `/api/ledger`) y T6 (migrar los endpoints existentes y borrar los motores duplicados).
+
+59. **Cargador y endpoints del ledger (tarea T5):**
+    - **`loadLedgers({ studentIds?, groupIds?, semester? })`** en `services/studentLedger.js`: lee todo en **una consulta por tabla** (estudiantes con matrículas, registros de asistencia de la ventana, sesiones REGULAR de sus grupos, participaciones `PROGRAMADA`, sumas de pago y tarifas), arma la ventana D4 con `semesterWindow` y llama a `buildLedger` por estudiante. Devuelve `{ semester, window, today, exclusions, ledgers }`; sin semestre activo, `ledgers: []`. Cada ledger lleva además `document`, `groups` (`{ id, code, enrollmentType }`) y `missingBirthDate`. `studentIds` carga a esos estudiantes aunque estén inactivos; sin él, solo activos. Los `require` de Prisma son perezosos para que `buildLedger` siga siendo probable sin base de datos.
+    - **`summarizeLedgers(ledgers)`** (pura): sumas sobre estudiantes con `paquete.total > 0` que no sean INACTIVO ni PRUEBA (D10) — `paquete`, `consumidas` (topadas en el paquete), `pct`, `pendientes.*` (las cuatro cubetas), `reposicion.*`, `calendario.*`, `sinConsolidar.*` y el conteo por semáforo. En `GET /ledger` el resumen cubre el grupo pedido (`groupId`), **no** el filtro de semáforo ni la búsqueda, así los contadores siguen sumando el total.
+    - **Rutas** (`routes/ledger.js`, montada en `/api/ledger`): ver "Ledger del paquete" en API Endpoints. `/groups` va antes de `/:studentId`. **`tuition` solo para ADMIN/SUPERADMIN** (y el padre en su propio hijo): Recepción, Coordinador y Profesor reciben el ledger sin `tuition` (brief §1.5; ojo, `stripTuition` de la nota 44 sí deja ver montos a Recepción — aquí se aplica la regla del brief). `/groups` usa `holidayDeviationForGroup` + `loadGroupSessionCounts` (ahora acepta la ventana D4) + `getPlanClasses`, exportados de `semesterProgress.js`.
+    - **Rendimiento:** cada petición a `/api/ledger` recalcula todos los ledgers (≈ 0,4 ms por estudiante); no hay caché.
+    - Tests: `tests/integration/ledger.routes.test.js` (roles, filtros, resumen, ledger individual idéntico al de la lista, una consulta por tabla, ventana en las consultas, `/groups`).
 
 45. **Estado de asistencia N/A (`NO_APLICA`):** para estudiantes que **compran menos clases** que los días del grupo (p. ej. vienen 1 vez/semana en un grupo de 3 días). No cuenta **ni como asistencia ni como ausencia**: no consume paquete (no es "clase vista" — allowlist de `attendanceStats`), no genera reposición, no suma al pago del profesor (costEngine solo cuenta PRESENTE), no dispara INSCRITO, queda **fuera del denominador** de `attendanceRate` (reportes de clase/estudiante/profesor y portal padres) y **fuera de la distribución** del dashboard. (Las alertas de asistencia que descontaban N/A de las clases esperadas están **obsoletas**: D8. Desde D9 los días que toma el estudiante se registran en la matrícula, `StudentEnrollment.weekdays`; N/A queda como excepción puntual.) Cuarto botón **N/A** (gris) solo en el flujo regular (Step3); reposiciones y festivales no lo muestran (participantes asignados a mano) aunque el server lo acepta en las 3 whitelists. En la doble consolidación ambos reportes deben coincidir también en N/A (igualdad de string). Migración aislada `20260725010000_attendance_status_no_aplica` (`ADD VALUE IF NOT EXISTS`). Tests: `attendanceStats`, `consolidation`, `attendanceAlerts` (nuevo) y whitelist en `finalize.dual`.
 

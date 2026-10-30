@@ -341,4 +341,167 @@ function buildLedger(input) {
   };
 }
 
-module.exports = { buildLedger, SEARCH_DAYS };
+// ─── Resumen (D10) ────────────────────────────────────────────────────────
+
+// Estados que no entran al Cumplimiento: no tienen paquete que entregar
+const OUT_OF_SUMMARY = ['INACTIVO', 'PRUEBA'];
+
+/**
+ * Sumas de una lista de ledgers sobre los estudiantes con `paquete.total > 0`
+ * (D10: activos, no de prueba, sin importar su estado de pago).
+ *   consumidas = Σ min(consumidas.total, paquete.total)   (topadas en el paquete)
+ */
+function summarizeLedgers(ledgers) {
+  const sum = (list, fn) => round1(list.reduce((acc, l) => acc + (fn(l) || 0), 0));
+  const inScope = ledgers.filter((l) => l.paquete.total > 0 && !OUT_OF_SUMMARY.includes(l.status));
+  const paquete = sum(inScope, (l) => l.paquete.total);
+  const consumidas = sum(inScope, (l) => Math.min(l.consumidas.total, l.paquete.total));
+  const count = (fn) => inScope.filter(fn).length;
+  return {
+    students: inScope.length,
+    graduados: count((l) => l.status === 'GRADUADO'),
+    paquete,
+    consumidas,
+    pct: paquete > 0 ? Math.round((consumidas / paquete) * 100) : null,
+    pendientes: {
+      total: sum(inScope, (l) => l.pendientes.total),
+      cubreCalendario: sum(inScope, (l) => l.pendientes.cubreCalendario),
+      agendadasAplicadas: sum(inScope, (l) => l.pendientes.agendadasAplicadas),
+      porAgendar: sum(inScope, (l) => l.pendientes.porAgendar),
+      deficit: sum(inScope, (l) => l.pendientes.deficit),
+      studentsWithDeficit: count((l) => l.pendientes.deficit > 0),
+    },
+    reposicion: {
+      derecho: sum(inScope, (l) => l.reposicion.derecho),
+      pendientes: sum(inScope, (l) => l.reposicion.pendientes),
+      agendadas: sum(inScope, (l) => l.reposicion.agendadas),
+      porAgendar: sum(inScope, (l) => l.reposicion.porAgendar),
+      studentsPorAgendar: count((l) => l.reposicion.porAgendar > 0),
+    },
+    calendario: {
+      festivos: sum(inScope, (l) => l.calendario.festivos),
+      recuperables: sum(inScope, (l) => l.calendario.recuperables),
+    },
+    sinConsolidar: {
+      clases: sum(inScope, (l) => l.sinConsolidar.clases),
+      conflictos: sum(inScope, (l) => l.sinConsolidar.conflictos),
+      students: count((l) => l.sinConsolidar.clases > 0),
+    },
+    semaforo: {
+      VERDE: count((l) => l.semaforo === 'VERDE'),
+      AMBAR: count((l) => l.semaforo === 'AMBAR'),
+      ROJO: count((l) => l.semaforo === 'ROJO'),
+      GRIS: count((l) => l.semaforo === 'GRIS'),
+    },
+  };
+}
+
+// ─── Cargador ─────────────────────────────────────────────────────────────
+
+/**
+ * Lee de la base de datos todo lo que `buildLedger` necesita, en una sola
+ * pasada (una consulta por tabla, no una por estudiante), y devuelve un ledger
+ * por estudiante.
+ *
+ *   studentIds  solo esos estudiantes (aunque estén inactivos: se pidieron)
+ *   groupIds    solo estudiantes matriculados en alguno de esos grupos
+ *   semester    semestre a usar (con `exclusions`); por defecto el activo
+ *
+ * Devuelve `{ semester, window, today, exclusions, ledgers }`. Sin semestre
+ * activo: `ledgers: []`. (Los `require` son perezosos para que `buildLedger`
+ * siga siendo importable —y probable— sin Prisma.)
+ */
+async function loadLedgers({ studentIds = null, groupIds = null, semester = null } = {}) {
+  const prisma = require('../lib/prisma');
+  const { semesterWindow } = require('../lib/semesterWindow');
+  const { getTuitionConfig, expectedTotal } = require('./studentStatus');
+  const { bogotaDateStr, dbDateStr } = require('../lib/dates');
+
+  const today = bogotaDateStr();
+  const active = semester
+    || await prisma.semester.findFirst({ where: { active: true }, include: { exclusions: true } });
+  if (!active) return { semester: null, window: null, today, exclusions: [], ledgers: [] };
+
+  const allSemesters = await prisma.semester.findMany({ select: { id: true, startDate: true } });
+  const window = semesterWindow(active, allSemesters);
+  const exclusions = (active.exclusions || [])
+    .map((e) => ({ date: dbDateStr(e.date), reason: e.reason || null }))
+    .sort((a, b) => a.date.localeCompare(b.date));
+  const semesterOut = { id: active.id, name: active.name, startDate: active.startDate, endDate: active.endDate };
+  const empty = { semester: semesterOut, window, today, exclusions, ledgers: [] };
+
+  // 1) Estudiantes con sus matrículas
+  const where = studentIds ? { id: { in: studentIds } } : { active: true };
+  if (groupIds) where.enrollments = { some: { groupId: { in: groupIds } } };
+  const students = await prisma.student.findMany({
+    where,
+    include: { enrollments: { include: { group: true } } },
+    orderBy: { name: 'asc' },
+  });
+  if (students.length === 0) return empty;
+
+  const ids = students.map((st) => st.id);
+  const allGroupIds = [...new Set(students.flatMap((st) => st.enrollments.map((e) => e.groupId)))];
+  const dateFilter = { gte: new Date(`${window.from}T00:00:00.000Z`) };
+  if (window.to) dateFilter.lt = new Date(`${window.to}T00:00:00.000Z`);
+
+  // 2) Todo lo demás, una consulta por tabla
+  const [records, sessions, scheduled, paySums, cfg] = await Promise.all([
+    prisma.attendanceRecord.findMany({
+      where: { studentId: { in: ids }, session: { date: dateFilter } },
+      select: {
+        studentId: true, status: true, attendanceType: true, justification: true,
+        session: { select: { id: true, date: true, kind: true, status: true, effectiveUnits: true, groupId: true, title: true } },
+      },
+    }),
+    allGroupIds.length === 0 ? [] : prisma.classSession.findMany({
+      where: { kind: 'REGULAR', groupId: { in: allGroupIds }, date: dateFilter },
+      select: { id: true, groupId: true, date: true, kind: true, status: true, cancellationCategory: true, consolidationStatus: true },
+    }),
+    prisma.makeupParticipant.findMany({
+      where: { studentId: { in: ids }, session: { kind: 'MAKEUP', status: 'PROGRAMADA' } },
+      select: { studentId: true, session: { select: { id: true, date: true, effectiveUnits: true } } },
+    }),
+    prisma.studentPayment.groupBy({ by: ['studentId'], where: { studentId: { in: ids } }, _sum: { amount: true } }),
+    getTuitionConfig(),
+  ]);
+
+  const group = (list, key) => {
+    const out = {};
+    for (const x of list) (out[key(x)] ||= []).push(x);
+    return out;
+  };
+  const recordsByStudent = group(records, (r) => r.studentId);
+  const sessionsByGroup = group(sessions, (x) => x.groupId);
+  const scheduledByStudent = group(scheduled, (x) => x.studentId);
+  const paidByStudent = Object.fromEntries(paySums.map((p) => [p.studentId, parseFloat(p._sum.amount) || 0]));
+  const todayDate = new Date(`${today}T00:00:00.000Z`);
+
+  const ledgers = students.map((st) => {
+    const ledger = buildLedger({
+      student: st,
+      enrollments: st.enrollments,
+      records: recordsByStudent[st.id] || [],
+      sessions: st.enrollments.flatMap((e) => sessionsByGroup[e.groupId] || []),
+      scheduled: (scheduledByStudent[st.id] || []).map((x) => x.session),
+      exclusions,
+      window,
+      semesterEnd: dbDateStr(active.endDate),
+      today,
+      tuition: { totalPaid: paidByStudent[st.id] || 0, expectedTotal: expectedTotal(st, cfg, todayDate) },
+    });
+    // Datos de presentación que el ledger puro no necesita
+    return {
+      ...ledger,
+      document: st.document || null,
+      groups: st.enrollments
+        .map((e) => ({ id: e.groupId, code: e.group?.code ?? null, enrollmentType: e.enrollmentType }))
+        .sort((a, b) => String(a.code).localeCompare(String(b.code), 'es', { numeric: true })),
+      missingBirthDate: !!st.active && !st.isTrial && !st.birthDate,
+    };
+  });
+
+  return { ...empty, ledgers };
+}
+
+module.exports = { buildLedger, summarizeLedgers, loadLedgers, SEARCH_DAYS };

@@ -221,7 +221,7 @@ function holidayDeviationForGroup(group, semester, exclusions, opts = {}) {
 
 // Clases dadas / canceladas por lluvia de cada grupo hasta hoy, y si la clase
 // de hoy ya quedó reportada (para arrancar la proyección mañana).
-async function loadGroupSessionCounts(groups, semester, todayStr) {
+async function loadGroupSessionCounts(groups, semester, todayStr, window = null) {
   const given = {};
   const rain = {};
   const givenToday = {};
@@ -230,7 +230,11 @@ async function loadGroupSessionCounts(groups, semester, todayStr) {
     where: {
       kind: 'REGULAR',
       groupId: { in: groups.map((g) => g.id) },
-      date: { gte: new Date(semester.startDate), lte: new Date(semester.endDate) },
+      // Con `window` (D4) cuenta lo dictado hasta el inicio del siguiente semestre;
+      // sin ella, el rango clásico inicio–fin del semestre
+      date: window
+        ? { gte: new Date(`${window.from}T00:00:00.000Z`), ...(window.to ? { lt: new Date(`${window.to}T00:00:00.000Z`) } : {}) }
+        : { gte: new Date(semester.startDate), lte: new Date(semester.endDate) },
     },
     select: { groupId: true, date: true, status: true, cancellationCategory: true },
   });
@@ -693,6 +697,8 @@ module.exports = {
   classesLeftInSemester,
   projectEndDate,
   holidayDeviationForGroup,
+  loadGroupSessionCounts,
+  getPlanClasses,
   loadConsumption,
   consumptionFromRecords,
   computeStudentProgress,
