@@ -120,7 +120,7 @@ CORS_ORIGIN        # URL del dominio en Railway (ej: https://asisteciastmc.up.ra
 | `User` | Cuentas de acceso. Roles: **SUPERADMIN**, ADMIN, TEACHER, ASSISTANT, PARENT, PHYSICAL_TRAINER (mostrado como **"Coordinador"** en la UI), RECEPTION. `policiesAcceptedAt` = aceptación de políticas |
 | `Professor` | Profesores (puede tener User vinculado) |
 | `Assistant` | Asistentes (puede tener User vinculado) |
-| `Student` | Estudiantes, vinculados a un padre (parentUserId). `classesAcquired` = clases compradas. Estado derivado `studentStatus` (ver notas 44 y 55): PRUEBA/PREINSCRITO/INSCRITO/MATRICULADO/**GRADUADO**/SUSPENDIDO/INACTIVO — se calcula de pagos+asistencia+tarifas, NO del checkbox `paymentComplete` (columna legacy sin uso). Suspensión temporal con `suspendedFrom/Until/Reason` (excluido de rosters por query, sin cron) |
+| `Student` | Estudiantes, vinculados a un padre (parentUserId). `classesAcquired` = clases compradas. Estado derivado `studentStatus` (ver notas 44 y 55): PRUEBA/PREINSCRITO/INSCRITO/MATRICULADO/**GRADUADO**/SUSPENDIDO/INACTIVO — se calcula de pagos+tarifas (la asistencia ya no cambia el estado: D7) y de si consumió su paquete (GRADUADO), NO del checkbox `paymentComplete` (columna legacy sin uso). Suspensión temporal con `suspendedFrom/Until/Reason` (excluido de rosters por query, sin cron) |
 | `Group` | Grupos de clase: días, horario, cancha, nivel (Roja/Naranja/Verde/Amarilla/Intermedio/Avanzado) + `subLevel` A/B/C informativo (solo los 4 colores) |
 | `StudentEnrollment` | Relación estudiante↔grupo (PRIMARY o SECONDARY) |
 | `ClassSession` | Sesión de clase: PROGRAMADA/REALIZADA/CANCELADA/CANCELADA_MITAD(legacy). `kind` REGULAR/MAKEUP/FESTIVAL. Cancelación estructurada (`cancellationCategory` LLUVIA/SIN_ESTUDIANTES/OTRA). "No dicté la clase yo": `dictatedByOwner` + `notDictatedNote` obligatoria. Pago suspendido: `firstReportedAt` (solo primer reporte) + `paymentUnlocked*`. Triple coincidencia: `assistantConfirmedId/At` + `coordinatorValidated*`. Festivales: `festivalRate` |
@@ -464,6 +464,166 @@ Las siguientes páginas admin están en el menú pero aún no tienen implementac
 
 ---
 
+## Reglas de negocio del paquete
+
+> **Fuente de verdad.** Estas reglas son decisiones cerradas del cliente y **prevalecen** sobre cualquier nota técnica de abajo que las contradiga. El detalle completo, los casos de prueba y el plan de implementación (tareas T1–T10) están en `docs/brief-implementacion.md`. Hasta que se completen las tareas T4–T6, partes del código aún calculan con las reglas anteriores; la implementación objetivo es el servicio `studentLedger` descrito aquí.
+
+### 0. Decisiones de negocio (cerradas)
+
+| # | Tema | Regla |
+|---|---|---|
+| D1 | Cancelación OTRA | Causa de la Escuela. Cada estudiante del grupo al que le tocaba ese día gana una reposición (cuenta en `reposicion.otras`). No consume paquete. |
+| D2 | Cancelación SIN_ESTUDIANTES | Causa del alumno. Consume una clase a cada estudiante del grupo al que le tocaba ese día (cuenta en `consumidas.ausentes`), sin crear registros: es derivado. No genera reposición. |
+| D3 | JUSTIFICADA en FESTIVAL | No consume y no genera reposición. |
+| D4 | Ventana del semestre | Una clase o reposición cuenta para el semestre si su fecha está en `[semester.startDate, siguienteSemestre.startDate)`. Si no hay semestre posterior, no hay límite superior. `Semester.endDate` se usa solo para proyecciones ("alcanza antes del cierre"). |
+| D5 | Suspensión | Congela el paquete. Entre `suspendedFrom` y `suspendedUntil` (inclusive): una AUSENTE no consume, no se le esperan clases, y lluvia, OTRA, SIN_ESTUDIANTES y festivos de ese período no le aplican. Un PRESENTE sí consume siempre (asistió de verdad). |
+| D6 | % de asistencia | `presentes / (presentes + ausentes)`. JUSTIFICADA y N/A fuera del denominador. Es un indicador de comportamiento, no del paquete. |
+| D7 | Estado por pago | PREINSCRITO = sin pagos. INSCRITO = pago parcial (0 < pagado < valor del plan). MATRICULADO = pagado ≥ valor del plan. La asistencia no cambia el estado. GRADUADO, SUSPENDIDO, PRUEBA e INACTIVO se mantienen con su prioridad actual. |
+| D8 | Alertas individuales | Se eliminan (`/alerts/attendance`, `services/attendanceAlerts.js`, pestaña "Individuales"). Las reemplaza la pantalla del ledger. |
+| D9 | Días que toma el estudiante | Se registran en la matrícula: `StudentEnrollment.weekdays`. N/A deja de ser la fuente; queda como excepción puntual. |
+| D10 | Quién entra al Cumplimiento | Todo estudiante activo, no de prueba, con paquete > 0, sin importar su estado de pago. |
+
+**Reglas que no cambian y se mantienen tal como están:** la falta sin justificar consume la clase; N/A no cuenta para nada; festivos y recesos no se reponen (se reprograma el calendario); una reposición doble vale 2; las faltas solo cuentan desde `classesStartDate`.
+
+### 1. Especificación del ledger (`server/src/services/studentLedger.js`)
+
+#### 1.1 Entradas de la función pura `buildLedger(input)`
+
+```js
+{
+  student:     { id, name, isTrial, active, classesAcquired, previousClasses,
+                 classesStartDate, suspendedFrom, suspendedUntil },
+  enrollments: [{ groupId, enrolledAt, weekdays /* [0..6] | null */,
+                  group: { id, code, active, createdAt,
+                           lunes, martes, miercoles, jueves, viernes, sabado, domingo } }],
+  records:     [{ status, attendanceType, justification,
+                  session: { id, date, kind, status, effectiveUnits, groupId } }],
+  sessions:    [{ id, groupId, date, kind, status, cancellationCategory, consolidationStatus }],
+               // sesiones REGULAR de SUS grupos dentro de la ventana
+  scheduled:   [{ sessionId, date, effectiveUnits }],
+               // MakeupParticipant en sesiones kind=MAKEUP status=PROGRAMADA
+  exclusions:  ['YYYY-MM-DD', ...],
+  window:      { from: 'YYYY-MM-DD', to: 'YYYY-MM-DD' | null },   // D4
+  semesterEnd: 'YYYY-MM-DD',
+  today:       'YYYY-MM-DD',
+  tuition:     { totalPaid, expectedTotal }                        // para D7
+}
+```
+
+Todas las fechas se comparan como cadenas `YYYY-MM-DD` (hora de Bogotá, helpers de `lib/dates.js`).
+
+#### 1.2 Predicados internos (una sola definición cada uno)
+
+| Nombre | Definición |
+|---|---|
+| `inWindow(date)` | `window.from ≤ date` y (`window.to` nulo o `date < window.to`) |
+| `suspended(date)` | `suspendedFrom` y `suspendedUntil` existen y `suspendedFrom ≤ date ≤ suspendedUntil` |
+| `absenceCounts(date)` | (`classesStartDate` nulo o `date ≥ classesStartDate`) y `!suspended(date)` |
+| `floor(enrollment)` | máximo de `enrolledAt`, `group.createdAt`, `classesStartDate` (como fecha) |
+| `takesDay(enrollment, date)` | `enrollment.weekdays` nulo → el grupo tiene ese día; si no → `weekday(date) ∈ weekdays` |
+| `isMine(enrollment, date)` | `group.active` y `takesDay` y `date ≥ floor(enrollment)` y `!suspended(date)` y `date ∉ exclusions` |
+| `units(session)` | `effectiveUnits > 0 ? effectiveUnits : 1` |
+| `isMakeup(record)` | `attendanceType === 'REPOSICION'` o `session.kind === 'MAKEUP'` |
+| `heldOn(groupId, date)` | existe sesión de ese grupo y fecha con `status` REALIZADA o CANCELADA (cualquier categoría) |
+| `round1(n)` | redondeo a un decimal (`roundUnits` actual) |
+
+Solo se consideran `records` y `sessions` con `inWindow(date)`.
+
+#### 1.3 Campos de salida y fórmula de cada uno
+
+**paquete**
+- `adquiridas = classesAcquired`
+- `previas = previousClasses`
+- `total = adquiridas + previas`
+
+**consumidas**
+- `presentes` = Σ `units(session)` de registros PRESENTE con `!isMakeup` (kind REGULAR o FESTIVAL)
+- `ausentes` = Σ `units(session)` de registros AUSENTE con `!isMakeup` y `absenceCounts(date)` **+ 1 por cada sesión CANCELADA · SIN_ESTUDIANTES** de sus grupos con `isMine(enrollment, date)` y sin registro del estudiante en esa sesión (D2)
+- `reposicionesVistas` = Σ `units(session)` de registros con `isMakeup` y (PRESENTE, o AUSENTE con `absenceCounts`)
+- `total = round1(presentes + ausentes + reposicionesVistas)`
+- `excedente = max(0, total − paquete.total)`
+
+**noConsumen**
+- `justificadas` = número de registros JUSTIFICADA (cualquier sesión)
+- `na` = número de registros NO_APLICA
+
+**reposicion** (derecho que la Escuela debe ofrecer)
+- `lluvia` = número de sesiones CANCELADA · LLUVIA, kind REGULAR, de sus grupos, `date ≤ today`, `isMine`
+- `otras` = igual con categoría OTRA (D1)
+- `justificadas` = número de registros JUSTIFICADA con `session.kind === 'REGULAR'`, `attendanceType === 'REGULAR'` y `absenceCounts(date)` (una J en festival o en reposición no suma: D3 y C2)
+- `derecho = lluvia + otras + justificadas`
+- `repuestas = consumidas.reposicionesVistas` (una falta a la reposición la pierde y salda la deuda)
+- `pendientes = round1(min(max(0, derecho − repuestas), pendientes.total))`
+- `agendadas` = Σ `effectiveUnits` de `scheduled`
+- `porAgendar = max(0, pendientes − agendadas)`
+- `items` = lista de origen `{ type: 'RAIN'|'OTHER'|'JUSTIFIED', date, groupCode }` y `repuestasItems` = `{ date, label, units, absent }` (igual al formato actual de `computeMakeupDebt`)
+
+**calendario** (reprogramación)
+- `festivos` = número de fechas en `exclusions` con `date ≤ today`, `isMine` ignorando la condición `date ∉ exclusions`, y `!heldOn(groupId, date)`. Un estudiante en dos grupos el mismo día suma por cada grupo.
+- `sobranteReposicion = max(0, repuestas − derecho)`
+- `recuperables = round1(min(max(0, festivos − sobranteReposicion), max(0, pendientes.total − reposicion.pendientes)))`
+- `items` = `{ date, groupCode, reason }`
+
+**pendientes** (necesidad: lo que hace falta para llegar a pagadas = vistas; siempre suma)
+- `total = max(0, round1(paquete.total − consumidas.total))`
+- `from` = `today` si no tiene registro con fecha `today`; si lo tiene, el día siguiente
+- `restantesEnSemestre` = número de fechas `d` con `from ≤ d ≤ semesterEnd`, para algún enrollment `isMine(enrollment, d)`, sin repetir fecha por grupo
+- `cubreCalendario = min(total, restantesEnSemestre)`
+- `resto1 = total − cubreCalendario`
+- `agendadasAplicadas = min(resto1, reposicion.agendadas)`
+- `resto2 = resto1 − agendadasAplicadas`
+- `porAgendar = min(resto2, max(0, reposicion.pendientes − agendadasAplicadas))`
+- `deficit = resto2 − porAgendar`
+- **Invariante:** `total === cubreCalendario + agendadasAplicadas + porAgendar + deficit`
+
+**sinConsolidar**
+- `clases` = número de fechas esperadas (`isMine`, `date ≤ today`) para las que no existe sesión de ese grupo con `status === 'REALIZADA'` ni `status === 'CANCELADA'`
+- `conflictos` = número de sesiones de sus grupos con `consolidationStatus === 'MISMATCH'` y `isMine`
+
+**proyeccion**
+- `n = ceil(max(0, pendientes.total − reposicion.agendadas))`
+- `fin` = la n-ésima fecha `isMine` a partir de `from`, buscando hasta 400 días; `null` si `n = 0` o no alcanza
+- `excedeSemestre = fin > semesterEnd`
+
+**asistencia** (comportamiento, D6)
+- `presentes` = número de registros PRESENTE (todas las sesiones)
+- `faltas` = número de registros AUSENTE con `absenceCounts(date)`
+- `justificadas = noConsumen.justificadas`
+- `tasa = presentes + faltas > 0 ? round((presentes / (presentes + faltas)) × 100) : null`
+
+**status** (prioridad de arriba hacia abajo)
+1. INACTIVO si `!active`
+2. SUSPENDIDO si `suspended(today)`
+3. PRUEBA si `isTrial`
+4. GRADUADO si `paquete.total > 0` y `pendientes.total === 0`; `graduadoEl` = fecha del registro con el que `consumidas.total` alcanzó `paquete.total` (recorrido cronológico)
+5. MATRICULADO si `tuition.expectedTotal` no es nulo y `totalPaid ≥ expectedTotal`
+6. INSCRITO si `totalPaid > 0`
+7. PREINSCRITO
+
+`tuitionStatus` = el mismo cálculo sin el paso 4 (para Contabilidad y Visión Estratégica, como hoy).
+
+**semaforo** (para la UI; se calcula en el servidor para que haya uno solo)
+- GRIS si `status ∈ {GRADUADO, PRUEBA, SUSPENDIDO, INACTIVO}`
+- ROJO si `paquete.total === 0`, o `pendientes.deficit > 0`, o `sinConsolidar.clases ≥ 3`
+- AMBAR si `reposicion.porAgendar > 0` o `sinConsolidar.clases > 0`
+- VERDE en otro caso
+
+#### 1.4 Cargador `loadLedgers({ studentIds?, groupIds?, semester })`
+
+Una sola pasada: estudiantes activos con `enrollments.group`, registros con sesión dentro de la ventana, sesiones REGULAR de sus grupos en la ventana, participaciones PROGRAMADA, exclusiones, semestres (para calcular `window.to`), sumas de pago y tarifas (`getTuitionConfig`). Devuelve `{ semester, window, ledgers: [...] }`. Sin semestre activo devuelve `ledgers: []`.
+
+#### 1.5 Endpoints nuevos
+
+| Método y ruta | Roles | Devuelve |
+|---|---|---|
+| `GET /api/ledger` | ADMIN, SUPERADMIN, PHYSICAL_TRAINER, RECEPTION | `{ semester, summary, ledgers }` con filtros `groupId`, `semaforo`, `q` |
+| `GET /api/ledger/:studentId` | los anteriores + TEACHER (solo sus grupos) + PARENT (solo su hijo) | un ledger |
+| `GET /api/ledger/groups` | ADMIN, SUPERADMIN, PHYSICAL_TRAINER | por grupo: plan, dadas, festivos, lluvia, fin estimado, y agregados de sus estudiantes (`deficit`, `porAgendar`, `sinConsolidar`) |
+
+`summary` = sumas de `paquete.total`, `consumidas.total` (topadas en el paquete), `pendientes.*` y conteo por semáforo, sobre estudiantes con `paquete.total > 0` (D10). RECEPTION y TEACHER reciben el ledger sin `tuition`.
+
+---
+
 ## Comandos Útiles
 
 ```bash
@@ -541,7 +701,7 @@ cd client && npm run build
 
 25. **Festivales:** `ClassSession kind=FESTIVAL` (`/api/festivals`, UI `/admin/festivals` + `/festivals/:id/attendance`). Multi-profesor vía `FestivalProfessor`; pago igualitario = `festivalRate` para cada participante (costEngine branch, siempre PAYABLE). Participantes en `MakeupParticipant`. **P y A cuentan como clase vista; J no** — regla centralizada en `services/attendanceStats.js` y aplicada en groups/reports/parent. TEACHER solo reporta festivales donde participa.
 
-26. **Alertas de asistencia:** `GET /alerts/attendance` (ADMIN/Coordinador; UI `/admin/alerts`): desviación = esperadas − vistas, donde esperadas = fechas del calendario de los grupos del estudiante en el semestre activo (menos exclusiones, piso en `enrolledAt`; `services/schedule.js` + `services/attendanceAlerts.js`). Amarilla >2, roja >4. `GET /alerts/rain`: grupos con ≥`rain_alert_threshold` (SystemConfig, default 3) canceladas por LLUVIA. `GET /alerts/preinscritos`: grupos con estudiantes 📝 PREINSCRITOS (estado derivado); alerta con 2 o más en el grupo (pestaña "Preinscritos" en `/admin/alerts`). El padre ve la alerta del hijo en `GET /parent/children` (`attendanceAlert`).
+26. **Alertas de lluvia y preinscritos:** `GET /alerts/rain`: grupos con ≥`rain_alert_threshold` (SystemConfig, default 3) canceladas por LLUVIA. `GET /alerts/preinscritos`: grupos con estudiantes 📝 PREINSCRITOS (estado derivado); alerta con 2 o más en el grupo (pestaña "Preinscritos" en `/admin/alerts`). **Las alertas individuales de asistencia** (`GET /alerts/attendance`, `services/attendanceAlerts.js`, pestaña "Individuales", `attendanceAlert` en `/parent/children`) **se eliminan (D8)**: las reemplazan el ledger y el semáforo (ver "Reglas de negocio del paquete"). Mientras no se complete la tarea T6, el código de esas alertas sigue existiendo pero está **obsoleto**.
 
 27. **Políticas:** texto único en `client/src/utils/policies.js`. Primer ingreso del PARENT al portal → `PoliciesModal` bloqueante (checkbox + aceptar) → `POST /auth/accept-policies` fija `User.policiesAcceptedAt`. `/auth/login` y `/me` exponen el campo.
 
@@ -588,7 +748,7 @@ cd client && npm run build
 
 37. **Rol Recepción (ampliado):** Recepción **crea y edita** estudiantes (`POST /students`, `PUT /students/:id` — pero **nunca** activa/desactiva: el PUT ignora `active` para RECEPTION; suspender/desactivar/cambiar grupo siguen siendo ADMIN/Coordinador) y gestiona el **registro de pagos**. Además **ve** Horarios y Grupos (`/admin/groups` en modo lectura: `canEdit` la excluye, así que no ve botones de mutación). No accede a nada más. En `StudentsPage`: `canManage` (ADMIN/SUPERADMIN/Coordinador) para acciones avanzadas vs `canEdit` (= `canManage` + Recepción) para crear/editar.
 
-44. **Estados de estudiante v2 + Pagos Estudiantes (rediseño):** el estado ya **no** sale del checkbox manual `paymentComplete` (columna legacy, sin uso) sino que se **deriva** en `services/studentStatus.js` de los datos reales: **PRUEBA** (isTrial), **PREINSCRITO** (registrado, sin asistencia ni pagos), **INSCRITO** (alguna clase vista — regla canónica de `attendanceStats`: PRESENTE, o AUSENTE en festival — y/o algún pago), **MATRICULADO** (pago completo: `StudentPayment` acumulado ≥ valor esperado), más SUSPENDIDO/INACTIVO que ganan prioridad. **Valor esperado** = `classesAcquired × (tarifa_plan / tuition_plan_classes)` según categoría por edad: **ADULTO** (≥ `tuition_adult_age`, **16** — decisión del cliente; migración `20260716020000` corrige el 18 sembrado antes) → `tuition_adult_total` (2.789.000 por 40 clases); **PEQUEÑO** → `tuition_child_total` (2.425.000 por 40 clases). Tarifas en SystemConfig (seed + `/admin/config`, sección "Matrícula de estudiantes"). `attachStudentStatus(students)` decora listas con `studentStatus`, `missingBirthDate` y `tuition {category, expectedTotal, totalPaid, balance}` en 2 queries agregadas; `stripTuition(list, role)` quita los montos para roles sin acceso económico (solo ADMIN/SUPERADMIN/RECEPTION los ven; PARENT solo los de su hijo). Aplica en `/students`, `/groups/:id/students`, `/groups/schedule`, `/search`, `/parent/children`, `/makeups/:id`, `/festivals/:id` y la Visión Estratégica. **Íconos únicos en todo el sistema** (`client/src/utils/studentStatus.jsx`): ✅ Matriculado · 🔵 Inscrito · 📝 Preinscrito · 🧪 Prueba · ⏸️ Suspendido · ⛔ Inactivo — siempre junto al nombre (lista/ficha de estudiantes, roster de asistencia, reposiciones, festivales, malla de horarios, buscador ⌘K, portal padres). **Error de fecha de nacimiento**: un estudiante regular activo sin `birthDate` no tiene tarifa → `missingBirthDate` con ⚠️ en todas las vistas, contador+filtro "Sin fecha de nacimiento" en StudentsPage, y `POST /students` la exige (400); `/students/trial` no. **Pagos Estudiantes**: 4.ª pestaña de `/admin/accounting` y 4.ª hoja del export — por estudiante activo: estado, categoría, clases adquiridas, valor esperado, pagado y **saldo pendiente** (deuda contra el plan completo, no depende del rango). El export de estudiantes incluye las mismas columnas solo para roles con dinero (Coordinador exporta sin montos). Sin migración de schema (todo derivado). Unit tests en `tests/unit/studentStatus.test.js`. **Backfill de fechas de nacimiento**: si el Excel subido a Importar **no** trae la hoja "Consolidado Matrícula" pero alguna hoja tiene columnas NOMBRE COMPLETO + FECHA DE NACIMIENTO (p. ej. la hoja PRE-INSCRITOS del archivo de inscripciones), `importFromBuffer` entra en modo `birthdates` (`parseBirthDates`/`importBirthDates` en `enrollmentImport.js`): empareja por documento (o nombre normalizado) y rellena **solo** las fechas faltantes, nunca pisa una existente; dryRun previsualiza y lista los no encontrados (unit tests en `tests/unit/birthdateImport.test.js`).
+44. **Estados de estudiante v2 + Pagos Estudiantes (rediseño):** el estado ya **no** sale del checkbox manual `paymentComplete` (columna legacy, sin uso) sino que se **deriva** en `services/studentStatus.js` de los datos reales: **PRUEBA** (isTrial), **PREINSCRITO** (registrado, sin pagos), **INSCRITO** (pago parcial: 0 < pagado < valor del plan — regla D7 de "Reglas de negocio del paquete"; la asistencia ya no cambia el estado), **MATRICULADO** (pago completo: `StudentPayment` acumulado ≥ valor esperado), más SUSPENDIDO/INACTIVO que ganan prioridad. **Valor esperado** = `classesAcquired × (tarifa_plan / tuition_plan_classes)` según categoría por edad: **ADULTO** (≥ `tuition_adult_age`, **16** — decisión del cliente; migración `20260716020000` corrige el 18 sembrado antes) → `tuition_adult_total` (2.789.000 por 40 clases); **PEQUEÑO** → `tuition_child_total` (2.425.000 por 40 clases). Tarifas en SystemConfig (seed + `/admin/config`, sección "Matrícula de estudiantes"). `attachStudentStatus(students)` decora listas con `studentStatus`, `missingBirthDate` y `tuition {category, expectedTotal, totalPaid, balance}` en 2 queries agregadas; `stripTuition(list, role)` quita los montos para roles sin acceso económico (solo ADMIN/SUPERADMIN/RECEPTION los ven; PARENT solo los de su hijo). Aplica en `/students`, `/groups/:id/students`, `/groups/schedule`, `/search`, `/parent/children`, `/makeups/:id`, `/festivals/:id` y la Visión Estratégica. **Íconos únicos en todo el sistema** (`client/src/utils/studentStatus.jsx`): ✅ Matriculado · 🔵 Inscrito · 📝 Preinscrito · 🧪 Prueba · ⏸️ Suspendido · ⛔ Inactivo — siempre junto al nombre (lista/ficha de estudiantes, roster de asistencia, reposiciones, festivales, malla de horarios, buscador ⌘K, portal padres). **Error de fecha de nacimiento**: un estudiante regular activo sin `birthDate` no tiene tarifa → `missingBirthDate` con ⚠️ en todas las vistas, contador+filtro "Sin fecha de nacimiento" en StudentsPage, y `POST /students` la exige (400); `/students/trial` no. **Pagos Estudiantes**: 4.ª pestaña de `/admin/accounting` y 4.ª hoja del export — por estudiante activo: estado, categoría, clases adquiridas, valor esperado, pagado y **saldo pendiente** (deuda contra el plan completo, no depende del rango). El export de estudiantes incluye las mismas columnas solo para roles con dinero (Coordinador exporta sin montos). Sin migración de schema (todo derivado). Unit tests en `tests/unit/studentStatus.test.js`. **Backfill de fechas de nacimiento**: si el Excel subido a Importar **no** trae la hoja "Consolidado Matrícula" pero alguna hoja tiene columnas NOMBRE COMPLETO + FECHA DE NACIMIENTO (p. ej. la hoja PRE-INSCRITOS del archivo de inscripciones), `importFromBuffer` entra en modo `birthdates` (`parseBirthDates`/`importBirthDates` en `enrollmentImport.js`): empareja por documento (o nombre normalizado) y rellena **solo** las fechas faltantes, nunca pisa una existente; dryRun previsualiza y lista los no encontrados (unit tests en `tests/unit/birthdateImport.test.js`).
 
 46. **Clases del semestre anterior + faltas desde el inicio de clases:**
     - **`Student.previousClasses`** ("clases pendientes del semestre pasado", columna `previous_classes`, migración `20260712025850`): las fija **solo ADMIN/SUPERADMIN** vía `POST /students/:id/previous-classes` (`{amount}` incrementa; acepta negativos para corregir) — el Coordinador ya no puede. **Suman al total de adquiridas** en: la ficha (`/students/:id/report` → `summary.classesAcquired`), el roster del flujo de asistencia (`GET /groups/:id/students` devuelve `classesAcquired` ya sumado, así Step3 muestra `vistas/(actuales+previas)`), el KPI "Asistencias adquiridas" del panel de gestión (`/reports/home`) y el export de estudiantes (columnas "Clases semestre anterior" y "Total clases"). NO entran al valor de matrícula (`tuition.expectedTotal` sigue usando solo `classesAcquired`: las previas ya se pagaron el semestre pasado).
@@ -596,8 +756,8 @@ cd client && npm run build
 
 52. **Semestre completado, panel del coordinador y desvío por festivos:** todo derivado, sin migración (`services/semesterProgress.js`, unit-testeado).
     - **Semestre completado** (desde la nota 55: estado **🎓 GRADUADO**, y cuenta lo **consumido** = vistas + faltas, no solo lo visto) = clases vistas (regla canónica de `attendanceStats`, con unidades) ≥ `classesAcquired + previousClasses` (paquete > 0, no prueba). `GET /groups/:id/students` **oculta** a esos estudiantes del roster (flag `semesterCompleted`; `?includeCompleted=true` los devuelve). Step3 manda `?date=` de la clase que se reporta: solo cuentan las sesiones **anteriores**, así quien terminó justo en esa clase sigue visible al editar su reporte. Badge "🎓 Semestre completado" en `StudentsPage` (lista y ficha) y 🎓 en el Seguimiento de Estudiantes, vía `GET /alerts/semester-completed` (ADMIN/Coordinador/Recepción).
-    - **Criterio de reposición (por estudiante, `computeMakeupDebt`) — reemplazado por la nota 54** (los festivos ya NO son reposición). Texto original: por reponer = clases de sus grupos **canceladas por LLUVIA** + clases **JUSTIFICADAS** + clases que cayeron en **festivos / fechas excluidas ya pasadas** (en día de su grupo), contadas desde SU ingreso (máx. entre `enrolledAt`, creación del grupo y `classesStartDate`), menos lo que ya repuso (clases vistas en sesión MAKEUP o registro REPOSICION, con unidades), con **tope en lo que le queda del paquete**. Los festivos se informan aparte (`holidays`) para mostrarse **en otro color** (azul). **No cuentan:** la ausencia sin justificar (la perdió) ni las clases aún sin reportar. Los festivos además corren la fecha estimada de fin del estudiante.
-    - **Panel del coordinador** (`components/CoordinatorStudentsPanel`; desde la nota 54 vive **solo** en el Panel de gestión `/admin`, ya no en el inicio "Grupos del día") sobre `GET /alerts/coordinator`: `makeups` = por reponer **≥ 3** (incluye festivos; con desglose lluvia/justificadas/festivos/repuso; los que ya completaron no entran) y `nearEnd` = les faltan **1 a 3** clases para completar el paquete, con fecha estimada de su última clase (`projectEndDate`: n-ésima clase programada de sus grupos saltando festivos, **sigue más allá del fin del semestre** y marca `endsBeyondSemester`). Umbrales en `MAKEUP_ALERT_THRESHOLD` / `SEMESTER_END_THRESHOLD`. Las alertas individuales de `/admin/alerts` (`computeAttendanceDeviations`, nivel ideal de avance, nota 26) siguen siendo otra medida: ahí la ausencia sí suma.
+    - **Criterio de reposición:** definido en "Reglas de negocio del paquete" (`reposicion` = lluvia + OTRA + justificadas; los festivos son `calendario`, no reposición). Esta nota ya no lo repite.
+    - **Panel del coordinador** (`components/CoordinatorStudentsPanel`; desde la nota 54 vive **solo** en el Panel de gestión `/admin`, ya no en el inicio "Grupos del día") sobre `GET /alerts/coordinator`: `makeups` = clases de **reposición** por agendar **≥ 3** (lluvia + justificadas − repuestas; los festivos no cuentan aquí; los que ya completaron no entran) y `nearEnd` = les faltan **1 a 3** clases para completar el paquete, con fecha estimada de su última clase (`projectEndDate`: n-ésima clase programada de sus grupos saltando festivos, **sigue más allá del fin del semestre** y marca `endsBeyondSemester`). Umbrales en `MAKEUP_ALERT_THRESHOLD` / `SEMESTER_END_THRESHOLD`. (Las alertas individuales de `/admin/alerts` están obsoletas y se eliminan: D8, nota 26.)
     - **Plan de 40 clases por grupo (20 si es de un solo día):** el plan de cada grupo es de `tuition_plan_classes` clases (SystemConfig, 40), contadas desde el inicio del semestre — no "las que alcancen en el calendario". Los grupos con **un solo día a la semana** tienen la mitad (20; `planForGroup` en `semesterProgress.js`), así que `plan` por grupo puede diferir del `plan` base de la respuesta. `plannedEnd` = clase 40 sin festivos ni pérdidas; `estimatedEnd` = faltan `plan − dadas` clases desde hoy (mañana si la de hoy ya está dada), saltando fechas excluidas — esto recupera automáticamente lluvia y cualquier clase no dictada; `delayDays` = estimada − plan. Función `holidayDeviationForGroup` (opciones `plan/given/rain/givenToday/todayStr`).
     - **Calendario por grupo** (`/admin/alerts` → pestaña "Calendario", `GET /alerts/holidays`, ADMIN/Coordinador): cada grupo contra su plan de 40: festivos / fechas excluidas que caen en sus días dentro del plan (con fecha y motivo), lluvia, `extraVsBest` (cuánto más pierde que el grupo menos afectado) y fecha final estimada.
     - **Avance de grupos** (Reportes → pestaña "Avance de grupos", `GroupsProgress.jsx`, `GET /reports/groups-progress`, ADMIN/SUPERADMIN/Coordinador; `computeGroupsProgress`): una tarjeta por grupo con **inicio del plan** (primera clase del calendario del semestre), **fecha estimada final** (nota anterior), **clases dadas** (`ClassSession` REALIZADA a hoy) de las 40 del plan, **no dadas por festivos y recesos** (a hoy, indicando las que faltan por venir) y **no dadas por lluvia**, más barra de avance (dadas / plan). Al tocar la tarjeta se despliegan los estudiantes del grupo (activos, no de prueba, no suspendidos) con vistas/paquete, % de avance coloreado contra el ritmo del grupo (verde ≥ −10 pts, amarillo ≥ −25, rojo menos), por reponer (lluvia + justificadas) y fecha estimada de fin. `computeStudentProgress` ahora proyecta la fecha de fin de **todo** estudiante con clases por ver (antes solo los "por terminar") y devuelve `pct`. Al final del reporte, **tabla resumen ordenable** ("¿dónde poner el esfuerzo?"): % avance, dadas, faltan, festivos, lluvia, estudiantes con reposición, clases por reponer (suma de sus estudiantes; un estudiante en 2 grupos cuenta en ambos), retraso en días y fin estimado, con fila de totales; orden inicial por clases por reponer.
@@ -627,19 +787,19 @@ cd client && npm run build
     - **Orden de descuento**: lo repuesto baja primero la reposición; si vio más de las que debía, el excedente también recupera festivos (una clase vista es una clase vista). Ambas cifras se topan en lo que le queda del paquete (reposición primero).
     - **Reglas de conteo** (aplican a ambas): los días de la semana en que el estudiante solo tiene **N/A** no le generan lluvia ni festivo (`notMyDays`); un festivo en el que el grupo igual tuvo clase (o ya contó como lluvia) no cuenta; una fecha excluida cargada dos veces cuenta una vez (y `POST /semesters/:id/exclusions` ya rechaza duplicados, 409). Un estudiante en dos grupos el mismo día suma por cada grupo (pierde dos clases).
     - **Trazabilidad**: `computeMakeupDebt` devuelve `items` (cada clase de origen: tipo RAIN/JUSTIFIED/HOLIDAY, fecha, grupo, motivo de la exclusión) y `madeUpItems` (reposiciones vistas). `GET /students/:id/makeup-debt` (ADMIN/SUPERADMIN/Coordinador/Recepción) los expone y la ficha del estudiante los lista **antes del historial de asistencia** en dos bloques: "Clases de reposición" y "Por recuperar por calendario".
-    - **Cumplimiento ("¿damos las clases que pagaron?")**: solo cuentan los estudiantes ✅ **matriculados** y 🔵 **inscritos** (`committedStudentIds` en `routes/alerts.js`, estado derivado de `attachStudentStatus`): los 📝 preinscritos, pruebas, suspendidos e inactivos no suman ni aparecen en las listas del panel. `GET /alerts/coordinator` devuelve `summary` — estudiantes con paquete, completaron, clases **pagadas** (adquiridas + previas), **dadas** (vistas, topadas en el paquete), faltan, % — y de dónde saldrá lo que falta: `coveredByCalendar` (clases regulares que quedan en SUS días hasta el cierre, sin festivos ni días N/A: `classesLeftInSemester`), `makeupPending`, `calendarPending` y `shortfall` (lo que **no alcanza** antes del cierre = faltan − calendario que queda, por estudiante). Listas: `shortfall` (no alcanzan), `makeups` (3+ de reposición), `nearEnd`. `computeStudentProgress` ahora también respeta los días N/A en la fecha estimada de fin. UI: tarjeta "🎯 Cumplimiento" + "📋 Estudiantes que requieren atención" en el **Panel de gestión** (`/admin`, ADMIN/SUPERADMIN/Coordinador); se quitó del inicio.
+    - **Cumplimiento ("¿damos las clases que pagaron?")**: **regla vigente: D10** — entra todo estudiante activo, no de prueba, con paquete > 0, sin importar su estado de pago (la regla anterior, que solo contaba matriculados e inscritos con `committedStudentIds` en `routes/alerts.js`, queda **obsoleta** y se reemplaza en la tarea T6). `GET /alerts/coordinator` devuelve `summary` — estudiantes con paquete, completaron, clases **pagadas** (adquiridas + previas), **dadas** (vistas, topadas en el paquete), faltan, % — y de dónde saldrá lo que falta: `coveredByCalendar` (clases regulares que quedan en SUS días hasta el cierre, sin festivos ni días N/A: `classesLeftInSemester`), `makeupPending`, `calendarPending` y `shortfall` (lo que **no alcanza** antes del cierre = faltan − calendario que queda, por estudiante). Listas: `shortfall` (no alcanzan), `makeups` (3+ de reposición), `nearEnd`. `computeStudentProgress` ahora también respeta los días N/A en la fecha estimada de fin. UI: tarjeta "🎯 Cumplimiento" + "📋 Estudiantes que requieren atención" en el **Panel de gestión** (`/admin`, ADMIN/SUPERADMIN/Coordinador); se quitó del inicio.
     - Tests: `tests/unit/semesterProgress.test.js` (`splitDebt`, `classesLeftInSemester`, `notMyDays`), `tests/integration/semesterCompleted.test.js`, `groupsProgress.test.js`.
 
 55. **Las faltas consumen la clase + estado 🎓 GRADUADO con fecha de fin de semestre:** una sola definición de "le quedan" en todo el sistema (decisión del cliente: la falta sin justificar se pierde — no se repone — así que también gasta la clase del paquete). Todo derivado, **sin migración ni cambios de datos**.
     - **Consumo del paquete** (`consumptionFromRecords` / `loadConsumption` en `services/semesterProgress.js`, unit-testeado): `consumed` = clases vistas (PRESENTE, o AUSENTE en festival) + **faltas sin justificar** (AUSENTE en clase regular o reposición), con unidades y solo desde `classesStartDate`. JUSTIFICADA y N/A **no** consumen (la justificada va a reposición). `seen` (solo vistas) se sigue mostrando aparte para asistencia. `computeCompletion({ acquired, previous, consumed })` → `remaining = paquete − consumidas`, `completed = consumidas ≥ paquete`.
     - Aplica en **todo** lo que usa "le quedan" / "completó": roster del flujo de asistencia (`GET /groups/:id/students` oculta al graduado; `?date=` sigue contando solo sesiones anteriores), panel de Cumplimiento (`summary.seen` = consumidas), "Por completar el semestre", "No alcanzan", tope de reposición/calendario (`splitDebt`), agendamiento público (cuánto puede reservar), Avance de grupos (`pct` = consumidas/paquete) y la fecha estimada de fin.
-    - **"Vistas" = asistencias + ausencias + reposiciones** (decisión del cliente): todo lo que el sistema muestra como clases *vistas* del paquete es lo **consumido** — helper `consumedUnits(record, session, classesStartDate)` en `services/attendanceStats.js` (PRESENTE, o AUSENTE desde `classesStartDate`, con unidades; J y N/A no). Lo usan el roster del flujo de asistencia ("Clases: vistas/adquiridas", `GET /groups/:id/students` → `classesSeen`), la ficha (`/students/:id/report`), `/reports/student/:id`, el portal de padres y `consumptionFromRecords`. `seenUnits`/`isSeenRecord` (solo PRESENTE o AUSENTE de festival) siguen para el estado INSCRITO y los conteos de asistencia.
+    - **"Vistas" = clases consumidas** (una sola definición, decisión del cliente): `consumidas.total` = presentes + ausentes + reposiciones vistas, tal como lo define "Reglas de negocio del paquete" (J y N/A no consumen). Es lo que muestra el roster del flujo de asistencia ("Clases: vistas/adquiridas"), la ficha, `/reports/student/:id` y el portal de padres. Hoy lo calcula `consumedUnits` en `services/attendanceStats.js`; el servicio `studentLedger` lo unifica (tareas T4–T6). `seenUnits`/`isSeenRecord` (solo PRESENTE o AUSENTE de festival) **no** son una segunda definición de "vistas": solo siguen vigentes mientras no se migren el estado y los conteos de asistencia.
     - **Falta a una reposición**: la reposición se perdió, así que también **salda** la deuda de reposición (`madeUp` cuenta las reposiciones vistas **o** con falta sin justificar); la ficha la muestra como "✖ Faltó (perdida)".
     - **🎓 GRADUADO** (`services/studentStatus.js`): nuevo estado derivado — solo con semestre activo — cuando consumió todo su paquete; prioridad INACTIVO > SUSPENDIDO > PRUEBA > **GRADUADO** > MATRICULADO > INSCRITO > PREINSCRITO. `graduatedOn` = **fecha de fin de semestre** = la clase con la que llegó al total. El graduado **sale de las listas de asistencia**, se ve con 🎓 en el registro de estudiantes (contador + filtro "🎓 Graduados") y en todas las vistas con ícono de estado. `tuitionStatus` conserva el estado de pago sin la graduación: Contabilidad y la conversión de Visión Estratégica siguen contando al graduado que pagó completo como matriculado (la **ocupación** de cupo sí lo libera). En el panel de Cumplimiento los graduados cuentan como clases entregadas (`COMMITTED_STATUSES` incluye GRADUADO).
     - **Ficha del estudiante**: "🎓 Fin de semestre <fecha>" si ya graduó, o "Fin de semestre estimado <fecha>" si sigue en curso (`GET /students/:id/makeup-debt` → `progress {total, seen, consumed, remaining, pct, completedOn, projectedEnd}`), más el recuadro "Avance (asistencias + faltas) · le quedan N".
     - Todos los `select` de estudiantes que alimentan `attachStudentStatus` incluyen `previousClasses` y `classesStartDate` (festivales, horarios, reposiciones, buscador, Visión Estratégica).
     - Tests: `tests/unit/semesterProgress.test.js` (`consumptionFromRecords`, caso Aria 12 P + 15 A de 47 → le quedan 20), `tests/unit/studentStatus.test.js` (GRADUADO + `tuitionStatus`), integración `semesterCompleted`, `groupsProgress`.
 
-45. **Estado de asistencia N/A (`NO_APLICA`):** para estudiantes que **compran menos clases** que los días del grupo (p. ej. vienen 1 vez/semana en un grupo de 3 días). No cuenta **ni como asistencia ni como ausencia**: no consume paquete (no es "clase vista" — allowlist de `attendanceStats`), no genera reposición, no suma al pago del profesor (costEngine solo cuenta PRESENTE), no dispara INSCRITO, queda **fuera del denominador** de `attendanceRate` (reportes de clase/estudiante/profesor y portal padres) y **fuera de la distribución** del dashboard. En las **alertas de asistencia** cada N/A **descuenta una clase esperada**: `deviation = expected − seen − na` (`attendanceAlerts.js`; sin esto el estudiante de 1 vez/semana acumularía alerta roja falsa). Cuarto botón **N/A** (gris) solo en el flujo regular (Step3); reposiciones y festivales no lo muestran (participantes asignados a mano) aunque el server lo acepta en las 3 whitelists. En la doble consolidación ambos reportes deben coincidir también en N/A (igualdad de string). Migración aislada `20260725010000_attendance_status_no_aplica` (`ADD VALUE IF NOT EXISTS`). Tests: `attendanceStats`, `consolidation`, `attendanceAlerts` (nuevo) y whitelist en `finalize.dual`.
+45. **Estado de asistencia N/A (`NO_APLICA`):** para estudiantes que **compran menos clases** que los días del grupo (p. ej. vienen 1 vez/semana en un grupo de 3 días). No cuenta **ni como asistencia ni como ausencia**: no consume paquete (no es "clase vista" — allowlist de `attendanceStats`), no genera reposición, no suma al pago del profesor (costEngine solo cuenta PRESENTE), no dispara INSCRITO, queda **fuera del denominador** de `attendanceRate` (reportes de clase/estudiante/profesor y portal padres) y **fuera de la distribución** del dashboard. (Las alertas de asistencia que descontaban N/A de las clases esperadas están **obsoletas**: D8. Desde D9 los días que toma el estudiante se registran en la matrícula, `StudentEnrollment.weekdays`; N/A queda como excepción puntual.) Cuarto botón **N/A** (gris) solo en el flujo regular (Step3); reposiciones y festivales no lo muestran (participantes asignados a mano) aunque el server lo acepta en las 3 whitelists. En la doble consolidación ambos reportes deben coincidir también en N/A (igualdad de string). Migración aislada `20260725010000_attendance_status_no_aplica` (`ADD VALUE IF NOT EXISTS`). Tests: `attendanceStats`, `consolidation`, `attendanceAlerts` (nuevo) y whitelist en `finalize.dual`.
 
 51. **Importar asistencia desde Excel (carga masiva, solo SUPERADMIN):** para reportes tomados por fuera del sistema, sin que profesores, asistentes ni coordinador tengan que reportar. UI: tarjeta "Importar asistencia (Excel)" en la sección **Base de datos** de `/admin/config` (solo Superadmin) → **Vista previa** (no escribe) → **Importar**. Endpoint `POST /system/import-attendance`, lógica en `services/attendanceImport.js`. Formato: una fila por estudiante con **Fecha, Grupo, Estudiante, Marca** (P/A/J/NA) y opcionales **Detalle** («repone de X» → `attendanceType=REPOSICION`), **Profesor** (vacío = titular; distinto del titular = sustituto con nota "Importado desde Excel") y **Asistente** (vacío = sin asistente). Grupo **REP** = reposición grupal: se reporta la `MAKEUP` programada esa fecha que contenga a esos estudiantes (o se crea si viene Profesor). Cada clase regular entra como **dos `ClassReport` idénticos** (PROFESSOR + COORDINATOR) → `consolidateSession()` → MATCHED, `AttendanceRecord` y costos por el camino normal; así desaparece de "clases sin reportar". Pago: no se suspende por reporte tardío (estampa `paymentUnlockedAt/ById` = quien importa) y el asistente queda confirmado (`assistantConfirmed*`, triple coincidencia) → PAYABLE, pendiente de **aprobar** en Liquidación como cualquier clase. Estudiantes por nombre normalizado (sin tildes/mayúsculas); ante homónimos prefiere activo y luego inscrito en el grupo (o en el grupo del que repone). Reglas de seguridad: una clase con cualquier error no se carga entera; las ya consolidadas o canceladas se **omiten** (re-importar el mismo archivo es inofensivo); quincena cerrada → error. Sin cambios de schema. Tests: `tests/unit/attendanceImport.test.js`, `tests/integration/attendanceImport.test.js`; validado contra Postgres real con el archivo de asistencia del 13–17 oct 2026 (los costos coinciden con la liquidación esperada).
