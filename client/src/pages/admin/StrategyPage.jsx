@@ -5,7 +5,7 @@ import { fmtDate } from '../../utils/dates';
 
 // Visión Estratégica (solo Admin/Superadmin): los indicadores fundamentales de
 // la Escuela en una sola pantalla — estudiantes, ocupación por grupo,
-// operación de clases, riesgo de deserción y resultado financiero. Los datos
+// operación de clases, paquete en riesgo y resultado financiero. Los datos
 // vienen agregados de GET /reports/strategy (semestre activo o últimos 90 días).
 
 function fmt(n) {
@@ -108,8 +108,8 @@ export default function StrategyPage() {
                 sub={`${d.operations.realized} realizadas · ${d.operations.cancelled} canceladas (${d.operations.cancelledRain} 🌧️)`}
                 subColor={trafficColor(d.operations.compliancePct, { good: 90, warn: 75 })} />
               <StatCard icon="🚨" tint={{ bg: 'rgba(232,82,106,0.12)', fg: '#E8526A' }}
-                label="Riesgo de deserción" value={d.alerts.red + d.alerts.yellow}
-                sub={`${d.alerts.red} alerta roja · ${d.alerts.yellow} amarilla`}
+                label="Paquete en riesgo" value={d.alerts.red + d.alerts.yellow}
+                sub={`${d.alerts.red} no alcanzan · ${d.alerts.yellow} con reposición por agendar`}
                 subColor={d.alerts.red > 0 ? 'var(--red)' : d.alerts.yellow > 0 ? 'var(--warning)' : 'var(--success)'} />
               <StatCard icon="🧪" tint={{ bg: 'rgba(232,162,59,0.14)', fg: '#E8A23B' }}
                 label="Clases de prueba" value={d.students.trial}

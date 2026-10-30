@@ -1,6 +1,6 @@
 // mockPrisma MUST be imported before the router (require.cache injection).
-import { prismaMock, resetPrisma } from '../helpers/mockPrisma.js';
-import { describe, it, expect, beforeAll, beforeEach, vi } from 'vitest';
+import { prismaMock, resetPrisma, mockLedgerDeps } from '../helpers/mockPrisma.js';
+import { describe, it, expect, beforeAll, beforeEach, afterEach, vi } from 'vitest';
 import request from 'supertest';
 import { JWT_SECRET, tokenFor, buildApp } from '../helpers/testApp.js';
 
@@ -24,7 +24,8 @@ const GROUP = {
 const STUDENT = {
   id: 'st1', name: 'Ana', active: true, isTrial: false, birthDate: day('2010-01-01'),
   classesAcquired: 10, previousClasses: 0, classesStartDate: null, suspendedFrom: null, suspendedUntil: null,
-  enrollments: [{ groupId: 'g1', enrolledAt: day('2026-01-01'), group: GROUP }],
+  document: '1', parentUserId: null,
+  enrollments: [{ groupId: 'g1', enrolledAt: day('2026-01-01'), weekdays: [], enrollmentType: 'PRIMARY', group: GROUP }],
 };
 
 beforeAll(async () => {
@@ -32,39 +33,26 @@ beforeAll(async () => {
   app = await buildApp('/api/reports', (await import('../../src/routes/reports.js')).default);
 });
 
-beforeEach(() => {
+// Lunes 7: realizada · lunes 14: festivo (sin sesión) · lunes 21/28: por venir
+const S7 = { id: 'x7', groupId: 'g1', date: day('2026-09-07'), kind: 'REGULAR', status: 'REALIZADA', effectiveUnits: 1, cancellationCategory: null, consolidationStatus: 'MATCHED' };
+const RECORDS = [{ studentId: 'st1', status: 'PRESENTE', attendanceType: 'REGULAR', justification: null, session: S7 }];
+
+beforeEach(async () => {
   resetPrisma();
   vi.useFakeTimers({ toFake: ['Date'] });
   vi.setSystemTime(new Date('2026-09-17T15:00:00.000Z')); // jueves 17 sep (Bogotá)
-  prismaMock.semester = {
-    findFirst: vi.fn().mockResolvedValue({
-      id: 's', name: '2026-2', startDate: day('2026-09-01'), endDate: day('2026-09-30'),
+  await mockLedgerDeps({
+    semester: {
+      id: 's', name: '2026-2', startDate: day('2026-09-01'), endDate: day('2026-09-30'), active: true,
       exclusions: [{ date: day('2026-09-14'), reason: 'Festivo' }],
-    }),
-  };
-  prismaMock.systemConfig = { findUnique: vi.fn().mockResolvedValue({ value: '8' }) }; // plan base 8 → 4 para un grupo de un solo día
+    },
+    students: [STUDENT], records: RECORDS, sessions: [S7],
+  });
+  prismaMock.systemConfig.findUnique = vi.fn().mockResolvedValue({ value: '8' }); // plan base 8 → 4 para un grupo de un solo día
   prismaMock.group = { findMany: vi.fn().mockResolvedValue([GROUP]) };
-  // Lunes 7: realizada · lunes 14: festivo (sin sesión) · lunes 21/28: por venir
-  prismaMock.classSession = {
-    // La consulta de lluvia (status CANCELADA) no encuentra nada; la del grupo trae la realizada
-    findMany: vi.fn().mockImplementation(({ where }) => Promise.resolve(
-      where.status === 'CANCELADA' ? []
-        : [{ groupId: 'g1', date: day('2026-09-07'), status: 'REALIZADA', cancellationCategory: null }]
-    )),
-  };
-  prismaMock.student = { findMany: vi.fn().mockResolvedValue([STUDENT]) };
-  prismaMock.attendanceRecord = {
-    findMany: vi.fn().mockImplementation(({ where }) => {
-      if (where.status === 'JUSTIFICADA') return Promise.resolve([]);
-      if (JSON.stringify(where).includes('REPOSICION')) return Promise.resolve([]);
-      if (where.status?.in) { // consumo del paquete (PRESENTE / AUSENTE)
-        return Promise.resolve([{ studentId: 'st1', status: 'PRESENTE', session: { date: day('2026-09-07'), kind: 'REGULAR', effectiveUnits: 1 } }]);
-      }
-      if (where.session?.date && !where.AND) return Promise.resolve([]); // registros de hoy
-      return Promise.resolve([{ studentId: 'st1', status: 'PRESENTE', session: { date: day('2026-09-07'), effectiveUnits: 1 } }]);
-    }),
-  };
 });
+
+afterEach(() => { vi.useRealTimers(); });
 
 describe('GET /reports/groups-progress', () => {
   it('resume el grupo: inicio, fin estimado, dadas y no dadas por festivos', async () => {

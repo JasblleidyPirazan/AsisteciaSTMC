@@ -17,9 +17,10 @@ const { holidayDeviationForGroup, loadGroupSessionCounts, getPlanClasses } = req
 const router = express.Router();
 
 const SEMAFOROS = ['VERDE', 'AMBAR', 'ROJO', 'GRIS'];
-// Roles que ven el monto de matrícula dentro del ledger. Recepción y Profesor
-// reciben el ledger SIN `tuition` (brief §1.5); el Coordinador tampoco ve dinero.
-const TUITION_ROLES = ['ADMIN', 'SUPERADMIN'];
+// Roles que ven el monto de matrícula dentro del ledger: los mismos que ya lo ven
+// en el resto del sistema (services/studentStatus.TUITION_ROLES: ADMIN, SUPERADMIN
+// y Recepción, que registra los pagos). Coordinador y Profesor lo reciben sin él.
+const { TUITION_ROLES } = require('../services/studentStatus');
 
 // "María  Pérez" → "maria perez"
 const norm = (v) => String(v || '').normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase().replace(/\s+/g, ' ').trim();

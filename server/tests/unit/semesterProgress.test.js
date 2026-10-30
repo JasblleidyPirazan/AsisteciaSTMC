@@ -1,7 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import {
-  computeCompletion, projectEndDate, holidayDeviationForGroup,
-} from '../../src/services/semesterProgress.js';
+import { holidayDeviationForGroup } from '../../src/services/semesterProgress.js';
 
 const day = (s) => new Date(`${s}T00:00:00.000Z`);
 const group = (flags, extra = {}) => ({
@@ -10,84 +8,6 @@ const group = (flags, extra = {}) => ({
 });
 // Septiembre 2026: lunes 7, 14, 21, 28
 const semester = { startDate: day('2026-09-01'), endDate: day('2026-09-30') };
-
-describe('computeCompletion', () => {
-  it('completo cuando consumió todo el paquete (adquiridas + previas)', () => {
-    expect(computeCompletion({ acquired: 30, previous: 10, consumed: 40 }))
-      .toEqual({ total: 40, remaining: 0, completed: true });
-  });
-  it('aún no completo: informa cuántas le faltan', () => {
-    expect(computeCompletion({ acquired: 40, consumed: 37 })).toEqual({ total: 40, remaining: 3, completed: false });
-  });
-  it('sin paquete nunca queda "completado"', () => {
-    expect(computeCompletion({ acquired: 0, consumed: 0 }).completed).toBe(false);
-  });
-  it('respeta medias unidades', () => {
-    expect(computeCompletion({ acquired: 10, consumed: 8.5 }).remaining).toBe(1.5);
-  });
-});
-
-describe('consumptionFromRecords — las faltas consumen la clase', () => {
-  const { consumptionFromRecords } = require('../../src/services/semesterProgress');
-  const r = (status, date, kind = 'REGULAR', effectiveUnits = 1) =>
-    ({ status, session: { date: day(date), kind, effectiveUnits } });
-  it('caso Aria: 12 presentes + 15 faltas = 27 consumidas de 47 (le quedan 20)', () => {
-    const recs = [
-      ...Array.from({ length: 12 }, (_, i) => r('PRESENTE', `2026-08-${String(i + 1).padStart(2, '0')}`)),
-      ...Array.from({ length: 15 }, (_, i) => r('AUSENTE', `2026-09-${String(i + 1).padStart(2, '0')}`)),
-    ];
-    const c = consumptionFromRecords(recs, { total: 47 });
-    expect(c).toEqual({ seen: 12, consumed: 27, completedOn: null });
-    expect(computeCompletion({ acquired: 47, consumed: c.consumed }).remaining).toBe(20);
-  });
-  it('justificadas y N/A no consumen; faltas antes del inicio de clases tampoco', () => {
-    const c = consumptionFromRecords(
-      [r('JUSTIFICADA', '2026-09-01'), r('NO_APLICA', '2026-09-02'), r('AUSENTE', '2026-09-03'), r('AUSENTE', '2026-09-10')],
-      { classesStartDate: day('2026-09-07'), total: 10 },
-    );
-    expect(c).toMatchObject({ seen: 0, consumed: 1 });
-  });
-  it('AUSENTE en festival es clase vista; una reposición doble vale 2', () => {
-    const c = consumptionFromRecords([r('AUSENTE', '2026-09-01', 'FESTIVAL'), r('PRESENTE', '2026-09-02', 'MAKEUP', 2)], { total: 10 });
-    expect(c).toMatchObject({ seen: 3, consumed: 3 });
-  });
-  it('completedOn = la clase con la que llegó al total (graduado)', () => {
-    const c = consumptionFromRecords(
-      [r('PRESENTE', '2026-09-03'), r('AUSENTE', '2026-09-01'), r('PRESENTE', '2026-09-08'), r('PRESENTE', '2026-09-10')],
-      { total: 3 },
-    );
-    expect(c.completedOn).toBe('2026-09-08');
-    expect(c.consumed).toBe(4);
-  });
-});
-
-describe('projectEndDate', () => {
-  const ex = [];
-  it('toma la n-ésima clase programada desde la fecha dada', () => {
-    const r = projectEndDate([group({ lunes: true })], semester, ex, 2, day('2026-09-01'));
-    expect(r).toEqual({ date: '2026-09-14', beyondSemester: false });
-  });
-  it('salta las fechas excluidas', () => {
-    const r = projectEndDate([group({ lunes: true })], semester, [{ date: day('2026-09-07') }], 1, day('2026-09-01'));
-    expect(r.date).toBe('2026-09-14');
-  });
-  it('suma las clases de todos sus grupos', () => {
-    const r = projectEndDate([group({ lunes: true }), group({ martes: true })], semester, ex, 3, day('2026-09-01'));
-    // mar 1, mar 8 no: clases = mar 1, lun 7, mar 8 → la 3.ª es el 8
-    expect(r.date).toBe('2026-09-08');
-  });
-  it('si no alcanza en el semestre, sigue el horario y avisa que termina después', () => {
-    // lunes: 7, 14, 21, 28 de sept; la 6.ª es el 12 de oct
-    const r = projectEndDate([group({ lunes: true })], semester, ex, 6, day('2026-09-01'));
-    expect(r).toEqual({ date: '2026-10-12', beyondSemester: true });
-  });
-  it('sin grupos no hay fecha estimada', () => {
-    expect(projectEndDate([], semester, ex, 2, day('2026-09-01')).date).toBeNull();
-  });
-  it('sin clases pendientes no proyecta nada', () => {
-    expect(projectEndDate([group({ lunes: true })], semester, ex, 0, day('2026-09-01')).date).toBeNull();
-  });
-});
 
 describe('holidayDeviationForGroup — plan de 40 clases', () => {
   const exclusions = [
@@ -138,48 +58,5 @@ describe('holidayDeviationForGroup — plan de 40 clases', () => {
     const r = holidayDeviationForGroup(group({ jueves: true }), semester, exclusions, { plan: 10, todayStr: '2026-09-01' });
     expect(r.totalLost).toBe(0);
     expect(r.estimatedEnd).toBe(r.plannedEnd);
-  });
-});
-
-describe('notMyDays — días N/A del estudiante', () => {
-  const { notMyDays } = require('../../src/services/semesterProgress');
-  const rec = (status, date, groupId = 'g1') => ({ status, session: { groupId, date: new Date(`${date}T00:00:00Z`) } });
-  it('un día con solo N/A no le toca; uno mezclado sí', () => {
-    // 2026-10-05 lunes (1), 2026-10-07 miércoles (3), 2026-10-12 lunes
-    const skip = notMyDays([rec('NO_APLICA', '2026-10-05'), rec('PRESENTE', '2026-10-07'), rec('NO_APLICA', '2026-10-12')]);
-    expect(skip.has('g1:1')).toBe(true);
-    expect(skip.has('g1:3')).toBe(false);
-  });
-  it('un lunes con N/A y también asistencia sí le toca', () => {
-    expect(notMyDays([rec('NO_APLICA', '2026-10-05'), rec('PRESENTE', '2026-10-12')]).size).toBe(0);
-  });
-});
-
-describe('splitDebt — reposición vs. recuperar por calendario', () => {
-  const { splitDebt } = require('../../src/services/semesterProgress');
-  it('lluvia + justificadas son reposición; festivos, calendario', () => {
-    expect(splitDebt({ rain: 1, justified: 2, holidays: 4, remaining: 20, total: 20 })).toEqual({ pending: 3, calendar: 4 });
-  });
-  it('lo repuesto baja primero la reposición y el excedente el calendario', () => {
-    expect(splitDebt({ rain: 2, holidays: 3, madeUp: 1, remaining: 20, total: 20 })).toEqual({ pending: 1, calendar: 3 });
-    expect(splitDebt({ rain: 2, holidays: 3, madeUp: 4, remaining: 20, total: 20 })).toEqual({ pending: 0, calendar: 1 });
-  });
-  it('ambas se topan en lo que le queda del paquete (reposición primero)', () => {
-    expect(splitDebt({ rain: 3, holidays: 4, remaining: 5, total: 20 })).toEqual({ pending: 3, calendar: 2 });
-  });
-  it('sin paquete no hay nada que reportar', () => {
-    expect(splitDebt({ rain: 3, holidays: 4, remaining: 0, total: 0 })).toEqual({ pending: 0, calendar: 0 });
-  });
-});
-
-describe('classesLeftInSemester', () => {
-  const { classesLeftInSemester } = require('../../src/services/semesterProgress');
-  it('cuenta sus días hasta el cierre, sin festivos ni días N/A', () => {
-    const lunMie = group({ lunes: true, miercoles: true }, { id: 'g1' });
-    // desde el 14 sep: lun 14, mié 16, lun 21, mié 23, lun 28, mié 30 = 6
-    expect(classesLeftInSemester([lunMie], semester, [], day('2026-09-14'))).toBe(6);
-    expect(classesLeftInSemester([lunMie], semester, [{ date: day('2026-09-21') }], day('2026-09-14'))).toBe(5);
-    // los lunes son N/A para este estudiante: solo miércoles
-    expect(classesLeftInSemester([lunMie], semester, [], day('2026-09-14'), new Set(['g1:1']))).toBe(3);
   });
 });

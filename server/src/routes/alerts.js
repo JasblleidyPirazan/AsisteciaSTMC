@@ -1,13 +1,9 @@
 const express = require('express');
-const { roundUnits } = require('../services/attendanceStats');
 const prisma = require('../lib/prisma');
 const { requireRole } = require('../middleware/auth');
 const { expectedDatesForGroup } = require('../services/schedule');
-const { computeAttendanceDeviations, RED_THRESHOLD, YELLOW_THRESHOLD } = require('../services/attendanceAlerts');
-const {
-  computeStudentProgress, computeGroupHolidayDeviation, computeMakeupDebt,
-  MAKEUP_ALERT_THRESHOLD, SEMESTER_END_THRESHOLD,
-} = require('../services/semesterProgress');
+const { computeGroupHolidayDeviation } = require('../services/semesterProgress');
+const { loadLedgers, summarizeLedgers } = require('../services/studentLedger');
 const { attachStudentStatus } = require('../services/studentStatus');
 const { bogotaToday, dbDateStr } = require('../lib/dates');
 
@@ -177,26 +173,6 @@ router.get('/report-conflicts', requireRole('ADMIN', 'PHYSICAL_TRAINER', 'TEACHE
   }
 });
 
-// Individual attendance alerts vs the ideal progress level.
-// Roja: desviación > 4 clases · Amarilla: > 2 clases.
-router.get('/attendance', requireRole('ADMIN', 'PHYSICAL_TRAINER'), async (req, res, next) => {
-  try {
-    const rows = await computeAttendanceDeviations();
-    const { onlyAlerts } = req.query;
-    const data = onlyAlerts === 'true' ? rows.filter((r) => r.level) : rows;
-    res.json({
-      success: true,
-      data: {
-        students: data,
-        thresholds: { red: RED_THRESHOLD, yellow: YELLOW_THRESHOLD },
-        alertCount: rows.filter((r) => r.level).length,
-      },
-    });
-  } catch (err) {
-    next(err);
-  }
-});
-
 // Group-level rain alert: groups whose rain-cancelled class count in the
 // active semester reaches the configurable threshold.
 router.get('/rain', requireRole('ADMIN', 'PHYSICAL_TRAINER'), async (req, res, next) => {
@@ -244,7 +220,7 @@ router.get('/rain', requireRole('ADMIN', 'PHYSICAL_TRAINER'), async (req, res, n
 });
 
 // Group-level pre-enrollment alert: groups with PREINSCRITO students (derived
-// status: registered, no payment and no attendance yet). Alert at 2 or more.
+// status: registered, no payments yet — D7). Alert at 2 or more.
 const PREINSCRITOS_THRESHOLD = 2;
 router.get('/preinscritos', requireRole('ADMIN', 'PHYSICAL_TRAINER'), async (req, res, next) => {
   try {
@@ -292,100 +268,84 @@ router.get('/preinscritos', requireRole('ADMIN', 'PHYSICAL_TRAINER'), async (req
   }
 });
 
-// Solo cuentan los estudiantes ✅ matriculados y 🔵 inscritos: un 📝 preinscrito
-// (sin pagos ni asistencia) todavía no es una clase comprometida por la Escuela.
-// Pruebas, suspendidos e inactivos ya quedan fuera del cálculo de avance.
-// Los 🎓 graduados también: son clases que la Escuela ya entregó.
-const COMMITTED_STATUSES = ['INSCRITO', 'MATRICULADO', 'GRADUADO'];
-async function committedStudentIds() {
-  const students = await prisma.student.findMany({ where: { active: true, isTrial: false } });
-  const decorated = await attachStudentStatus(students);
-  return new Set(decorated.filter((s) => COMMITTED_STATUSES.includes(s.studentStatus)).map((s) => s.id));
-}
+// Umbrales del panel: desde 3 clases de reposición por agendar, o a 3 clases (o
+// menos) de completar el paquete.
+const MAKEUP_ALERT_THRESHOLD = 3;
+const SEMESTER_END_THRESHOLD = 3;
 
 /**
- * Panel de Gestión — "¿estamos dando las clases que los estudiantes pagaron?"
- *  - summary: cumplimiento global del semestre (pagadas, vistas, faltan) y de
- *    dónde vendrá lo que falta: calendario regular, reposición, calendario
- *    corrido por festivos, y lo que el calendario ya no alcanza a cubrir.
- *  - makeups: 3+ CLASES DE REPOSICIÓN (lluvia + justificadas − repuestas).
- *    La Escuela debe programarlas.
- *  - shortfall: estudiantes a quienes el calendario regular que queda no les
- *    alcanza para ver su paquete antes del cierre del semestre.
- *  - nearEnd: les faltan 3 clases o menos para completar su paquete.
- * Los festivos / recesos son CLASES POR RECUPERAR POR CALENDARIO: no son
- * reposición, se recuperan corriendo el calendario (ver splitDebt).
- * Quien ya completó el semestre no aparece en ninguna lista. Solo cuentan
- * los estudiantes inscritos y matriculados (ver committedStudentIds).
+ * Panel de Gestión — "¿estamos dando las clases que los estudiantes pagaron?".
+ * Todo sale del ledger (services/studentLedger.js): una sola definición del paquete.
+ *  - summary: cumplimiento del semestre (D10: todo estudiante activo, no de prueba,
+ *    con paquete > 0, sin importar su estado de pago) y de dónde saldrá lo que
+ *    falta — calendario regular que queda, reposiciones ya agendadas, reposiciones
+ *    por agendar y déficit (lo que ni el calendario ni las reposiciones cubren).
+ *  - makeups:  3 o más clases de reposición por agendar (lluvia, canceladas por la
+ *    Escuela y justificadas, menos las repuestas).
+ *  - shortfall: estudiantes con déficit (`pendientes.deficit > 0`).
+ *  - nearEnd:  les faltan 3 clases o menos para completar su paquete.
+ * Los festivos y recesos no son reposición: se recuperan corriendo el calendario.
  */
 router.get('/coordinator', requireRole('ADMIN', 'PHYSICAL_TRAINER'), async (req, res, next) => {
   try {
-    const [{ rows: allProgress }, { rows: allDebt }, committed] = await Promise.all([
-      computeStudentProgress(), computeMakeupDebt(), committedStudentIds(),
-    ]);
-    const progress = allProgress.filter((p) => committed.has(p.studentId));
-    const debt = allDebt.filter((d) => committed.has(d.studentId));
-    const debtById = Object.fromEntries(debt.map((d) => [d.studentId, d]));
-    const completedIds = new Set(progress.filter((p) => p.completed).map((p) => p.studentId));
-    const withPackage = progress.filter((p) => p.total > 0);
+    const { ledgers } = await loadLedgers();
+    const ls = summarizeLedgers(ledgers);
+    // Mismo alcance que el resumen (D10)
+    const inScope = ledgers.filter((l) => l.paquete.total > 0 && !['INACTIVO', 'PRUEBA'].includes(l.status));
+    const codes = (l) => l.groups.map((g) => g.code).filter(Boolean);
 
-    const makeups = debt
-      .filter((d) => d.pending >= MAKEUP_ALERT_THRESHOLD && !completedIds.has(d.studentId))
-      .sort((a, b) => b.pending - a.pending)
-      .map((d) => ({
-        studentId: d.studentId, name: d.name, groups: d.groups,
-        pending: d.pending, rain: d.rain, justified: d.justified, madeUp: d.madeUp, calendar: d.calendar,
+    const makeups = inScope
+      .filter((l) => l.reposicion.porAgendar >= MAKEUP_ALERT_THRESHOLD)
+      .sort((a, b) => b.reposicion.porAgendar - a.reposicion.porAgendar || a.name.localeCompare(b.name, 'es'))
+      .map((l) => ({
+        studentId: l.studentId, name: l.name, groups: codes(l),
+        pending: l.reposicion.porAgendar, rain: l.reposicion.lluvia, other: l.reposicion.otras,
+        justified: l.reposicion.justificadas, madeUp: l.reposicion.repuestas, calendar: l.calendario.recuperables,
       }));
 
-    const shortfall = withPackage
-      .filter((p) => p.shortfall > 0)
-      .sort((a, b) => b.shortfall - a.shortfall || a.name.localeCompare(b.name, 'es'))
-      .map((p) => {
-        const d = debtById[p.studentId] || {};
-        return {
-          studentId: p.studentId, name: p.name, groups: p.groups,
-          remaining: p.remaining, leftInSemester: p.leftInSemester, shortfall: p.shortfall,
-          pending: d.pending || 0, calendar: d.calendar || 0,
-          projectedEnd: p.projectedEnd,
-        };
-      });
-
-    const nearEnd = progress
-      .filter((p) => p.nearEnd)
-      .sort((a, b) => a.remaining - b.remaining || a.name.localeCompare(b.name, 'es'))
-      .map((p) => ({
-        studentId: p.studentId, name: p.name, groups: p.groups,
-        remaining: p.remaining, seen: p.seen, total: p.total,
-        projectedEnd: p.projectedEnd, endsBeyondSemester: p.endsBeyondSemester,
+    const shortfall = inScope
+      .filter((l) => l.pendientes.deficit > 0)
+      .sort((a, b) => b.pendientes.deficit - a.pendientes.deficit || a.name.localeCompare(b.name, 'es'))
+      .map((l) => ({
+        studentId: l.studentId, name: l.name, groups: codes(l),
+        remaining: l.pendientes.total, leftInSemester: l.pendientes.restantesEnSemestre, shortfall: l.pendientes.deficit,
+        pending: l.reposicion.porAgendar, calendar: l.calendario.recuperables, projectedEnd: l.proyeccion.fin,
       }));
 
-    const sum = (list, f) => roundUnits(list.reduce((acc, x) => acc + (f(x) || 0), 0));
-    const paid = sum(withPackage, (p) => p.total);
-    // Consumidas = vistas + faltas sin justificar (la falta consume la clase)
-    const seen = sum(withPackage, (p) => Math.min(p.consumed, p.total));
-    const summary = {
-      students: withPackage.length,
-      completed: completedIds.size,
-      paid,
-      seen,
-      remaining: sum(withPackage, (p) => p.remaining),
-      pct: paid > 0 ? Math.round((seen / paid) * 100) : null,
-      // De dónde sale lo que falta
-      coveredByCalendar: sum(withPackage, (p) => Math.min(p.remaining, p.leftInSemester)),
-      makeupPending: sum(debt, (d) => d.pending),
-      makeupStudents: debt.filter((d) => d.pending > 0).length,
-      calendarPending: sum(debt, (d) => d.calendar),
-      calendarStudents: debt.filter((d) => d.calendar > 0).length,
-      shortfall: sum(withPackage, (p) => p.shortfall),
-      shortfallStudents: shortfall.length,
-    };
+    const nearEnd = inScope
+      .filter((l) => l.pendientes.total > 0 && l.pendientes.total <= SEMESTER_END_THRESHOLD)
+      .sort((a, b) => a.pendientes.total - b.pendientes.total || a.name.localeCompare(b.name, 'es'))
+      .map((l) => ({
+        studentId: l.studentId, name: l.name, groups: codes(l),
+        remaining: l.pendientes.total, seen: l.consumidas.total, total: l.paquete.total,
+        projectedEnd: l.proyeccion.fin, endsBeyondSemester: l.proyeccion.excedeSemestre,
+      }));
 
     res.json({
       success: true,
       data: {
-        summary, makeups, shortfall, nearEnd,
-        makeupsTotal: sum(makeups, (m) => m.pending),
-        completedCount: completedIds.size,
+        summary: {
+          students: ls.students,
+          completed: ls.graduados,
+          paid: ls.paquete,
+          seen: ls.consumidas,
+          remaining: ls.pendientes.total,
+          pct: ls.pct,
+          // De dónde saldrán las clases que faltan (las cuatro cubetas suman `remaining`)
+          coveredByCalendar: ls.pendientes.cubreCalendario,
+          scheduled: ls.pendientes.agendadasAplicadas,
+          makeupPending: ls.pendientes.porAgendar,
+          makeupStudents: ls.reposicion.studentsPorAgendar,
+          shortfall: ls.pendientes.deficit,
+          shortfallStudents: ls.pendientes.studentsWithDeficit,
+          // Informativo: festivos y recesos que el calendario devuelve corriéndose
+          calendarPending: ls.calendario.recuperables,
+          calendarStudents: ls.calendario.studentsRecuperables,
+          semaforo: ls.semaforo,
+        },
+        makeups, shortfall, nearEnd,
+        makeupsTotal: Math.round(makeups.reduce((acc, m) => acc + m.pending, 0) * 10) / 10,
+        completedCount: ls.graduados,
         thresholds: { makeups: MAKEUP_ALERT_THRESHOLD, nearEnd: SEMESTER_END_THRESHOLD },
         total: makeups.length + shortfall.length + nearEnd.length,
       },
@@ -396,13 +356,13 @@ router.get('/coordinator', requireRole('ADMIN', 'PHYSICAL_TRAINER'), async (req,
 });
 
 /**
- * Estudiantes que ya completaron su paquete del semestre (id → true). Lo usa
- * el listado de estudiantes para mostrar "Semestre completado".
+ * Estudiantes 🎓 graduados (ya consumieron su paquete del semestre): id → true.
+ * Salen del ledger (status GRADUADO).
  */
 router.get('/semester-completed', requireRole('ADMIN', 'PHYSICAL_TRAINER', 'RECEPTION'), async (req, res, next) => {
   try {
-    const { rows } = await computeStudentProgress();
-    res.json({ success: true, data: { studentIds: rows.filter((r) => r.completed).map((r) => r.studentId) } });
+    const { ledgers } = await loadLedgers();
+    res.json({ success: true, data: { studentIds: ledgers.filter((l) => l.status === 'GRADUADO').map((l) => l.studentId) } });
   } catch (err) {
     next(err);
   }
