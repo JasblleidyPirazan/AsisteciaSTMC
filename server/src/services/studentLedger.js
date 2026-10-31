@@ -376,6 +376,11 @@ function summarizeLedgers(ledgers) {
     paquete,
     consumidas,
     pct: paquete > 0 ? Math.round((consumidas / paquete) * 100) : null,
+    // Clases vistas por encima de las pagadas (regaladas): no se ocultan con el tope del paquete
+    excedente: {
+      clases: sum(inScope, (l) => l.consumidas.excedente),
+      students: count((l) => l.consumidas.excedente > 0),
+    },
     pendientes: {
       total: sum(inScope, (l) => l.pendientes.total),
       cubreCalendario: sum(inScope, (l) => l.pendientes.cubreCalendario),

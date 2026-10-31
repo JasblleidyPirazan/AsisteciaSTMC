@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import {
   upcomingSlots, canBookAt, canCancelAt, bookableCount, slotStartsAt, whatsappNumber, newToken,
-  SLOT_TEMPLATES, SLOT_CAPACITY,
+  SLOT_TEMPLATES, SLOT_CAPACITY, DEFAULT_BOOKING_CONFIG, validateSlots, resolveBookingConfig,
 } from '../../src/services/makeupBooking.js';
 
 // Agendamiento público de reposiciones: turnos de 45 min viernes y sábado.
@@ -64,5 +64,51 @@ describe('utilidades del enlace', () => {
     const a = newToken();
     expect(a.length).toBeGreaterThanOrEqual(24);
     expect(a).not.toBe(newToken());
+  });
+});
+
+describe('reglas configurables desde Configuración', () => {
+  it('sin nada guardado quedan las reglas por defecto', () => {
+    expect(resolveBookingConfig([])).toEqual(DEFAULT_BOOKING_CONFIG);
+  });
+
+  it('usa lo guardado: turnos, cupo, horizonte y cortes', () => {
+    const cfg = resolveBookingConfig([
+      { key: 'makeup_slots', value: JSON.stringify([{ weekday: 3, start: '16:00', end: '16:45' }]) },
+      { key: 'makeup_capacity', value: '4' },
+      { key: 'makeup_horizon_days', value: '21' },
+      { key: 'makeup_book_cutoff_hours', value: '1' },
+      { key: 'makeup_cancel_cutoff_hours', value: '12' },
+    ]);
+    expect(cfg).toMatchObject({ capacity: 4, horizonDays: 21, bookCutoffHours: 1, cancelCutoffHours: 12 });
+    expect(cfg.slots).toEqual([{ key: 'MIE-1600', weekday: 3, start: '16:00', end: '16:45' }]);
+  });
+
+  it('valores inválidos o dañados caen al valor por defecto', () => {
+    const cfg = resolveBookingConfig([
+      { key: 'makeup_slots', value: 'no es json' },
+      { key: 'makeup_capacity', value: '0' },
+      { key: 'makeup_horizon_days', value: 'abc' },
+      { key: 'makeup_cancel_cutoff_hours', value: '9999' },
+    ]);
+    expect(cfg).toEqual(DEFAULT_BOOKING_CONFIG);
+  });
+
+  it('validateSlots rechaza días, horas y duplicados inválidos', () => {
+    expect(validateSlots([]).error).toBeTruthy();
+    expect(validateSlots([{ weekday: 9, start: '10:00', end: '11:00' }]).error).toBeTruthy();
+    expect(validateSlots([{ weekday: 1, start: '25:00', end: '26:00' }]).error).toBeTruthy();
+    expect(validateSlots([{ weekday: 1, start: '11:00', end: '10:00' }]).error).toBeTruthy();
+    expect(validateSlots([{ weekday: 1, start: '10:00', end: '11:00' }, { weekday: 1, start: '10:00', end: '10:45' }]).error).toMatch(/repetido/);
+  });
+
+  it('los turnos configurados alimentan upcomingSlots y los cortes a canBookAt/canCancelAt', () => {
+    const { slots } = validateSlots([{ weekday: 5, start: '09:00', end: '09:45' }]);
+    const out = upcomingSlots('2026-10-23', [], 7, slots);
+    expect(out.map((x) => `${x.date} ${x.key}`)).toEqual(['2026-10-23 VIE-0900', '2026-10-30 VIE-0900']);
+    const now = new Date('2026-10-23T12:00:00-05:00'); // 21 h antes de las 9:00 del sábado... (turno vie 23 ya pasó)
+    expect(canBookAt(now, '2026-10-24', '09:00', 30)).toBe(false);
+    expect(canBookAt(now, '2026-10-24', '09:00', 2)).toBe(true);
+    expect(canCancelAt(now, '2026-10-24', '09:00', 12)).toBe(true);
   });
 });

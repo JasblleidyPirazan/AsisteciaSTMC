@@ -146,7 +146,7 @@ export default function MakeupBookingPage() {
 
         <h3 style={{ marginBottom: 4 }}>Turnos disponibles</h3>
         <p className="text-xs text-gray mb-3">
-          Turnos de 45 minutos, máximo {rules.capacity} estudiantes. Cada turno cuenta como una clase.
+          Máximo {rules.capacity} estudiantes por turno. Cada turno cuenta como una clase.
           Reservas hasta {rules.bookCutoffHours} horas antes; cancelaciones hasta {rules.cancelCutoffHours} horas antes.
         </p>
         {days.length === 0 && <div className="alert alert-info mb-3">No hay turnos en las próximas semanas.</div>}

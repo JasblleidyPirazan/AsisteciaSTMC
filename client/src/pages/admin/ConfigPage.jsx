@@ -17,7 +17,17 @@ const EMPTY_CONFIG = {
   tuition_child_total: '',
   tuition_plan_classes: '',
   tuition_adult_age: '',
+  makeup_slots: '[]',
+  makeup_capacity: '',
+  makeup_horizon_days: '',
+  makeup_book_cutoff_hours: '',
+  makeup_cancel_cutoff_hours: '',
 };
+
+const DAY_NAMES = ['Domingo', 'Lunes', 'Martes', 'Miércoles', 'Jueves', 'Viernes', 'Sábado'];
+function parseSlots(v) {
+  try { const a = JSON.parse(v); return Array.isArray(a) ? a : []; } catch { return []; }
+}
 
 const EMPTY_SEMESTER = { name: '', startDate: '', endDate: '' };
 
@@ -33,6 +43,7 @@ export default function ConfigPage() {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
+  const [saveError, setSaveError] = useState('');
 
   // Export completo de la base de datos (Excel o JSON)
   const [exporting, setExporting] = useState(null);
@@ -107,11 +118,12 @@ export default function ConfigPage() {
     e.preventDefault();
     setSaving(true);
     setSaved(false);
+    setSaveError('');
     try {
       await api.put('/config', config);
       setSaved(true);
     } catch (err) {
-      console.error(err);
+      setSaveError(err.message);
     } finally {
       setSaving(false);
     }
@@ -279,6 +291,55 @@ export default function ConfigPage() {
           </div>
 
           <div className="card mb-4">
+            <h3 className="mb-3" style={{ fontSize: '0.9rem' }}>Reposiciones: turnos y reglas de agendamiento</h3>
+            <p className="text-xs text-gray mb-3">
+              Turnos que el acudiente ve en su enlace de agendamiento. Cada turno vale una clase regular y todos los niveles lo comparten.
+              Los cambios aplican de inmediato a los turnos aún no reservados; las reservas ya hechas se conservan.
+            </p>
+            {parseSlots(config.makeup_slots).map((t, i, arr) => {
+              const update = (patch) => setConfig({ ...config, makeup_slots: JSON.stringify(arr.map((x, j) => (j === i ? { ...x, ...patch } : x))) });
+              return (
+                <div key={i} className="flex gap-2 mb-2" style={{ flexWrap: 'wrap', alignItems: 'center' }}>
+                  <select className="form-input" style={{ flex: 2, minWidth: 120 }} value={t.weekday}
+                    onChange={(e) => update({ weekday: Number(e.target.value) })}>
+                    {DAY_NAMES.map((d, n) => <option key={n} value={n}>{d}</option>)}
+                  </select>
+                  <input type="time" className="form-input" style={{ flex: 1, minWidth: 100 }} value={t.start} onChange={(e) => update({ start: e.target.value })} />
+                  <input type="time" className="form-input" style={{ flex: 1, minWidth: 100 }} value={t.end} onChange={(e) => update({ end: e.target.value })} />
+                  <button type="button" className="btn btn-outline" style={{ minHeight: 38, color: 'var(--red)' }} title="Quitar turno"
+                    onClick={() => setConfig({ ...config, makeup_slots: JSON.stringify(arr.filter((_, j) => j !== i)) })}>✕</button>
+                </div>
+              );
+            })}
+            <button type="button" className="btn btn-outline mb-3" style={{ minHeight: 36 }}
+              onClick={() => setConfig({ ...config, makeup_slots: JSON.stringify([...parseSlots(config.makeup_slots), { weekday: 6, start: '13:30', end: '14:15' }]) })}>
+              + Agregar turno
+            </button>
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+              <div className="form-group">
+                <label className="form-label">Cupo por turno</label>
+                <input type="number" className="form-input" min="1" max="30" value={config.makeup_capacity}
+                  onChange={(e) => setConfig({ ...config, makeup_capacity: e.target.value })} />
+              </div>
+              <div className="form-group">
+                <label className="form-label">Días hacia adelante</label>
+                <input type="number" className="form-input" min="1" max="60" value={config.makeup_horizon_days}
+                  onChange={(e) => setConfig({ ...config, makeup_horizon_days: e.target.value })} />
+              </div>
+              <div className="form-group">
+                <label className="form-label">Reservar hasta (horas antes)</label>
+                <input type="number" className="form-input" min="0" max="168" value={config.makeup_book_cutoff_hours}
+                  onChange={(e) => setConfig({ ...config, makeup_book_cutoff_hours: e.target.value })} />
+              </div>
+              <div className="form-group">
+                <label className="form-label">Cancelar hasta (horas antes)</label>
+                <input type="number" className="form-input" min="0" max="336" value={config.makeup_cancel_cutoff_hours}
+                  onChange={(e) => setConfig({ ...config, makeup_cancel_cutoff_hours: e.target.value })} />
+              </div>
+            </div>
+          </div>
+
+          <div className="card mb-4">
             <h3 className="mb-3" style={{ fontSize: '0.9rem' }}>Alertas</h3>
             <div className="form-group">
               <label className="form-label">Umbral de alerta por lluvia (clases canceladas)</label>
@@ -296,6 +357,7 @@ export default function ConfigPage() {
             </div>
           </div>
 
+          {saveError && <div className="alert alert-error mb-3">{saveError}</div>}
           <button type="submit" className="btn btn-primary btn-full btn-lg" disabled={saving}>
             {saving ? 'Guardando...' : 'Guardar tarifas'}
           </button>

@@ -29,6 +29,77 @@ const CANCEL_CUTOFF_HOURS = 24;
 const SUGGESTION_MAX_LENGTH = 500;
 const MAX_OPEN_SUGGESTIONS = 5;
 
+// Reglas por defecto. La Escuela las cambia desde Configuración (SystemConfig):
+// makeup_slots (JSON), makeup_capacity, makeup_horizon_days,
+// makeup_book_cutoff_hours, makeup_cancel_cutoff_hours. `resolveBookingConfig`
+// valida lo guardado y cae a estos valores si algo no es válido.
+const DEFAULT_BOOKING_CONFIG = {
+  slots: SLOT_TEMPLATES,
+  capacity: SLOT_CAPACITY,
+  horizonDays: HORIZON_DAYS,
+  bookCutoffHours: BOOK_CUTOFF_HOURS,
+  cancelCutoffHours: CANCEL_CUTOFF_HOURS,
+};
+const BOOKING_CONFIG_KEYS = {
+  slots: 'makeup_slots',
+  capacity: 'makeup_capacity',
+  horizonDays: 'makeup_horizon_days',
+  bookCutoffHours: 'makeup_book_cutoff_hours',
+  cancelCutoffHours: 'makeup_cancel_cutoff_hours',
+};
+const NUMERIC_LIMITS = {
+  capacity: [1, 30], horizonDays: [1, 60], bookCutoffHours: [0, 168], cancelCutoffHours: [0, 336],
+};
+
+const HM = /^([01]\d|2[0-3]):[0-5]\d$/;
+
+/**
+ * Valida la lista de turnos. Devuelve { slots } (con `key` derivada: DIA-HHMM)
+ * o { error } con el motivo. Un turno: { weekday 0-6, start 'HH:MM', end 'HH:MM' }.
+ */
+function validateSlots(input) {
+  if (!Array.isArray(input) || input.length === 0) return { error: 'Debe haber al menos un turno' };
+  if (input.length > 30) return { error: 'Máximo 30 turnos' };
+  const DAY = ['DOM', 'LUN', 'MAR', 'MIE', 'JUE', 'VIE', 'SAB'];
+  const seen = new Set();
+  const slots = [];
+  for (const t of input) {
+    const weekday = Number(t?.weekday);
+    if (!Number.isInteger(weekday) || weekday < 0 || weekday > 6) return { error: 'Día de la semana inválido en un turno' };
+    if (!HM.test(String(t?.start)) || !HM.test(String(t?.end))) return { error: 'Las horas deben tener formato HH:MM' };
+    if (t.start >= t.end) return { error: `El turno ${t.start} debe terminar después de empezar` };
+    const key = `${DAY[weekday]}-${t.start.replace(':', '')}`;
+    if (seen.has(key)) return { error: `Turno repetido: ${key}` };
+    seen.add(key);
+    slots.push({ key, weekday, start: t.start, end: t.end });
+  }
+  slots.sort((a, b) => a.weekday - b.weekday || a.start.localeCompare(b.start));
+  return { slots };
+}
+
+/** Une los valores guardados (filas de SystemConfig) con los de por defecto. */
+function resolveBookingConfig(rows = []) {
+  const raw = Object.fromEntries(rows.map((r) => [r.key, r.value]));
+  const cfg = { ...DEFAULT_BOOKING_CONFIG };
+  if (raw[BOOKING_CONFIG_KEYS.slots]) {
+    try {
+      const v = validateSlots(JSON.parse(raw[BOOKING_CONFIG_KEYS.slots]));
+      if (v.slots) cfg.slots = v.slots;
+    } catch { /* JSON dañado: se queda el valor por defecto */ }
+  }
+  for (const [field, [min, max]] of Object.entries(NUMERIC_LIMITS)) {
+    const n = Number(raw[BOOKING_CONFIG_KEYS[field]]);
+    if (raw[BOOKING_CONFIG_KEYS[field]] !== undefined && Number.isFinite(n) && n >= min && n <= max) cfg[field] = Math.floor(n);
+  }
+  return cfg;
+}
+
+async function loadBookingConfig() {
+  const prisma = require('../lib/prisma');
+  const rows = await prisma.systemConfig.findMany({ where: { key: { in: Object.values(BOOKING_CONFIG_KEYS) } } });
+  return resolveBookingConfig(rows);
+}
+
 const WEEKDAY_LABEL = ['Domingo', 'Lunes', 'Martes', 'Miércoles', 'Jueves', 'Viernes', 'Sábado'];
 
 function addDays(dateStr, n) {
@@ -53,22 +124,22 @@ function slotStartsAt(dateStr, start) {
   return new Date(`${dateStr}T${start}:00-05:00`);
 }
 
-function findTemplate(key) {
-  return SLOT_TEMPLATES.find((t) => t.key === key) || null;
+function findTemplate(key, templates = SLOT_TEMPLATES) {
+  return templates.find((t) => t.key === key) || null;
 }
 
 /**
  * Turnos de los próximos `horizonDays` días (hoy incluido), saltando las fechas
  * excluidas del semestre (festivos, recesos). Ordenados por fecha y hora.
  */
-function upcomingSlots(todayStr, excludedDates = [], horizonDays = HORIZON_DAYS) {
+function upcomingSlots(todayStr, excludedDates = [], horizonDays = HORIZON_DAYS, templates = SLOT_TEMPLATES) {
   const excluded = new Set(excludedDates);
   const out = [];
   for (let i = 0; i <= horizonDays; i++) {
     const date = addDays(todayStr, i);
     if (excluded.has(date)) continue;
     const weekday = new Date(`${date}T00:00:00Z`).getUTCDay();
-    for (const tpl of SLOT_TEMPLATES) {
+    for (const tpl of templates) {
       if (tpl.weekday !== weekday) continue;
       out.push({
         date,
@@ -83,16 +154,22 @@ function upcomingSlots(todayStr, excludedDates = [], horizonDays = HORIZON_DAYS)
   return out;
 }
 
+// Turnos tal como se muestran: [{ key, day: 'Viernes', label: '5:15 p. m. – 6:00 p. m.', minutes: 45 }]
+function describeSlots(templates = SLOT_TEMPLATES) {
+  const mins = (hm) => Number(hm.slice(0, 2)) * 60 + Number(hm.slice(3));
+  return templates.map((t) => ({ key: t.key, day: WEEKDAY_LABEL[t.weekday], label: slotLabel(t), minutes: mins(t.end) - mins(t.start) }));
+}
+
 function hoursUntil(now, dateStr, start) {
   return (slotStartsAt(dateStr, start) - now) / 3600000;
 }
 
-function canBookAt(now, dateStr, start) {
-  return hoursUntil(now, dateStr, start) >= BOOK_CUTOFF_HOURS;
+function canBookAt(now, dateStr, start, cutoffHours = BOOK_CUTOFF_HOURS) {
+  return hoursUntil(now, dateStr, start) >= cutoffHours;
 }
 
-function canCancelAt(now, dateStr, start) {
-  return hoursUntil(now, dateStr, start) >= CANCEL_CUTOFF_HOURS;
+function canCancelAt(now, dateStr, start, cutoffHours = CANCEL_CUTOFF_HOURS) {
+  return hoursUntil(now, dateStr, start) >= cutoffHours;
 }
 
 /**
@@ -116,6 +193,11 @@ function whatsappNumber(phone) {
 }
 
 module.exports = {
+  DEFAULT_BOOKING_CONFIG,
+  BOOKING_CONFIG_KEYS,
+  validateSlots,
+  resolveBookingConfig,
+  loadBookingConfig,
   SLOT_TEMPLATES,
   SLOT_CAPACITY,
   SLOT_UNITS,
@@ -125,6 +207,7 @@ module.exports = {
   SUGGESTION_MAX_LENGTH,
   MAX_OPEN_SUGGESTIONS,
   findTemplate,
+  describeSlots,
   slotLabel,
   slotStartsAt,
   upcomingSlots,

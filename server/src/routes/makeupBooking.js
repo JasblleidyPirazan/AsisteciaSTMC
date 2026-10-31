@@ -17,7 +17,7 @@ const { bogotaDateStr, dbDateStr } = require('../lib/dates');
 const { loadLedgers } = require('../services/studentLedger');
 const { isSessionPeriodLocked } = require('../lib/payrollLock');
 const {
-  SLOT_CAPACITY, SLOT_UNITS, HORIZON_DAYS, BOOK_CUTOFF_HOURS, CANCEL_CUTOFF_HOURS,
+  SLOT_UNITS, loadBookingConfig, describeSlots,
   SUGGESTION_MAX_LENGTH, MAX_OPEN_SUGGESTIONS,
   findTemplate, upcomingSlots, canBookAt, canCancelAt, bookableCount, newToken,
 } = require('../services/makeupBooking');
@@ -90,6 +90,7 @@ async function studentByToken(token) {
 // Estado completo que ve el acudiente.
 async function buildPublicState(student, now = new Date()) {
   const todayStr = bogotaDateStr(now);
+  const cfg = await loadBookingConfig();
   const [excluded, debt, reservations, suggestions] = await Promise.all([
     loadExcludedDates(),
     loadDebt(student.id),
@@ -100,7 +101,7 @@ async function buildPublicState(student, now = new Date()) {
       take: 10,
     }),
   ]);
-  const slots = upcomingSlots(todayStr, excluded);
+  const slots = upcomingSlots(todayStr, excluded, cfg.horizonDays, cfg.slots);
   const lastDate = slots.length ? slots[slots.length - 1].date : todayStr;
   const sessions = await prisma.classSession.findMany({
     where: {
@@ -121,22 +122,22 @@ async function buildPublicState(student, now = new Date()) {
     const taken = session?._count.makeupParticipants || 0;
     const mine = !!(session && mineBySession[session.id]);
     const open = !session || session.status === 'PROGRAMADA';
-    const timeOk = canBookAt(now, slot.date, slot.start);
+    const timeOk = canBookAt(now, slot.date, slot.start, cfg.bookCutoffHours);
     return {
       ...slot,
       sessionId: session?.id || null,
       taken,
-      capacity: SLOT_CAPACITY,
-      full: taken >= SLOT_CAPACITY,
+      capacity: cfg.capacity,
+      full: taken >= cfg.capacity,
       closed: !open || !timeOk,
       mine,
-      bookable: !mine && open && timeOk && taken < SLOT_CAPACITY && available > 0,
+      bookable: !mine && open && timeOk && taken < cfg.capacity && available > 0,
     };
   });
 
   const myBookings = reservations.map((r) => {
     const dateStr = dbDateStr(r.session.date);
-    const tpl = findTemplate(r.session.bookingSlot);
+    const tpl = findTemplate(r.session.bookingSlot, cfg.slots);
     return {
       sessionId: r.sessionId,
       date: dateStr,
@@ -144,7 +145,7 @@ async function buildPublicState(student, now = new Date()) {
       start: tpl?.start || null,
       bookedByParent: !!r.bookedAt,
       // Solo se cancela lo que reservó el acudiente, y con anticipación
-      cancellable: !!r.bookedAt && !!tpl && canCancelAt(now, dateStr, tpl.start),
+      cancellable: !!r.bookedAt && !!tpl && canCancelAt(now, dateStr, tpl.start, cfg.cancelCutoffHours),
     };
   });
 
@@ -160,8 +161,8 @@ async function buildPublicState(student, now = new Date()) {
     myBookings,
     suggestions: suggestions.map((s) => ({ id: s.id, text: s.text, createdAt: s.createdAt, resolved: !!s.resolvedAt })),
     rules: {
-      capacity: SLOT_CAPACITY, horizonDays: HORIZON_DAYS,
-      bookCutoffHours: BOOK_CUTOFF_HOURS, cancelCutoffHours: CANCEL_CUTOFF_HOURS,
+      capacity: cfg.capacity, horizonDays: cfg.horizonDays, slots: describeSlots(cfg.slots),
+      bookCutoffHours: cfg.bookCutoffHours, cancelCutoffHours: cfg.cancelCutoffHours,
     },
   };
 }
@@ -172,8 +173,9 @@ const staff = [authMiddleware, requireRole('ADMIN', 'PHYSICAL_TRAINER')];
 router.get('/admin/overview', ...staff, async (req, res, next) => {
   try {
     const todayStr = bogotaDateStr();
+    const cfg = await loadBookingConfig();
     const excluded = await loadExcludedDates();
-    const slots = upcomingSlots(todayStr, excluded);
+    const slots = upcomingSlots(todayStr, excluded, cfg.horizonDays, cfg.slots);
     const lastDate = slots.length ? slots[slots.length - 1].date : todayStr;
 
     const [sessions, { ledgers }, suggestions] = await Promise.all([
@@ -203,7 +205,7 @@ router.get('/admin/overview', ...staff, async (req, res, next) => {
       const s = sessionBySlot[`${slot.date}|${slot.key}`];
       return {
         ...slot,
-        capacity: SLOT_CAPACITY,
+        capacity: cfg.capacity,
         sessionId: s?.id || null,
         status: s?.status || null,
         professor: s?.makeupProfessor || null,
@@ -240,7 +242,7 @@ router.get('/admin/overview', ...staff, async (req, res, next) => {
       success: true,
       data: {
         today: todayStr,
-        rules: { capacity: SLOT_CAPACITY, bookCutoffHours: BOOK_CUTOFF_HOURS, cancelCutoffHours: CANCEL_CUTOFF_HOURS },
+        rules: { capacity: cfg.capacity, horizonDays: cfg.horizonDays, slots: describeSlots(cfg.slots), bookCutoffHours: cfg.bookCutoffHours, cancelCutoffHours: cfg.cancelCutoffHours },
         agenda,
         students,
         suggestions: suggestions.map((s) => ({
@@ -311,11 +313,12 @@ router.post('/:token/book', publicLimiter, async (req, res, next) => {
 
     const { date, slotKey } = req.body || {};
     const now = new Date();
+    const cfg = await loadBookingConfig();
     const excluded = await loadExcludedDates();
-    const slot = upcomingSlots(bogotaDateStr(now), excluded).find((s) => s.date === date && s.key === slotKey);
+    const slot = upcomingSlots(bogotaDateStr(now), excluded, cfg.horizonDays, cfg.slots).find((s) => s.date === date && s.key === slotKey);
     if (!slot) return fail(res, 400, 'Ese turno no está disponible');
-    if (!canBookAt(now, slot.date, slot.start)) {
-      return fail(res, 409, `Los turnos se reservan hasta ${BOOK_CUTOFF_HOURS} horas antes.`);
+    if (!canBookAt(now, slot.date, slot.start, cfg.bookCutoffHours)) {
+      return fail(res, 409, `Los turnos se reservan hasta ${cfg.bookCutoffHours} horas antes.`);
     }
 
     const debt = await loadDebt(student.id);
@@ -359,7 +362,7 @@ router.post('/:token/book', publicLimiter, async (req, res, next) => {
           if (session.makeupParticipants.some((p) => p.studentId === student.id)) {
             throw new BookingError(409, 'Ya tienes una reserva en ese turno.');
           }
-          if (session.makeupParticipants.length >= SLOT_CAPACITY) {
+          if (session.makeupParticipants.length >= cfg.capacity) {
             throw new BookingError(409, 'Ese turno se acaba de llenar. Elige otro.');
           }
           await tx.makeupParticipant.create({
@@ -397,10 +400,11 @@ router.delete('/:token/book/:sessionId', publicLimiter, async (req, res, next) =
       return fail(res, 403, 'Esta reposición la programó la Escuela. Para cambiarla, comunícate con ellos.');
     }
     const { session } = participation;
-    const tpl = findTemplate(session.bookingSlot);
+    const cfg = await loadBookingConfig();
+    const tpl = findTemplate(session.bookingSlot, cfg.slots);
     if (session.status !== 'PROGRAMADA') return fail(res, 409, 'Esta reposición ya no se puede cancelar.');
-    if (!tpl || !canCancelAt(new Date(), dbDateStr(session.date), tpl.start)) {
-      return fail(res, 409, `Las reservas se cancelan hasta ${CANCEL_CUTOFF_HOURS} horas antes. Comunícate con la Escuela.`);
+    if (!tpl || !canCancelAt(new Date(), dbDateStr(session.date), tpl.start, cfg.cancelCutoffHours)) {
+      return fail(res, 409, `Las reservas se cancelan hasta ${cfg.cancelCutoffHours} horas antes. Comunícate con la Escuela.`);
     }
 
     await prisma.makeupParticipant.delete({
