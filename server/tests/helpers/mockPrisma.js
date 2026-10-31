@@ -45,3 +45,38 @@ export async function mockStudentStatusDeps() {
   // GRADUADO: semestre activo (null = sin semestre, nadie se gradúa)
   prismaMock.semester = { findFirst: vi.fn().mockResolvedValue(null), ...(prismaMock.semester || {}) };
 }
+
+// Todo lo que lee `loadLedgers` (services/studentLedger.js): semestre, estudiantes
+// con matrículas, registros, sesiones, reposiciones programadas, pagos y tarifas.
+// Los registros y las sesiones se filtran por estudiante/grupo como lo haría la BD.
+export async function mockLedgerDeps({
+  semester = null, students = [], records = [], sessions = [], scheduled = [], payments = [], config = [],
+} = {}) {
+  const { vi } = await import('vitest');
+  prismaMock.semester = {
+    findFirst: vi.fn().mockResolvedValue(semester),
+    findMany: vi.fn().mockResolvedValue(semester ? [{ id: semester.id, startDate: semester.startDate }] : []),
+  };
+  prismaMock.student = { ...(prismaMock.student || {}) };
+  prismaMock.student.findMany = vi.fn().mockImplementation(({ where } = {}) => {
+    let list = students;
+    if (where?.id?.in) list = list.filter((s) => where.id.in.includes(s.id));
+    return Promise.resolve(list);
+  });
+  prismaMock.student.findUnique = vi.fn().mockImplementation(({ where }) => {
+    const found = students.find((x) => x.id === where.id);
+    return Promise.resolve(found ? { id: found.id, parentUserId: found.parentUserId ?? null } : null);
+  });
+  prismaMock.attendanceRecord = {
+    findMany: vi.fn().mockImplementation(({ where } = {}) => Promise.resolve(
+      where?.studentId?.in ? records.filter((r) => where.studentId.in.includes(r.studentId)) : records)),
+    groupBy: vi.fn().mockResolvedValue([]),
+  };
+  prismaMock.classSession = { findMany: vi.fn().mockResolvedValue(sessions) };
+  prismaMock.makeupParticipant = { findMany: vi.fn().mockResolvedValue(scheduled) };
+  prismaMock.studentPayment = { groupBy: vi.fn().mockResolvedValue(payments) };
+  prismaMock.systemConfig = {
+    findMany: vi.fn().mockResolvedValue(config),
+    findUnique: vi.fn().mockResolvedValue({ value: '40' }),
+  };
+}

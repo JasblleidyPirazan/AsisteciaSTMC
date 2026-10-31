@@ -1,6 +1,6 @@
 // mockPrisma MUST be imported before the router (require.cache injection).
-import { prismaMock, resetPrisma } from '../helpers/mockPrisma.js';
-import { describe, it, expect, beforeAll, beforeEach, vi } from 'vitest';
+import { prismaMock, resetPrisma, mockLedgerDeps } from '../helpers/mockPrisma.js';
+import { describe, it, expect, beforeAll, beforeEach, afterEach, vi } from 'vitest';
 import request from 'supertest';
 import { JWT_SECRET, tokenFor, buildApp } from '../helpers/testApp.js';
 
@@ -16,14 +16,29 @@ function authAs(role, id = 'u1') {
   return tokenFor({ id, role });
 }
 
-const base = {
-  active: true, isTrial: false, birthDate: new Date('2010-01-01'), previousClasses: 0,
-  classesStartDate: null, suspendedFrom: null, suspendedUntil: null,
+const d = (x) => new Date(`${x}T00:00:00.000Z`);
+const NO_DAYS = { lunes: false, martes: false, miercoles: false, jueves: false, viernes: false, sabado: false, domingo: false };
+const GROUP = { id: 'g1', code: 'G1', active: true, createdAt: d('2026-01-01'), ballLevel: 'Verde', ...NO_DAYS, lunes: true };
+const SEM = {
+  id: 'sem1', name: '2026-1', startDate: d('2026-01-05'), endDate: d('2026-12-28'), active: true,
+  // 2 lunes festivos ya pasados: son calendario, no reposición
+  exclusions: [{ date: d('2026-03-02'), reason: 'Festivo' }, { date: d('2026-03-16'), reason: 'Festivo' }],
 };
-const DONE = { ...base, id: 'done', name: 'Completa', classesAcquired: 2 };
-const LIVE = { ...base, id: 'live', name: 'En curso', classesAcquired: 10 };
-
-const rec = (studentId, date) => ({ studentId, status: 'PRESENTE', session: { date: new Date(date), effectiveUnits: 1 } });
+const student = (id, name, classesAcquired) => ({
+  id, name, document: id, active: true, isTrial: false, birthDate: d('2010-01-01'), previousClasses: 0,
+  classesStartDate: null, suspendedFrom: null, suspendedUntil: null, parentUserId: null, classesAcquired,
+  enrollments: [{ groupId: 'g1', enrolledAt: d('2026-01-01'), weekdays: [], enrollmentType: 'PRIMARY', group: GROUP }],
+});
+const sess = (id, date, over = {}) => ({
+  id, groupId: 'g1', date: d(date), kind: 'REGULAR', status: 'REALIZADA', effectiveUnits: 1,
+  cancellationCategory: null, consolidationStatus: 'MATCHED', ...over,
+});
+const rec = (studentId, status, session) => ({ studentId, status, attendanceType: 'REGULAR', justification: null, session });
+// n asistencias a clases distintas (miércoles, para no chocar con las de lunes)
+const seen = (studentId, n, from = '2026-01-07') => Array.from({ length: n }, (_, i) => {
+  const date = new Date(d(from).getTime() + i * 7 * 86400000).toISOString().slice(0, 10);
+  return rec(studentId, 'PRESENTE', sess(`${studentId}-${i}`, date));
+});
 
 beforeAll(async () => {
   process.env.JWT_SECRET = JWT_SECRET;
@@ -31,21 +46,19 @@ beforeAll(async () => {
   alertsApp = await buildApp('/api/alerts', (await import('../../src/routes/alerts.js')).default);
 });
 
-describe('GET /groups/:id/students — semestre completado', () => {
-  beforeEach(() => {
+afterEach(() => { vi.useRealTimers(); });
+
+describe('GET /groups/:id/students — semestre completado (🎓 graduado)', () => {
+  const DONE = student('done', 'Completa', 2);
+  const LIVE = student('live', 'En curso', 10);
+  const records = [...seen('done', 2, '2026-03-02'), ...seen('live', 1, '2026-03-02')];
+
+  beforeEach(async () => {
     resetPrisma();
+    vi.useFakeTimers({ toFake: ['Date'] });
+    vi.setSystemTime(new Date('2026-04-01T15:00:00.000Z'));
     prismaMock.studentEnrollment = { findMany: vi.fn().mockResolvedValue([{ student: DONE }, { student: LIVE }]) };
-    prismaMock.semester = { findFirst: vi.fn().mockResolvedValue(null) };
-    prismaMock.attendanceRecord = {
-      findMany: vi.fn().mockResolvedValue([
-        rec('done', '2026-03-02'), rec('done', '2026-03-04'), rec('live', '2026-03-02'),
-      ]),
-      groupBy: vi.fn().mockResolvedValue([
-        { studentId: 'done', _count: { _all: 2 } }, { studentId: 'live', _count: { _all: 1 } },
-      ]),
-    };
-    prismaMock.studentPayment = { groupBy: vi.fn().mockResolvedValue([]) };
-    prismaMock.systemConfig = { findMany: vi.fn().mockResolvedValue([]) };
+    await mockLedgerDeps({ semester: SEM, students: [DONE, LIVE], records, sessions: records.map((r) => r.session) });
   });
 
   it('oculta al estudiante que completó su paquete', async () => {
@@ -54,69 +67,44 @@ describe('GET /groups/:id/students — semestre completado', () => {
     expect(res.body.data.map((s) => s.id)).toEqual(['live']);
   });
 
-  it('includeCompleted=true lo devuelve marcado', async () => {
+  it('includeCompleted=true lo devuelve marcado y con su estado GRADUADO', async () => {
     const res = await request(groupsApp).get('/api/groups/g1/students?includeCompleted=true')
       .set('Authorization', `Bearer ${authAs('PHYSICAL_TRAINER')}`);
     const done = res.body.data.find((s) => s.id === 'done');
-    expect(done.semesterCompleted).toBe(true);
+    expect(done).toMatchObject({ semesterCompleted: true, studentStatus: 'GRADUADO', classesSeen: 2, classesAcquired: 2 });
     expect(res.body.data.find((s) => s.id === 'live').semesterCompleted).toBe(false);
   });
 
   it('con ?date= solo cuentan las sesiones anteriores (puede editar la clase en que terminó)', async () => {
-    await request(groupsApp).get('/api/groups/g1/students?date=2026-03-04')
+    // done terminó el 2026-03-09 (su 2.ª clase): antes de esa fecha solo lleva 1
+    const res = await request(groupsApp).get('/api/groups/g1/students?date=2026-03-09')
       .set('Authorization', `Bearer ${authAs('TEACHER')}`);
-    const where = prismaMock.attendanceRecord.findMany.mock.calls[0][0].where;
-    expect(JSON.stringify(where)).toContain('"lt":"2026-03-04T00:00:00.000Z"');
+    const done = res.body.data.find((s) => s.id === 'done');
+    expect(done).toMatchObject({ semesterCompleted: false, classesSeen: 1 });
   });
 });
 
-describe('GET /alerts/coordinator', () => {
-  const GROUP = {
-    id: 'g1', code: 'G1', active: true, createdAt: new Date('2026-01-01'),
-    lunes: true, martes: false, miercoles: false, jueves: false, viernes: false, sabado: false, domingo: false,
-  };
-  const enr = (s) => ({ ...s, enrollments: [{ groupId: 'g1', enrolledAt: new Date('2026-01-01'), group: GROUP }] });
-  const rain = (d) => ({ groupId: 'g1', date: new Date(d) });
-  const just = (studentId, d) => ({ studentId, session: { date: new Date(d) } });
+describe('GET /alerts/coordinator — Cumplimiento (D10)', () => {
+  // near: le faltan 2 · debt: 2 lluvia + 2 justificadas · abs: solo lluvia · done: completó
+  // pre: sin pagos (preinscrito) — D10 igual lo cuenta: tiene paquete
+  const STUDENTS = [
+    student('near', 'Casi', 10), student('debt', 'Debe', 40), student('abs', 'Falta', 40),
+    student('done', 'Lista', 1), student('pre', 'Pre', 40),
+  ];
+  const RAIN = [sess('r1', '2026-02-02', { status: 'CANCELADA', cancellationCategory: 'LLUVIA' }),
+    sess('r2', '2026-02-09', { status: 'CANCELADA', cancellationCategory: 'LLUVIA' })];
+  const J = [rec('debt', 'JUSTIFICADA', sess('j1', '2026-02-16')), rec('debt', 'JUSTIFICADA', sess('j2', '2026-02-23'))];
+  const RECORDS = [...seen('near', 8), ...seen('done', 1), ...J];
 
-  beforeEach(() => {
+  beforeEach(async () => {
     resetPrisma();
-    prismaMock.semester = {
-      findFirst: vi.fn().mockResolvedValue({
-        startDate: new Date('2026-01-05'), endDate: new Date('2026-12-28'),
-        // 2 lunes festivos ya pasados → se suman a lo que debe 'debt'
-        exclusions: [{ date: new Date('2026-03-02'), reason: 'Festivo' }, { date: new Date('2026-03-16'), reason: 'Festivo' }],
-      }),
-    };
-    prismaMock.student = {
-      findMany: vi.fn().mockResolvedValue([
-        enr({ ...base, id: 'near', name: 'Casi', classesAcquired: 10 }),     // vio 8 → le faltan 2
-        enr({ ...base, id: 'debt', name: 'Debe', classesAcquired: 40 }),     // 2 lluvia + 2 justificadas
-        enr({ ...base, id: 'abs', name: 'Falta', classesAcquired: 40 }),     // solo ausencias: NO debe
-        enr({ ...base, id: 'done', name: 'Lista', classesAcquired: 1 }),
-        // Preinscrito (sin pagos ni asistencia): no entra al cumplimiento
-        enr({ ...base, id: 'pre', name: 'Pre', classesAcquired: 40 }),
-      ]),
-    };
-    // Todos han pagado algo (inscritos) salvo 'pre'
-    prismaMock.studentPayment = {
-      groupBy: vi.fn().mockResolvedValue(['near', 'debt', 'abs', 'done'].map((studentId) => ({ studentId, _sum: { amount: 100000 } }))),
-    };
-    prismaMock.systemConfig = { findMany: vi.fn().mockResolvedValue([]) };
-    const seen = (id, n) => Array.from({ length: n }, (_, i) => rec(id, `2026-02-${String(i + 1).padStart(2, '0')}`));
-    prismaMock.classSession = {
-      findMany: vi.fn().mockResolvedValue([rain('2026-02-02'), rain('2026-02-09')]),
-    };
-    prismaMock.attendanceRecord = {
-      findMany: vi.fn().mockImplementation(({ where }) => {
-        if (where.status === 'JUSTIFICADA') {
-          return Promise.resolve([just('debt', '2026-02-16'), just('debt', '2026-02-23')]);
-        }
-        if (JSON.stringify(where).includes('REPOSICION')) return Promise.resolve([]);
-        return Promise.resolve([...seen('near', 8), ...seen('done', 1)]); // clases vistas
-      }),
-      groupBy: vi.fn().mockResolvedValue([]),
-    };
+    vi.useFakeTimers({ toFake: ['Date'] });
+    vi.setSystemTime(new Date('2026-04-01T15:00:00.000Z')); // miércoles 1 abr
+    await mockLedgerDeps({
+      semester: SEM, students: STUDENTS, records: RECORDS,
+      sessions: [...RECORDS.map((r) => r.session), ...RAIN],
+      payments: ['near', 'debt', 'abs', 'done'].map((studentId) => ({ studentId, _sum: { amount: 100000 } })),
+    });
   });
 
   it('reposición = lluvia + justificadas; los festivos van aparte, por calendario', async () => {
@@ -125,46 +113,27 @@ describe('GET /alerts/coordinator', () => {
     expect(res.status).toBe(200);
     const { makeups, nearEnd, completedCount, summary } = res.body.data;
     // 'debt': 2 lluvia + 2 justificadas = 4 de reposición; los 2 festivos son calendario
-    expect(makeups.find((m) => m.studentId === 'debt'))
-      .toMatchObject({ pending: 4, rain: 2, justified: 2, calendar: 2 });
-    // 'abs' solo tiene ausencias sin justificar (no suman) + 2 lluvias: 2 < umbral
-    expect(makeups.find((m) => m.studentId === 'abs')).toBeUndefined();
+    expect(makeups.map((m) => m.studentId)).toEqual(['debt']);
+    expect(makeups[0]).toMatchObject({ pending: 4, rain: 2, justified: 2, madeUp: 0, calendar: 2 });
+    // 'abs' / 'pre' solo tienen las 2 lluvias: bajo el umbral de 3
     expect(nearEnd.map((s) => s.studentId)).toEqual(['near']);
-    expect(nearEnd[0].remaining).toBe(2);
+    expect(nearEnd[0]).toMatchObject({ remaining: 2, seen: 8, total: 10 });
     expect(completedCount).toBe(1);
-    // 'pre' (preinscrito) no aparece en ninguna lista ni suma al cumplimiento
-    expect(makeups.find((m) => m.studentId === 'pre')).toBeUndefined();
-    expect(res.body.data.shortfall.find((m) => m.studentId === 'pre')).toBeUndefined();
-    // Cumplimiento: pagadas 10+40+40+1, vistas 8+1
-    expect(summary).toMatchObject({ students: 4, completed: 1, paid: 91, seen: 9, remaining: 82 });
-    // Reposición: debt 4 + abs 2 + near 2. Calendario: debt 2 + abs 2; a 'near' solo le
-    // quedan 2 clases y ya las cubre la reposición (tope del paquete) → 0 por calendario
-    expect(summary).toMatchObject({ makeupPending: 8, makeupStudents: 3, calendarPending: 4, calendarStudents: 2 });
+    // D10: todo estudiante con paquete cuenta, también el preinscrito
+    expect(summary).toMatchObject({ students: 5, completed: 1, paid: 131, seen: 9, remaining: 122 });
   });
 
-  it('descuenta lo ya repuesto, primero de la reposición y el excedente del calendario', async () => {
-    const { computeMakeupDebt } = await import('../../src/services/semesterProgress.js');
-    const original = prismaMock.attendanceRecord.findMany.getMockImplementation();
-    const repuso = (units) => prismaMock.attendanceRecord.findMany.mockImplementation((args) =>
-      JSON.stringify(args.where).includes('REPOSICION')
-        ? Promise.resolve([{ studentId: 'debt', session: { date: new Date('2026-09-20T00:00:00Z'), kind: 'MAKEUP', title: 'Reposición', effectiveUnits: units } }])
-        : original(args));
-    repuso(2);
-    let debt = (await computeMakeupDebt()).rows.find((r) => r.studentId === 'debt');
-    expect(debt).toMatchObject({ madeUp: 2, pending: 2, calendar: 2 });
-    repuso(5); // debía 4 de reposición: el excedente (1) recupera un festivo
-    debt = (await computeMakeupDebt()).rows.find((r) => r.studentId === 'debt');
-    expect(debt).toMatchObject({ madeUp: 5, pending: 0, calendar: 1 });
+  it('las cuatro cubetas de lo que falta suman lo que falta (invariante)', async () => {
+    const res = await request(alertsApp).get('/api/alerts/coordinator')
+      .set('Authorization', `Bearer ${authAs('ADMIN')}`);
+    const s = res.body.data.summary;
+    expect(Math.round((s.coveredByCalendar + s.scheduled + s.makeupPending + s.shortfall) * 10) / 10).toBe(s.remaining);
   });
 
-  it('detalle por estudiante: lista las clases que originan la deuda', async () => {
-    const { computeMakeupDebt } = await import('../../src/services/semesterProgress.js');
-    const { rows } = await computeMakeupDebt();
-    const debt = rows.find((r) => r.studentId === 'debt');
-    const byType = (t) => debt.items.filter((i) => i.type === t).length;
-    expect({ rain: byType('RAIN'), justified: byType('JUSTIFIED'), holidays: byType('HOLIDAY') })
-      .toEqual({ rain: 2, justified: 2, holidays: 2 });
-    expect(debt.items.map((i) => i.date)).toEqual([...debt.items.map((i) => i.date)].sort());
+  it('el estudiante de la lista trae su ledger para el contrato de cifras', async () => {
+    const res = await request(alertsApp).get('/api/alerts/coordinator')
+      .set('Authorization', `Bearer ${authAs('ADMIN')}`);
+    expect(res.body.data.summary.semaforo).toBeTruthy();
   });
 
   it('un profesor no puede ver el panel', async () => {

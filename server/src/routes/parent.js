@@ -1,8 +1,8 @@
 const express = require('express');
 const prisma = require('../lib/prisma');
 const { requireRole } = require('../middleware/auth');
-const { absenceCounts, consumedUnits, roundUnits } = require('../services/attendanceStats');
-const { computeAttendanceDeviations } = require('../services/attendanceAlerts');
+const { loadLedgers, ledgerBrief } = require('../services/studentLedger');
+const { loadStudentAttendance } = require('../services/studentAttendance');
 const { attachStudentStatus } = require('../services/studentStatus');
 
 const router = express.Router();
@@ -17,29 +17,23 @@ router.get('/children', requireRole('PARENT', 'ADMIN'), async (req, res, next) =
       },
     });
 
-    // Attendance alert for each child (deviation vs the ideal progress level)
-    let alertsById = {};
-    try {
-      const deviations = await computeAttendanceDeviations({ studentIds: students.map((s) => s.id) });
-      alertsById = Object.fromEntries(deviations.map((d) => [d.studentId, d]));
-    } catch { /* alerts are best-effort here */ }
+    // El ledger de cada hijo (semáforo y cifras del paquete) reemplaza a la antigua
+    // alerta de asistencia (D8). Se lee una vez y se reutiliza para el estado.
+    const loaded = students.length > 0
+      ? await loadLedgers({ studentIds: students.map((s) => s.id) })
+      : { ledgers: [] };
+    const ledgerById = Object.fromEntries(loaded.ledgers.map((l) => [l.studentId, l]));
 
     // Estado derivado (matriculado/inscrito/…) + saldo del plan: es el propio
     // hijo del acudiente, así que puede ver su estado de pago.
-    const decorated = await attachStudentStatus(students);
+    const decorated = await attachStudentStatus(students, { loaded });
 
     res.json({
       success: true,
       data: decorated.map((s) => ({
         ...s,
-        attendanceAlert: alertsById[s.id]
-          ? {
-              expected: alertsById[s.id].expected,
-              seen: alertsById[s.id].seen,
-              deviation: alertsById[s.id].deviation,
-              level: alertsById[s.id].level,
-            }
-          : null,
+        semaforo: ledgerById[s.id]?.semaforo || null,
+        ledger: ledgerBrief(ledgerById[s.id] || null),
       })),
     });
   } catch (err) {
@@ -51,7 +45,7 @@ router.get('/attendance/:studentId', requireRole('PARENT', 'ADMIN', 'TEACHER'), 
   try {
     const student = await prisma.student.findUnique({
       where: { id: req.params.studentId },
-      select: { parentUserId: true, classesStartDate: true },
+      select: { parentUserId: true },
     });
     if (!student) return res.status(404).json({ success: false, error: 'Estudiante no encontrado' });
     // Parents can only access their own children
@@ -60,55 +54,11 @@ router.get('/attendance/:studentId', requireRole('PARENT', 'ADMIN', 'TEACHER'), 
     }
 
     const { from, to } = req.query;
-    const where = { studentId: req.params.studentId };
-    if (from || to) {
-      where.session = { date: {} };
-      if (from) where.session.date.gte = new Date(from);
-      if (to) where.session.date.lte = new Date(to);
-    }
-
-    const records = await prisma.attendanceRecord.findMany({
-      where,
-      include: {
-        session: {
-          include: {
-            group: { select: { id: true, code: true, name: true, ballLevel: true } },
-          },
-        },
-      },
-      orderBy: { session: { date: 'desc' } },
-    });
-
-    const total = records.length;
-    const present = records.filter((r) => r.status === 'PRESENTE').length;
-    const na = records.filter((r) => r.status === 'NO_APLICA').length;
-    // Las faltas cuentan solo desde la fecha de inicio de clases del estudiante
-    const absent = records.filter((r) =>
-      r.status === 'AUSENTE' && absenceCounts(r.session?.date, student.classesStartDate)
-    ).length;
-    const justified = records.filter((r) => r.status === 'JUSTIFICADA').length;
-    // "Vistas" = asistencias + ausencias + reposiciones (lo consumido del
-    // paquete), con las unidades de la sesión: una reposición doble vale 2.
-    const classesSeen = roundUnits(records.reduce(
-      (acc, r) => acc + consumedUnits(r, r.session, student.classesStartDate), 0
-    ));
-    // Denominador: P + A + J (N/A y faltas previas al inicio quedan fuera).
-    const denom = present + absent + justified;
-
     res.json({
       success: true,
-      data: {
-        records,
-        summary: {
-          total,
-          present,
-          absent,
-          justified,
-          na,
-          classesSeen,
-          attendanceRate: denom > 0 ? Math.round((present / denom) * 100) : 0,
-        },
-      },
+      data: await loadStudentAttendance(req.params.studentId, {
+        from, to, groupSelect: { id: true, code: true, name: true, ballLevel: true },
+      }),
     });
   } catch (err) {
     next(err);

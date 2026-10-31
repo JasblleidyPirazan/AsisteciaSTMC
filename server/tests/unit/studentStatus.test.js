@@ -74,13 +74,18 @@ describe('deriveStudentStatus — prioridad de estados', () => {
     expect(deriveStudentStatus({ ...base, isTrial: true }, opts())).toBe('PRUEBA');
   });
 
-  it('PREINSCRITO: registrado sin asistencia ni pagos', () => {
+  it('PREINSCRITO: registrado sin pagos', () => {
     expect(deriveStudentStatus(base, opts())).toBe('PREINSCRITO');
   });
 
-  it('INSCRITO con algún pago o alguna asistencia', () => {
+  it('INSCRITO con pago parcial; la asistencia ya no cambia el estado (D7)', () => {
     expect(deriveStudentStatus(base, opts({ totalPaid: 100000 }))).toBe('INSCRITO');
-    expect(deriveStudentStatus(base, opts({ hasAttendance: true }))).toBe('INSCRITO');
+    expect(deriveStudentStatus(base, opts({ hasAttendance: true }))).toBe('PREINSCRITO');
+  });
+
+  it('GRADUADO gana a MATRICULADO pero pierde contra PRUEBA', () => {
+    expect(deriveStudentStatus(base, opts({ totalPaid: 2425000, graduated: true }))).toBe('GRADUADO');
+    expect(deriveStudentStatus({ ...base, isTrial: true }, opts({ graduated: true }))).toBe('PRUEBA');
   });
 
   it('MATRICULADO cuando lo pagado cubre el valor del plan', () => {
@@ -138,77 +143,27 @@ describe('stripTuition — montos solo para roles con acceso económico', () => 
   });
 });
 
-describe('attachStudentStatus — "al menos una asistencia" = regla canónica de clase vista', () => {
-  async function setup({ presentRows = [], festivalRows = [], starts = [] } = {}) {
+describe('attachStudentStatus — el estado sale del ledger', () => {
+  const ledger = (extra) => ({ studentId: 's1', status: 'INSCRITO', tuitionStatus: 'INSCRITO', graduadoEl: null, tuition: { totalPaid: 100000 }, ...extra });
+
+  it('usa el estado y la fecha de fin del ledger; conserva el estado de pago', async () => {
+    const { attachStudentStatus } = require('../../src/services/studentStatus.js');
+    const loaded = {
+      tuitionConfig: TUITION_DEFAULTS,
+      ledgers: [ledger({ status: 'GRADUADO', tuitionStatus: 'MATRICULADO', graduadoEl: '2026-09-08' })],
+    };
+    const [out] = await attachStudentStatus([{ ...base }], { loaded });
+    expect(out).toMatchObject({ studentStatus: 'GRADUADO', graduatedOn: '2026-09-08', tuitionStatus: 'MATRICULADO' });
+  });
+
+  it('sin semestre activo (sin ledger) deriva solo de los pagos', async () => {
     const { attachStudentStatus } = require('../../src/services/studentStatus.js');
     const { prismaMock } = await import('../helpers/mockPrisma.js');
     const { vi } = await import('vitest');
-
     prismaMock.systemConfig = { findMany: vi.fn().mockResolvedValue([]) };
-    prismaMock.studentPayment = { groupBy: vi.fn().mockResolvedValue([]) };
-    prismaMock.attendanceRecord = {
-      groupBy: vi.fn().mockResolvedValue(presentRows),
-      findMany: vi.fn().mockResolvedValue(festivalRows),
-    };
-    prismaMock.student = { findMany: vi.fn().mockResolvedValue(starts) };
-    prismaMock.semester = { findFirst: vi.fn().mockResolvedValue(null) }; // sin semestre: nadie gradúa
-    return { attachStudentStatus, prismaMock };
-  }
-
-  it('PRESENTE en cualquier sesión deriva INSCRITO', async () => {
-    const { attachStudentStatus, prismaMock } = await setup({
-      presentRows: [{ studentId: 's1', _count: { _all: 3 } }],
-    });
-    const [out] = await attachStudentStatus([{ ...base }]);
+    prismaMock.studentPayment = { groupBy: vi.fn().mockResolvedValue([{ studentId: 's1', _sum: { amount: 100000 } }]) };
+    const [out] = await attachStudentStatus([{ ...base }], { loaded: { tuitionConfig: null, ledgers: [] } });
     expect(out.studentStatus).toBe('INSCRITO');
-    // El agregado en BD debe contar solo PRESENTE
-    expect(prismaMock.attendanceRecord.groupBy.mock.calls[0][0].where.status).toBe('PRESENTE');
-  });
-
-  it('AUSENTE en festival cuenta como asistencia (INSCRITO) desde el inicio de clases', async () => {
-    const { attachStudentStatus } = await setup({
-      festivalRows: [{ studentId: 's1', session: { date: new Date('2026-03-10') } }],
-      starts: [{ id: 's1', classesStartDate: new Date('2026-03-01') }],
-    });
-    const [out] = await attachStudentStatus([{ ...base }]);
-    expect(out.studentStatus).toBe('INSCRITO');
-  });
-
-  it('AUSENTE en festival ANTERIOR al inicio de clases NO cuenta (sigue PREINSCRITO)', async () => {
-    const { attachStudentStatus } = await setup({
-      festivalRows: [{ studentId: 's1', session: { date: new Date('2026-02-10') } }],
-      starts: [{ id: 's1', classesStartDate: new Date('2026-03-01') }],
-    });
-    const [out] = await attachStudentStatus([{ ...base }]);
-    expect(out.studentStatus).toBe('PREINSCRITO');
-  });
-});
-
-describe('attachStudentStatus — 🎓 GRADUADO (consumió todo su paquete)', () => {
-  it('vistas + faltas ≥ paquete → GRADUADO con su fecha de fin; conserva el estado de pago', async () => {
-    const { attachStudentStatus } = require('../../src/services/studentStatus.js');
-    const { prismaMock } = await import('../helpers/mockPrisma.js');
-    const { vi } = await import('vitest');
-    const d = (s) => new Date(`${s}T00:00:00.000Z`);
-    const rec = (studentId, status, date) => ({ studentId, status, session: { date: d(date), kind: 'REGULAR', effectiveUnits: 1 } });
-    prismaMock.systemConfig = { findMany: vi.fn().mockResolvedValue([]) };
-    // g1 pagó completo (3 clases de pequeño ≈ 181.875) · g2 no ha pagado
-    prismaMock.studentPayment = { groupBy: vi.fn().mockResolvedValue([{ studentId: 'g1', _sum: { amount: 200000 } }]) };
-    prismaMock.semester = { findFirst: vi.fn().mockResolvedValue({ startDate: d('2026-08-01'), endDate: d('2026-12-15') }) };
-    prismaMock.attendanceRecord = {
-      groupBy: vi.fn().mockResolvedValue([{ studentId: 'g1', _count: { _all: 2 } }, { studentId: 'g2', _count: { _all: 1 } }]),
-      findMany: vi.fn().mockImplementation(({ where }) => Promise.resolve(where.status?.in ? [
-        rec('g1', 'PRESENTE', '2026-09-01'), rec('g1', 'AUSENTE', '2026-09-03'), rec('g1', 'PRESENTE', '2026-09-08'),
-        rec('g2', 'PRESENTE', '2026-09-01'), rec('g2', 'JUSTIFICADA', '2026-09-03'),
-      ] : [])),
-    };
-    const base = { active: true, isTrial: false, birthDate: d('2015-01-01'), previousClasses: 0, classesStartDate: null };
-    const [g1, g2] = await attachStudentStatus([
-      { ...base, id: 'g1', classesAcquired: 3 },
-      { ...base, id: 'g2', classesAcquired: 3 },
-    ]);
-    expect(g1).toMatchObject({ studentStatus: 'GRADUADO', graduatedOn: '2026-09-08', tuitionStatus: 'MATRICULADO' });
-    // g2: 1 vista; la justificada no consume → sigue en curso
-    expect(g2).toMatchObject({ studentStatus: 'INSCRITO', graduatedOn: null });
+    expect(out.graduatedOn).toBeNull();
   });
 });

@@ -37,6 +37,28 @@ function units(session) {
   return Number.isFinite(u) && u > 0 ? u : 1;
 }
 
+// ─── Estado (una sola definición de la prioridad) ─────────────────────────
+
+/**
+ * Prioridad de arriba hacia abajo: INACTIVO > SUSPENDIDO > PRUEBA > GRADUADO >
+ * MATRICULADO > INSCRITO > PREINSCRITO (D7: el estado por pago no depende de la
+ * asistencia). `tuitionStatus` es lo mismo sin el paso GRADUADO: Contabilidad y
+ * la conversión de Visión Estratégica siguen contando al graduado que pagó.
+ * La usan `buildLedger` y `studentStatus.deriveStudentStatus` (sin semestre).
+ */
+function deriveStatus({ active, suspended = false, isTrial = false, graduated = false, totalPaid = 0, expectedTotal = null }) {
+  const payStatus = () => {
+    if (expectedTotal !== null && expectedTotal !== undefined && totalPaid >= expectedTotal) return 'MATRICULADO';
+    if (totalPaid > 0) return 'INSCRITO';
+    return 'PREINSCRITO';
+  };
+  const base = !active ? 'INACTIVO' : suspended ? 'SUSPENDIDO' : isTrial ? 'PRUEBA' : null;
+  return {
+    status: base || (graduated ? 'GRADUADO' : payStatus()),
+    tuitionStatus: base || payStatus(),
+  };
+}
+
 // ─── Ledger ───────────────────────────────────────────────────────────────
 
 function buildLedger(input) {
@@ -289,24 +311,15 @@ function buildLedger(input) {
   // ── status (prioridad de arriba hacia abajo) ──
   const totalPaid = Number(input.tuition?.totalPaid) || 0;
   const expectedTotal = input.tuition?.expectedTotal ?? null;
-  const payStatus = () => {
-    if (expectedTotal !== null && totalPaid >= expectedTotal) return 'MATRICULADO';
-    if (totalPaid > 0) return 'INSCRITO';
-    return 'PREINSCRITO';
-  };
-  const base = (() => {
-    if (!student.active) return 'INACTIVO';
-    if (suspended(today)) return 'SUSPENDIDO';
-    if (student.isTrial) return 'PRUEBA';
-    return null;
-  })();
-  const graduated = !base && paquete.total > 0 && pendientesTotal === 0;
-  const status = base || (graduated ? 'GRADUADO' : payStatus());
-  const tuitionStatus = base || payStatus();
+  const graduated = !!student.active && !suspended(today) && !student.isTrial
+    && paquete.total > 0 && pendientesTotal === 0;
+  const { status, tuitionStatus } = deriveStatus({
+    active: student.active, suspended: suspended(today), isTrial: student.isTrial, graduated, totalPaid, expectedTotal,
+  });
 
   // graduadoEl: fecha del consumo con el que se alcanzó el paquete (cronológico)
   let graduadoEl = null;
-  if (graduated) {
+  if (status === 'GRADUADO') {
     let running = 0;
     for (const e of [...events].sort((a, b) => a.date.localeCompare(b.date))) {
       running += e.units;
@@ -381,6 +394,7 @@ function summarizeLedgers(ledgers) {
     calendario: {
       festivos: sum(inScope, (l) => l.calendario.festivos),
       recuperables: sum(inScope, (l) => l.calendario.recuperables),
+      studentsRecuperables: count((l) => l.calendario.recuperables > 0),
     },
     sinConsolidar: {
       clases: sum(inScope, (l) => l.sinConsolidar.clases),
@@ -396,6 +410,33 @@ function summarizeLedgers(ledgers) {
   };
 }
 
+// ─── Resumen corto para otras respuestas ─────────────────────────────────
+
+/**
+ * Las cifras del ledger que acompañan a las respuestas de otros endpoints
+ * (listado de asistencia, ficha, reportes, portal de padres). Todas leen de
+ * aquí, así que para un mismo estudiante dan los mismos números en cualquier
+ * pantalla.
+ */
+function ledgerBrief(l) {
+  if (!l) return null;
+  return {
+    status: l.status,
+    semaforo: l.semaforo,
+    paquete: { adquiridas: l.paquete.adquiridas, previas: l.paquete.previas, total: l.paquete.total },
+    consumidas: { total: l.consumidas.total, excedente: l.consumidas.excedente },
+    pendientes: {
+      total: l.pendientes.total,
+      cubreCalendario: l.pendientes.cubreCalendario,
+      agendadasAplicadas: l.pendientes.agendadasAplicadas,
+      porAgendar: l.pendientes.porAgendar,
+      deficit: l.pendientes.deficit,
+    },
+    reposicion: { derecho: l.reposicion.derecho, pendientes: l.reposicion.pendientes, porAgendar: l.reposicion.porAgendar },
+    graduadoEl: l.graduadoEl,
+  };
+}
+
 // ─── Cargador ─────────────────────────────────────────────────────────────
 
 /**
@@ -406,12 +447,15 @@ function summarizeLedgers(ledgers) {
  *   studentIds  solo esos estudiantes (aunque estén inactivos: se pidieron)
  *   groupIds    solo estudiantes matriculados en alguno de esos grupos
  *   semester    semestre a usar (con `exclusions`); por defecto el activo
+ *   before      'YYYY-MM-DD': solo cuentan clases ANTERIORES a esa fecha (para editar
+ *               el reporte de la clase en que el estudiante terminó su paquete sin
+ *               que desaparezca de su propio listado)
  *
  * Devuelve `{ semester, window, today, exclusions, ledgers }`. Sin semestre
  * activo: `ledgers: []`. (Los `require` son perezosos para que `buildLedger`
  * siga siendo importable —y probable— sin Prisma.)
  */
-async function loadLedgers({ studentIds = null, groupIds = null, semester = null } = {}) {
+async function loadLedgers({ studentIds = null, groupIds = null, semester = null, before = null } = {}) {
   const prisma = require('../lib/prisma');
   const { semesterWindow } = require('../lib/semesterWindow');
   const { getTuitionConfig, expectedTotal } = require('./studentStatus');
@@ -424,6 +468,7 @@ async function loadLedgers({ studentIds = null, groupIds = null, semester = null
 
   const allSemesters = await prisma.semester.findMany({ select: { id: true, startDate: true } });
   const window = semesterWindow(active, allSemesters);
+  if (before && (window.to === null || before < window.to)) window.to = before;
   const exclusions = (active.exclusions || [])
     .map((e) => ({ date: dbDateStr(e.date), reason: e.reason || null }))
     .sort((a, b) => a.date.localeCompare(b.date));
@@ -435,7 +480,7 @@ async function loadLedgers({ studentIds = null, groupIds = null, semester = null
   if (groupIds) where.enrollments = { some: { groupId: { in: groupIds } } };
   const students = await prisma.student.findMany({
     where,
-    include: { enrollments: { include: { group: true } } },
+    include: { enrollments: { include: { group: { include: { professor: { select: { name: true } } } } } } },
     orderBy: { name: 'asc' },
   });
   if (students.length === 0) return empty;
@@ -494,14 +539,24 @@ async function loadLedgers({ studentIds = null, groupIds = null, semester = null
     return {
       ...ledger,
       document: st.document || null,
+      isTrial: !!st.isTrial,
+      classesStartDate: st.classesStartDate ? dbDateStr(st.classesStartDate) : null,
       groups: st.enrollments
-        .map((e) => ({ id: e.groupId, code: e.group?.code ?? null, enrollmentType: e.enrollmentType }))
-        .sort((a, b) => String(a.code).localeCompare(String(b.code), 'es', { numeric: true })),
+        .map((e) => ({
+          id: e.groupId,
+          code: e.group?.code ?? null,
+          enrollmentType: e.enrollmentType,
+          ballLevel: e.group?.ballLevel ?? null,
+          professor: e.group?.professor?.name ?? null,
+        }))
+        // El principal primero, luego por código
+        .sort((a, b) => (a.enrollmentType === 'PRIMARY' ? -1 : 1) - (b.enrollmentType === 'PRIMARY' ? -1 : 1)
+          || String(a.code).localeCompare(String(b.code), 'es', { numeric: true })),
       missingBirthDate: !!st.active && !st.isTrial && !st.birthDate,
     };
   });
 
-  return { ...empty, ledgers };
+  return { ...empty, tuitionConfig: cfg, ledgers };
 }
 
-module.exports = { buildLedger, summarizeLedgers, loadLedgers, SEARCH_DAYS };
+module.exports = { buildLedger, deriveStatus, ledgerBrief, summarizeLedgers, loadLedgers, SEARCH_DAYS };

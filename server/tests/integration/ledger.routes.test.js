@@ -111,7 +111,7 @@ describe('GET /api/ledger — lista y resumen', () => {
     expect(aria.paquete.total).toBe(40);
     expect(aria.consumidas.total).toBe(1);
     expect(aria.pendientes.total).toBe(39);
-    expect(aria.groups).toEqual([{ id: 'g1', code: 'G1', enrollmentType: 'PRIMARY' }]);
+    expect(aria.groups).toEqual([{ id: 'g1', code: 'G1', enrollmentType: 'PRIMARY', ballLevel: 'Verde', professor: null }]);
     expect(ledgers.find((l) => l.studentId === 'st3').semaforo).toBe('VERDE');
     expect(summary).toBeTruthy();
   });
@@ -187,19 +187,17 @@ describe('GET /api/ledger — lista y resumen', () => {
 });
 
 describe('GET /api/ledger — roles y monto de matrícula', () => {
-  it('ADMIN y SUPERADMIN ven `tuition`', async () => {
-    for (const role of ['ADMIN', 'SUPERADMIN']) {
+  it('ADMIN, SUPERADMIN y Recepción (que registra los pagos) ven `tuition`', async () => {
+    for (const role of ['ADMIN', 'SUPERADMIN', 'RECEPTION']) {
       const l = (await get('', role)).body.data.ledgers[0];
       expect(l.tuition).toBeDefined();
     }
   });
 
-  it('Recepción y Coordinador reciben el ledger SIN tuition', async () => {
-    for (const role of ['RECEPTION', 'PHYSICAL_TRAINER']) {
-      const res = await get('', role);
-      expect(res.status).toBe(200);
-      for (const l of res.body.data.ledgers) expect(l).not.toHaveProperty('tuition');
-    }
+  it('el Coordinador recibe el ledger SIN tuition (no ve información económica)', async () => {
+    const res = await get('', 'PHYSICAL_TRAINER');
+    expect(res.status).toBe(200);
+    for (const l of res.body.data.ledgers) expect(l).not.toHaveProperty('tuition');
   });
 
   it('Profesor, Asistente y Padre no pueden listar → 403', async () => {
@@ -222,12 +220,13 @@ describe('GET /api/ledger/:studentId', () => {
     expect((await get('/nope', 'ADMIN')).status).toBe(404);
   });
 
-  it('Coordinador y Recepción lo ven sin tuition', async () => {
-    for (const role of ['PHYSICAL_TRAINER', 'RECEPTION']) {
-      const res = await get('/st1', role);
-      expect(res.status).toBe(200);
-      expect(res.body.data).not.toHaveProperty('tuition');
-    }
+  it('Coordinador lo ve sin tuition; Recepción con tuition', async () => {
+    const pf = await get('/st1', 'PHYSICAL_TRAINER');
+    expect(pf.status).toBe(200);
+    expect(pf.body.data).not.toHaveProperty('tuition');
+    const rec = await get('/st1', 'RECEPTION');
+    expect(rec.status).toBe(200);
+    expect(rec.body.data.tuition).toBeDefined();
   });
 
   it('Profesor: solo estudiantes de grupos donde es titular', async () => {

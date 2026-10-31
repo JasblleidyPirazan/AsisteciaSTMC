@@ -1,6 +1,6 @@
 // mockPrisma MUST be imported before the router (require.cache injection).
-import { prismaMock, resetPrisma, mockStudentStatusDeps } from '../helpers/mockPrisma.js';
-import { describe, it, expect, beforeAll, beforeEach, vi } from 'vitest';
+import { prismaMock, resetPrisma, mockLedgerDeps } from '../helpers/mockPrisma.js';
+import { describe, it, expect, beforeAll, beforeEach, afterEach, vi } from 'vitest';
 import request from 'supertest';
 import { JWT_SECRET, tokenFor, buildApp } from '../helpers/testApp.js';
 
@@ -13,31 +13,46 @@ function authAs(role, id = 'u1') {
   return tokenFor({ id, role });
 }
 
-const group = (id, code) => ({ id, code, ballLevel: 'Verde', professor: { name: 'Ana' } });
+const d = (x) => new Date(`${x}T00:00:00.000Z`);
+const NO_DAYS = { lunes: false, martes: false, miercoles: false, jueves: false, viernes: false, sabado: false, domingo: false };
+const G1 = {
+  id: 'g1', code: 'MJ1522', active: true, createdAt: d('2026-01-01'), ballLevel: 'Verde', subLevel: 'A',
+  professor: { name: 'Ana' }, ...NO_DAYS, lunes: true, miercoles: true,
+};
+const SEM = { id: 'sem1', name: '2026-1', startDate: d('2026-03-01'), endDate: d('2026-06-30'), active: true, exclusions: [] };
 
-// Dos estudiantes: uno con paquete consumido, otro recién preinscrito.
+// Alana: paquete 30 + 10 previas. Benjamín: recién preinscrito, sin paquete.
 const STUDENTS = [
   {
-    id: 's1', name: 'Alana Cortés', document: '1001', active: true, isTrial: false, birthDate: null,
+    id: 's1', name: 'Alana Cortés', document: '1001', active: true, isTrial: false, birthDate: d('2012-01-01'),
     classesAcquired: 30, previousClasses: 10, classesStartDate: null,
-    suspendedFrom: null, suspendedUntil: null,
-    enrollments: [{ enrollmentType: 'PRIMARY', group: group('g1', 'MJ1522') }],
+    suspendedFrom: null, suspendedUntil: null, parentUserId: null,
+    enrollments: [{ groupId: 'g1', enrolledAt: d('2026-03-01'), weekdays: [], enrollmentType: 'PRIMARY', group: G1 }],
   },
   {
     id: 's2', name: 'Benjamín Ossa', document: null, active: true, isTrial: false, birthDate: null,
     classesAcquired: 0, previousClasses: 0, classesStartDate: null,
-    suspendedFrom: null, suspendedUntil: null,
+    suspendedFrom: null, suspendedUntil: null, parentUserId: null,
     enrollments: [],
   },
 ];
 
+const sess = (id, date, over = {}) => ({
+  id, groupId: 'g1', date: d(date), kind: 'REGULAR', status: 'REALIZADA', effectiveUnits: 1,
+  cancellationCategory: null, consolidationStatus: 'MATCHED', ...over,
+});
+const rec = (status, session, attendanceType = 'REGULAR') => ({
+  studentId: 's1', status, attendanceType, justification: null, session,
+});
+const MAKEUP = sess('m1', '2026-03-11', { kind: 'MAKEUP', groupId: null });
 const RECORDS = [
-  { studentId: 's1', status: 'PRESENTE', attendanceType: 'REGULAR', session: { date: new Date('2026-03-02'), kind: 'REGULAR' } },
-  { studentId: 's1', status: 'AUSENTE', attendanceType: 'REGULAR', session: { date: new Date('2026-03-04'), kind: 'REGULAR' } },
-  { studentId: 's1', status: 'JUSTIFICADA', attendanceType: 'REGULAR', session: { date: new Date('2026-03-06'), kind: 'REGULAR' } },
-  { studentId: 's1', status: 'NO_APLICA', attendanceType: 'REGULAR', session: { date: new Date('2026-03-09'), kind: 'REGULAR' } },
-  { studentId: 's1', status: 'PRESENTE', attendanceType: 'REGULAR', session: { date: new Date('2026-03-11'), kind: 'MAKEUP' } },
+  rec('PRESENTE', sess('a1', '2026-03-02')),
+  rec('AUSENTE', sess('a2', '2026-03-04')),
+  rec('JUSTIFICADA', sess('a3', '2026-03-06')),
+  rec('NO_APLICA', sess('a4', '2026-03-09')),
+  rec('PRESENTE', MAKEUP, 'REPOSICION'),
 ];
+const RAIN = sess('r1', '2026-03-16', { status: 'CANCELADA', cancellationCategory: 'LLUVIA' });
 
 beforeAll(async () => {
   process.env.JWT_SECRET = JWT_SECRET;
@@ -47,16 +62,15 @@ beforeAll(async () => {
 
 beforeEach(async () => {
   resetPrisma();
-  prismaMock.semester = { findFirst: vi.fn().mockResolvedValue(null) };
-  prismaMock.student = { findMany: vi.fn().mockResolvedValue(STUDENTS) };
-  prismaMock.classSession = {
-    findMany: vi.fn().mockResolvedValue([{ groupId: 'g1', date: new Date('2026-03-16') }]),
-  };
-  prismaMock.attendanceRecord = { findMany: vi.fn().mockResolvedValue(RECORDS) };
-  await mockStudentStatusDeps();
-  // attachStudentStatus vuelve a leer attendanceRecord.findMany (AUSENTE en
-  // festival); el mock de arriba sirve para ambas llamadas.
+  vi.useFakeTimers({ toFake: ['Date'] });
+  vi.setSystemTime(new Date('2026-04-01T15:00:00.000Z'));
+  await mockLedgerDeps({
+    semester: SEM, students: STUDENTS, records: RECORDS,
+    sessions: [...RECORDS.map((r) => r.session).filter((x) => x.kind === 'REGULAR'), RAIN],
+  });
 });
+
+afterEach(() => { vi.useRealTimers(); });
 
 describe('GET /reports/students-tracking — Seguimiento de Estudiantes', () => {
   it.each(['TEACHER', 'ASSISTANT', 'RECEPTION', 'PARENT'])('deniega a %s (403)', async (role) => {
@@ -72,17 +86,20 @@ describe('GET /reports/students-tracking — Seguimiento de Estudiantes', () => 
     expect(res.body.data.rows).toHaveLength(2);
   });
 
-  it('arma la fila con los conteos, la lluvia y el estado derivado', async () => {
+  it('arma la fila con los conteos del ledger: la falta consume y la lluvia es informativa', async () => {
     const res = await request(app).get('/api/reports/students-tracking')
       .set('Authorization', `Bearer ${authAs('ADMIN')}`);
-    const [a, b] = res.body.data.rows;
+    const a = res.body.data.rows.find((r) => r.name === 'Alana Cortés');
+    const b = res.body.data.rows.find((r) => r.name === 'Benjamín Ossa');
 
     expect(a).toMatchObject({
-      name: 'Alana Cortés', document: '1001', groupCode: 'MJ1522', professor: 'Ana',
-      acquired: 40, present: 1, absent: 1, justified: 1, na: 1, makeup: 1, rain: 1,
+      document: '1001', groupCode: 'MJ1522', professor: 'Ana',
+      acquired: 40, classesAcquired: 30, previousClasses: 10,
+      present: 1, absent: 1, justified: 1, na: 1, makeup: 1, rain: 1,
+      total: 3, pct: 7.5, studentStatus: 'PREINSCRITO', // D7: la asistencia no cambia el estado
     });
-    expect(a.studentStatus).toBe('INSCRITO'); // tiene asistencia
-    expect(b).toMatchObject({ name: 'Benjamín Ossa', groupCode: null, acquired: 0, present: 0, rain: 0 });
+    expect(a.ledger.consumidas.total).toBe(3);
+    expect(b).toMatchObject({ groupCode: null, acquired: 0, present: 0, rain: 0, pct: null });
   });
 
   it('nunca expone montos de matrícula en la tabla', async () => {
@@ -91,38 +108,20 @@ describe('GET /reports/students-tracking — Seguimiento de Estudiantes', () => 
     for (const row of res.body.data.rows) expect(row).not.toHaveProperty('tuition');
   });
 
-  it('sin semestre activo consulta todo el histórico (sin filtro de fecha)', async () => {
-    await request(app).get('/api/reports/students-tracking')
-      .set('Authorization', `Bearer ${authAs('ADMIN')}`);
-    const where = prismaMock.attendanceRecord.findMany.mock.calls[0][0].where;
-    expect(where.session).toBeUndefined();
-  });
-
-  it('con semestre activo acota el rango a sus fechas', async () => {
-    const startDate = new Date('2026-01-15');
-    const endDate = new Date('2026-06-30');
-    prismaMock.semester.findFirst = vi.fn().mockResolvedValue({ id: 'sem1', name: '2026-1', startDate, endDate });
+  it('el rango es la ventana del semestre activo (D4)', async () => {
     const res = await request(app).get('/api/reports/students-tracking')
       .set('Authorization', `Bearer ${authAs('ADMIN')}`);
-    const where = prismaMock.attendanceRecord.findMany.mock.calls[0][0].where;
-    expect(where.session.date).toEqual({ gte: startDate, lte: endDate });
     expect(res.body.data.semester.name).toBe('2026-1');
+    expect(res.body.data.from).toBe('2026-03-01');
+    expect(res.body.data.to).toBeNull(); // sin semestre posterior no hay límite superior
   });
 
-  it('from/to del query mandan sobre el semestre', async () => {
-    await request(app).get('/api/reports/students-tracking?from=2026-03-01&to=2026-03-31')
+  it('sin semestre activo no hay filas', async () => {
+    await mockLedgerDeps({ semester: null, students: STUDENTS });
+    const res = await request(app).get('/api/reports/students-tracking')
       .set('Authorization', `Bearer ${authAs('ADMIN')}`);
-    const where = prismaMock.attendanceRecord.findMany.mock.calls[0][0].where;
-    expect(where.session.date.gte.toISOString().slice(0, 10)).toBe('2026-03-01');
-    expect(where.session.date.lte.toISOString().slice(0, 10)).toBe('2026-03-31');
-  });
-
-  it('la lluvia solo mira canceladas por LLUVIA de sus grupos', async () => {
-    await request(app).get('/api/reports/students-tracking')
-      .set('Authorization', `Bearer ${authAs('ADMIN')}`);
-    const where = prismaMock.classSession.findMany.mock.calls[0][0].where;
-    expect(where).toMatchObject({ status: 'CANCELADA', cancellationCategory: 'LLUVIA' });
-    expect(where.groupId).toEqual({ in: ['g1'] });
+    expect(res.status).toBe(200);
+    expect(res.body.data.rows).toEqual([]);
   });
 });
 

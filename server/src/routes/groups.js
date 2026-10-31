@@ -5,7 +5,7 @@ const { requireRole } = require('../middleware/auth');
 const { notSuspended } = require('../lib/filters');
 const { byGroupCode } = require('../lib/sort');
 const { bogotaDayOfWeek } = require('../lib/dates');
-const { loadConsumption, computeCompletion } = require('../services/semesterProgress');
+const { loadLedgers, ledgerBrief } = require('../services/studentLedger');
 const { attachStudentStatus, stripTuition } = require('../services/studentStatus');
 
 const router = express.Router();
@@ -233,36 +233,31 @@ router.get('/:id/students', async (req, res, next) => {
     });
     const students = enrollments.map((e) => e.student);
 
-    // Attach "classes seen / acquired": seen = PRESENTE attendance records within
-    // the active semester (falls back to all-time if no semester is active).
-    // Cada registro suma las unidades de su sesión: una reposición doble
-    // (effectiveUnits = 2) recupera 2 clases del paquete, no 1.
-    // `?date=` = fecha de la clase que se reporta: solo cuentan las sesiones
-    // anteriores, para que quien terminó su paquete EN esa clase siga viéndose
-    // al editar su reporte.
-    const activeSemester = students.length > 0
-      ? await prisma.semester.findFirst({ where: { active: true } })
-      : null;
-    const before = /^\d{4}-\d{2}-\d{2}$/.test(req.query.date || '')
-      ? new Date(`${req.query.date}T00:00:00.000Z`) : undefined;
-    const { consumedById } = await loadConsumption(students, activeSemester, { before });
+    // "Clases vistas / adquiridas" y 🎓 Graduado salen del ledger (una sola definición
+    // del paquete). `?date=` = fecha de la clase que se reporta: solo cuentan las
+    // sesiones anteriores, para que quien terminó su paquete EN esa clase siga
+    // viéndose al editar su reporte. Sin semestre activo no hay ledger: 0 vistas.
+    const before = /^\d{4}-\d{2}-\d{2}$/.test(req.query.date || '') ? req.query.date : null;
+    const loaded = students.length > 0
+      ? await loadLedgers({ studentIds: students.map((s) => s.id), before })
+      : { ledgers: [] };
+    const ledgerById = Object.fromEntries(loaded.ledgers.map((l) => [l.studentId, l]));
 
     // Estado derivado + error de fecha de nacimiento, visibles en el roster
     // del flujo de asistencia (ícono al lado de cada estudiante). Los montos
     // (tuition) solo van a roles con acceso económico.
-    const decorated = stripTuition(await attachStudentStatus(students), req.user.role);
+    const decorated = stripTuition(await attachStudentStatus(students, { loaded }), req.user.role);
     const rows = decorated.map((s) => {
-      // "Vistas" = asistencias + ausencias + reposiciones (lo consumido del paquete)
-      const classesSeen = consumedById[s.id] || 0;
+      const ledger = ledgerById[s.id] || null;
       return {
         ...s,
-        classesSeen,
+        // "Vistas" = lo consumido del paquete (asistencias + ausencias + reposiciones)
+        classesSeen: ledger ? ledger.consumidas.total : 0,
         // Las clases pendientes del semestre anterior suman al total adquirido
-        classesAcquired: (s.classesAcquired || 0) + (s.previousClasses || 0),
-        // Ya consumió todo su paquete (vistas + faltas): 🎓 Graduado
-        semesterCompleted: !s.isTrial && computeCompletion({
-          acquired: s.classesAcquired, previous: s.previousClasses, consumed: consumedById[s.id] || 0,
-        }).completed,
+        classesAcquired: ledger ? ledger.paquete.total : (s.classesAcquired || 0) + (s.previousClasses || 0),
+        // Ya consumió todo su paquete: 🎓 Graduado
+        semesterCompleted: ledger?.status === 'GRADUADO',
+        ledger: ledgerBrief(ledger),
       };
     });
     // Quien completó el semestre (graduado) deja de aparecer en la lista del grupo

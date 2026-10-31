@@ -9,10 +9,6 @@ import { StudentStatusBadge, fmtCOP } from '../../utils/studentStatus';
 const STATUS_LABELS = { PRESENTE: 'Presente', AUSENTE: 'Ausente', JUSTIFICADA: 'Justificada', NO_APLICA: 'No aplica' };
 const STATUS_BADGE = { PRESENTE: 'badge-green', AUSENTE: 'badge-red', JUSTIFICADA: 'badge-yellow', NO_APLICA: 'badge-gray' };
 
-const ALERT_STYLE = {
-  ROJA: { color: 'var(--red)', label: 'Alerta roja' },
-  AMARILLA: { color: 'var(--yellow)', label: 'Alerta amarilla' },
-};
 
 export default function ParentPortalPage() {
   const { user, logout } = useAuth();
@@ -103,14 +99,19 @@ export default function ParentPortalPage() {
               )}
             </div>
 
-            {selected.attendanceAlert?.level && (
+            {/* Estado del paquete (ledger): lo que falta y si el calendario alcanza */}
+            {selected.ledger && selected.ledger.paquete.total > 0 && selected.ledger.status !== 'GRADUADO'
+              && (selected.ledger.pendientes.deficit > 0 || selected.ledger.reposicion.porAgendar > 0) && (
               <div className="alert mb-3" style={{
-                background: selected.attendanceAlert.level === 'ROJA' ? 'var(--red-light)' : 'var(--yellow-light)',
-                color: ALERT_STYLE[selected.attendanceAlert.level].color,
+                background: selected.ledger.pendientes.deficit > 0 ? 'var(--red-light)' : 'var(--yellow-light)',
+                color: selected.ledger.pendientes.deficit > 0 ? 'var(--red)' : 'var(--yellow)',
               }}>
-                ⚠️ {ALERT_STYLE[selected.attendanceAlert.level].label}: {selected.name} lleva{' '}
-                {selected.attendanceAlert.seen} clases vistas de {selected.attendanceAlert.expected} esperadas
-                a la fecha ({selected.attendanceAlert.deviation} de atraso).
+                ⚠️ {selected.name} lleva {selected.ledger.consumidas.total} de {selected.ledger.paquete.total} clases
+                y le faltan {selected.ledger.pendientes.total}.
+                {selected.ledger.pendientes.deficit > 0
+                  && ` Al calendario regular no le alcanza: faltan ${selected.ledger.pendientes.deficit} por programar con la Escuela.`}
+                {selected.ledger.reposicion.porAgendar > 0
+                  && ` Tiene ${selected.ledger.reposicion.porAgendar} clase(s) de reposición por agendar.`}
               </div>
             )}
 

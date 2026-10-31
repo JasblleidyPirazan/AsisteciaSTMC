@@ -14,8 +14,7 @@ const rateLimit = require('express-rate-limit');
 const prisma = require('../lib/prisma');
 const { authMiddleware, requireRole } = require('../middleware/auth');
 const { bogotaDateStr, dbDateStr } = require('../lib/dates');
-const { computeMakeupDebt } = require('../services/semesterProgress');
-const { attendanceUnits, roundUnits } = require('../services/attendanceStats');
+const { loadLedgers } = require('../services/studentLedger');
 const { isSessionPeriodLocked } = require('../lib/payrollLock');
 const {
   SLOT_CAPACITY, SLOT_UNITS, HORIZON_DAYS, BOOK_CUTOFF_HOURS, CANCEL_CUTOFF_HOURS,
@@ -60,15 +59,22 @@ async function loadReservations(studentId) {
   });
 }
 
+// Reposiciones del estudiante, del ledger (una sola definición del paquete):
+//   pending   = clases de reposición pendientes (lluvia + canceladas por la Escuela +
+//               justificadas, menos las repuestas)
+//   scheduled = las que ya tiene agendadas (reposiciones PROGRAMADA)
+//   toSchedule = pending − scheduled: lo que todavía puede reservar
 async function loadDebt(studentId) {
-  const { rows } = await computeMakeupDebt({ studentIds: [studentId] });
-  const row = rows[0];
+  const { ledgers } = await loadLedgers({ studentIds: [studentId] });
+  const r = ledgers[0]?.reposicion;
   return {
-    pending: row?.pending || 0,
-    rain: row?.rain || 0,
-    justified: row?.justified || 0,
-    holidays: row?.holidays || 0,
-    madeUp: row?.madeUp || 0,
+    pending: r?.pendientes || 0,
+    scheduled: r?.agendadas || 0,
+    toSchedule: r?.porAgendar || 0,
+    rain: r?.lluvia || 0,
+    other: r?.otras || 0,
+    justified: r?.justificadas || 0,
+    madeUp: r?.repuestas || 0,
   };
 }
 
@@ -106,8 +112,9 @@ async function buildPublicState(student, now = new Date()) {
   const sessionBySlot = Object.fromEntries(sessions.map((s) => [`${dbDateStr(s.date)}|${s.bookingSlot}`, s]));
   const mineBySession = Object.fromEntries(reservations.map((r) => [r.sessionId, r]));
 
-  const reservedUnits = roundUnits(reservations.reduce((acc, r) => acc + attendanceUnits(r.session), 0));
-  const available = bookableCount(debt.pending, reservedUnits);
+  // Lo agendado ya está descontado en el ledger (`toSchedule = pendientes − agendadas`)
+  const reservedUnits = debt.scheduled;
+  const available = bookableCount(debt.toSchedule, 0);
 
   const slotRows = slots.map((slot) => {
     const session = sessionBySlot[`${slot.date}|${slot.key}`];
@@ -169,7 +176,7 @@ router.get('/admin/overview', ...staff, async (req, res, next) => {
     const slots = upcomingSlots(todayStr, excluded);
     const lastDate = slots.length ? slots[slots.length - 1].date : todayStr;
 
-    const [sessions, { rows: debt }, suggestions, reservations] = await Promise.all([
+    const [sessions, { ledgers }, suggestions] = await Promise.all([
       prisma.classSession.findMany({
         where: {
           kind: 'MAKEUP', bookingSlot: { not: null },
@@ -183,15 +190,11 @@ router.get('/admin/overview', ...staff, async (req, res, next) => {
           },
         },
       }),
-      computeMakeupDebt(),
+      loadLedgers(),
       prisma.makeupBookingSuggestion.findMany({
         where: { resolvedAt: null },
         include: { student: { select: { id: true, name: true, phone: true, email: true } } },
         orderBy: { createdAt: 'asc' },
-      }),
-      prisma.makeupParticipant.findMany({
-        where: { session: { kind: 'MAKEUP', status: 'PROGRAMADA' } },
-        select: { studentId: true, session: { select: { effectiveUnits: true } } },
       }),
     ]);
 
@@ -210,26 +213,22 @@ router.get('/admin/overview', ...staff, async (req, res, next) => {
       };
     });
 
-    const reservedById = {};
-    for (const r of reservations) {
-      reservedById[r.studentId] = (reservedById[r.studentId] || 0) + attendanceUnits(r.session);
-    }
-    const owing = debt.filter((d) => d.pending > 0);
+    // Estudiantes con reposiciones pendientes (del ledger)
+    const owing = ledgers.filter((l) => l.reposicion.pendientes > 0);
     const contacts = await prisma.student.findMany({
-      where: { id: { in: owing.map((d) => d.studentId) } },
+      where: { id: { in: owing.map((l) => l.studentId) } },
       select: { id: true, email: true, phone: true, guardianName: true, bookingToken: true },
     });
     const contactById = Object.fromEntries(contacts.map((c) => [c.id, c]));
-    const students = owing.map((d) => {
-      const c = contactById[d.studentId] || {};
-      const reserved = roundUnits(reservedById[d.studentId] || 0);
+    const students = owing.map((l) => {
+      const c = contactById[l.studentId] || {};
       return {
-        studentId: d.studentId,
-        name: d.name,
-        groups: d.groups,
-        pending: d.pending,
-        reserved,
-        toSchedule: bookableCount(d.pending, reserved),
+        studentId: l.studentId,
+        name: l.name,
+        groups: l.groups.map((g) => g.code).filter(Boolean),
+        pending: l.reposicion.pendientes,
+        reserved: l.reposicion.agendadas,
+        toSchedule: bookableCount(l.reposicion.porAgendar, 0),
         email: c.email || null,
         phone: c.phone || null,
         guardianName: c.guardianName || null,
@@ -319,9 +318,8 @@ router.post('/:token/book', publicLimiter, async (req, res, next) => {
       return fail(res, 409, `Los turnos se reservan hasta ${BOOK_CUTOFF_HOURS} horas antes.`);
     }
 
-    const [debt, reservations] = await Promise.all([loadDebt(student.id), loadReservations(student.id)]);
-    const reservedUnits = reservations.reduce((acc, r) => acc + attendanceUnits(r.session), 0);
-    if (bookableCount(debt.pending, reservedUnits) <= 0) {
+    const debt = await loadDebt(student.id);
+    if (bookableCount(debt.toSchedule, 0) <= 0) {
       return fail(res, 409, 'Ya agendaste todas las clases que tienes por reponer.');
     }
 

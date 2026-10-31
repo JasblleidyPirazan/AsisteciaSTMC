@@ -4,13 +4,13 @@ const prisma = require('../lib/prisma');
 const { requireRole } = require('../middleware/auth');
 const { getCurrentPeriod } = require('../services/costEngine');
 const { absenceCounts, consumedUnits, attendanceUnits, roundUnits } = require('../services/attendanceStats');
-const { computeAttendanceDeviations } = require('../services/attendanceAlerts');
 const { byGroupCode } = require('../lib/sort');
 const { bogotaToday, bogotaDateStr, bogotaMinutesOfDay, dbDateStr } = require('../lib/dates');
 const { periodsBetween, expandOperatingExpenses } = require('../services/accounting');
 const { attachStudentStatus } = require('../services/studentStatus');
 const { computeGroupsProgress } = require('../services/semesterProgress');
-const { buildTrackingRows, consumedTotal, progressPct } = require('../services/studentTracking');
+const { loadLedgers, ledgerBrief, summarizeLedgers } = require('../services/studentLedger');
+const { loadStudentAttendance } = require('../services/studentAttendance');
 
 const router = express.Router();
 
@@ -72,7 +72,7 @@ router.get('/student/:studentId', requireRole('ADMIN', 'PHYSICAL_TRAINER', 'TEAC
   try {
     const student = await prisma.student.findUnique({
       where: { id: req.params.studentId },
-      select: { id: true, parentUserId: true, classesStartDate: true },
+      select: { id: true, parentUserId: true },
     });
     if (!student) return res.status(404).json({ success: false, error: 'Estudiante no encontrado' });
     if (req.user.role === 'PARENT' && student.parentUserId !== req.user.id) {
@@ -80,52 +80,7 @@ router.get('/student/:studentId', requireRole('ADMIN', 'PHYSICAL_TRAINER', 'TEAC
     }
 
     const { from, to } = req.query;
-    const where = { studentId: req.params.studentId };
-    if (from || to) {
-      where.session = { date: {} };
-      if (from) where.session.date.gte = new Date(from);
-      if (to) where.session.date.lte = new Date(to);
-    }
-
-    const records = await prisma.attendanceRecord.findMany({
-      where,
-      include: {
-        session: { include: { group: { select: { id: true, code: true, name: true } } } },
-      },
-      orderBy: { session: { date: 'desc' } },
-    });
-
-    const total = records.length;
-    const present = records.filter((r) => r.status === 'PRESENTE').length;
-    const na = records.filter((r) => r.status === 'NO_APLICA').length;
-    // Las faltas cuentan solo desde la fecha de inicio de clases del estudiante
-    const absent = records.filter((r) =>
-      r.status === 'AUSENTE' && absenceCounts(r.session?.date, student.classesStartDate)
-    ).length;
-    const justified = records.filter((r) => r.status === 'JUSTIFICADA').length;
-    // "Vistas" = asistencias + ausencias + reposiciones (lo consumido del
-    // paquete; J y N/A no). Cada una vale las unidades de su sesión.
-    const classesSeen = roundUnits(records.reduce(
-      (acc, r) => acc + consumedUnits(r, r.session, student.classesStartDate), 0
-    ));
-    // Denominador: P + A + J (N/A y faltas previas al inicio quedan fuera).
-    const denom = present + absent + justified;
-
-    res.json({
-      success: true,
-      data: {
-        records,
-        summary: {
-          total,
-          present,
-          absent,
-          justified,
-          na,
-          classesSeen,
-          attendanceRate: denom > 0 ? Math.round((present / denom) * 100) : 0,
-        },
-      },
-    });
+    res.json({ success: true, data: await loadStudentAttendance(student.id, { from, to }) });
   } catch (err) {
     next(err);
   }
@@ -133,85 +88,65 @@ router.get('/student/:studentId', requireRole('ADMIN', 'PHYSICAL_TRAINER', 'TEAC
 
 // ─── Seguimiento de estudiantes (Reportes → Estudiantes) ──────────────────
 // Una fila por estudiante activo con el consumo de su paquete de clases en el
-// rango (por defecto, el semestre activo): adquiridas, asistencias, faltas,
-// justificadas, N/A, reposiciones, clases caídas por lluvia y % de avance.
-// La lógica de conteo vive en services/studentTracking.js (unit-testeada).
+// semestre activo (ventana D4). Todas las cifras salen del ledger:
+//   Adq.    paquete.total (adquiridas + pendientes del semestre anterior)
+//   Asist.  consumidas.presentes   Aus.  consumidas.ausentes (la falta consume la clase)
+//   Rep.    consumidas.reposicionesVistas   Just./N-A  noConsumen.*
+//   Lluvia  reposicion.lluvia (informativa)   Total  consumidas.total   % Av.  Total / Adq.
 
 const TRACKING_STATUS_LABEL = {
   MATRICULADO: 'Matriculado',
   INSCRITO: 'Inscrito',
   PREINSCRITO: 'Preinscrito',
+  GRADUADO: 'Graduado',
   PRUEBA: 'Prueba',
   SUSPENDIDO: 'Suspendido',
   INACTIVO: 'Inactivo',
 };
 
-async function loadStudentTracking(query = {}) {
-  const semester = await prisma.semester.findFirst({ where: { active: true } });
-  const from = query.from ? new Date(query.from) : (semester?.startDate || null);
-  const to = query.to ? new Date(query.to) : (semester?.endDate || null);
-  const range = {};
-  if (from) range.gte = from;
-  if (to) range.lte = to;
-  const dateFilter = Object.keys(range).length ? range : undefined;
-
-  const students = await prisma.student.findMany({
-    where: { active: true },
-    select: {
-      id: true, name: true, document: true, isTrial: true, active: true, birthDate: true,
-      classesAcquired: true, previousClasses: true, classesStartDate: true,
-      suspendedFrom: true, suspendedUntil: true,
-      enrollments: {
-        select: {
-          enrollmentType: true,
-          group: { select: { id: true, code: true, ballLevel: true, professor: { select: { name: true } } } },
-        },
-        orderBy: { enrollmentType: 'asc' }, // PRIMARY antes que SECONDARY
-      },
-    },
-    orderBy: { name: 'asc' },
+async function loadStudentTracking() {
+  const loaded = await loadLedgers();
+  const rows = loaded.ledgers.map((l) => {
+    const primary = l.groups[0] || null;
+    const acquired = l.paquete.total;
+    return {
+      id: l.studentId,
+      name: l.name,
+      document: l.document,
+      isTrial: l.isTrial,
+      studentStatus: l.status,
+      missingBirthDate: l.missingBirthDate,
+      classesStartDate: l.classesStartDate,
+      groupCode: primary?.code || null,
+      groupLevel: primary?.ballLevel || null,
+      professor: primary?.professor || null,
+      otherGroups: l.groups.slice(1).map((g) => g.code).filter(Boolean),
+      acquired,
+      classesAcquired: l.paquete.adquiridas,
+      previousClasses: l.paquete.previas,
+      present: l.consumidas.presentes,
+      absent: l.consumidas.ausentes,
+      justified: l.noConsumen.justificadas,
+      na: l.noConsumen.na,
+      makeup: l.consumidas.reposicionesVistas,
+      rain: l.reposicion.lluvia,
+      total: l.consumidas.total,
+      pct: acquired ? Math.round((l.consumidas.total / acquired) * 1000) / 10 : null,
+      semaforo: l.semaforo,
+      ledger: ledgerBrief(l),
+    };
   });
-
-  const ids = students.map((s) => s.id);
-  const groupIds = [...new Set(students.flatMap((s) => s.enrollments.map((e) => e.group?.id).filter(Boolean)))];
-
-  const [records, rainSessions, decorated] = await Promise.all([
-    ids.length
-      ? prisma.attendanceRecord.findMany({
-          where: { studentId: { in: ids }, ...(dateFilter ? { session: { date: dateFilter } } : {}) },
-          select: {
-            studentId: true, status: true, attendanceType: true,
-            // effectiveUnits: por cuántas asistencias cuenta la sesión
-            // (reposición sencilla = 1, doble = 2).
-            session: { select: { date: true, kind: true, effectiveUnits: true } },
-          },
-        })
-      : [],
-    groupIds.length
-      ? prisma.classSession.findMany({
-          where: {
-            groupId: { in: groupIds }, status: 'CANCELADA', cancellationCategory: 'LLUVIA',
-            ...(dateFilter ? { date: dateFilter } : {}),
-          },
-          select: { groupId: true, date: true },
-        })
-      : [],
-    attachStudentStatus(students), // estado derivado (✅/🔵/📝/🧪/⏸️) — sin montos
-  ]);
-
-  const rainDatesByGroup = {};
-  for (const s of rainSessions) (rainDatesByGroup[s.groupId] ||= []).push(s.date);
-
-  const rows = buildTrackingRows({ students: decorated, records, rainDatesByGroup });
   return {
-    semester: semester ? { id: semester.id, name: semester.name, startDate: semester.startDate, endDate: semester.endDate } : null,
-    from, to, rows,
+    semester: loaded.semester,
+    from: loaded.window?.from || null,
+    to: loaded.window?.to || null,
+    rows,
   };
 }
 
 router.get('/students-tracking', requireRole('ADMIN', 'PHYSICAL_TRAINER'), async (req, res, next) => {
   try {
-    res.json({ success: true, data: await loadStudentTracking(req.query) });
+    res.json({ success: true, data: await loadStudentTracking() });
   } catch (err) {
     next(err);
   }
@@ -219,10 +154,7 @@ router.get('/students-tracking', requireRole('ADMIN', 'PHYSICAL_TRAINER'), async
 
 router.get('/students-tracking/export', requireRole('ADMIN', 'PHYSICAL_TRAINER'), async (req, res, next) => {
   try {
-    // Mismo criterio que la vista: la ausencia consume clase salvo que se pida
-    // lo contrario (?countAbsences=false).
-    const countAbsences = req.query.countAbsences !== 'false';
-    const { rows, semester } = await loadStudentTracking(req.query);
+    const { rows, semester } = await loadStudentTracking();
 
     const data = rows.map((r) => ({
       Documento: r.document || '',
@@ -232,8 +164,8 @@ router.get('/students-tracking/export', requireRole('ADMIN', 'PHYSICAL_TRAINER')
       Nivel: r.groupLevel || '',
       Profesor: r.professor || '',
       Estado: TRACKING_STATUS_LABEL[r.studentStatus] || r.studentStatus || '',
-      'Inicio de clases': r.classesStartDate ? new Date(r.classesStartDate).toISOString().slice(0, 10) : '',
-      Adquiridas: r.acquired,
+      'Inicio de clases': r.classesStartDate || '',
+      Adquiridas: r.classesAcquired,
       'Clases semestre anterior': r.previousClasses,
       Asistencias: r.present,
       Ausencias: r.absent,
@@ -241,8 +173,9 @@ router.get('/students-tracking/export', requireRole('ADMIN', 'PHYSICAL_TRAINER')
       'N/A': r.na,
       Reposiciones: r.makeup,
       Lluvia: r.rain,
-      Total: consumedTotal(r, countAbsences),
-      '% Avance': progressPct(r, countAbsences),
+      Total: r.total,
+      '% Avance': r.pct,
+      Semáforo: r.semaforo,
     }));
 
     const ws = XLSX.utils.json_to_sheet(data.length ? data : [{ Nombre: 'Sin estudiantes' }]);
@@ -749,10 +682,12 @@ router.get('/strategy', requireRole('ADMIN'), async (req, res, next) => {
     const totalEnrolled = groupRows.reduce((s, g) => s + g.students, 0);
     const totalCapacity = groupRows.reduce((s, g) => s + (g.capacity || 0), 0);
 
-    // ---- Alertas de deserción (desviación de asistencia) ----
-    const deviations = await computeAttendanceDeviations().catch(() => []);
-    const alertRed = deviations.filter((d) => d.level === 'ROJA').length;
-    const alertYellow = deviations.filter((d) => d.level === 'AMARILLA').length;
+    // ---- Paquete en riesgo (del ledger; reemplaza las alertas individuales de
+    // asistencia, D8): estudiantes a quienes el calendario no les alcanza para ver
+    // su paquete (rojo) y con reposiciones por agendar (amarillo) ----
+    const ledgerSummary = summarizeLedgers((await loadLedgers().catch(() => ({ ledgers: [] }))).ledgers);
+    const alertRed = ledgerSummary.pendientes.studentsWithDeficit;
+    const alertYellow = ledgerSummary.reposicion.studentsPorAgendar;
 
     // ---- Finanzas (criterio del módulo de Contabilidad) ----
     // Gasto causado = nómina de clases (CostRecord habilitado) + gastos

@@ -5,9 +5,8 @@ const { requireRole } = require('../middleware/auth');
 const { bogotaToday } = require('../lib/dates');
 const { notSuspended } = require('../lib/filters');
 const { importFromBuffer } = require('../services/enrollmentImport');
-const { absenceCounts, consumedUnits, roundUnits } = require('../services/attendanceStats');
-const { attachStudentStatus, attachStudentStatusOne, stripTuition } = require('../services/studentStatus');
-const { computeMakeupDebt, computeStudentProgress } = require('../services/semesterProgress');
+const { attachStudentStatus, attachStudentStatusOne, stripTuition, TUITION_ROLES } = require('../services/studentStatus');
+const { loadLedgers, ledgerBrief } = require('../services/studentLedger');
 const { normalizeWeekdays } = require('../lib/weekdays');
 
 const router = express.Router();
@@ -158,35 +157,16 @@ router.get('/', async (req, res, next) => {
   }
 });
 
-// Resumen de asistencia por estudiante para la lista (1 sola query).
-// rate = present/(present+absent): las justificadas no penalizan.
-// Las AUSENTE anteriores a la fecha de inicio de clases del estudiante no son
-// faltas reales (aún no empezaba) y se excluyen del conteo y del denominador.
+// Resumen de asistencia por estudiante para la lista. Sale del ledger (D6):
+// rate = presentes / (presentes + faltas); las justificadas y N/A no penalizan, y
+// las faltas anteriores a su inicio de clases (o durante una suspensión) no cuentan.
 router.get('/attendance-summary', requireRole('ADMIN', 'SUPERADMIN', 'PHYSICAL_TRAINER', 'RECEPTION'), async (req, res, next) => {
   try {
-    const semester = await prisma.semester.findFirst({ where: { active: true } });
-    const where = { status: { in: ['PRESENTE', 'AUSENTE'] } };
-    if (semester) where.session = { date: { gte: semester.startDate, lte: semester.endDate } };
-
-    const rows = await prisma.attendanceRecord.findMany({
-      where,
-      select: {
-        studentId: true, status: true,
-        session: { select: { date: true } },
-        student: { select: { classesStartDate: true } },
-      },
-    });
+    const { ledgers } = await loadLedgers();
     const map = {};
-    for (const r of rows) {
-      if (r.status === 'AUSENTE' && !absenceCounts(r.session?.date, r.student?.classesStartDate)) continue;
-      const s = (map[r.studentId] ||= { present: 0, absent: 0 });
-      if (r.status === 'PRESENTE') s.present += 1;
-      else if (r.status === 'AUSENTE') s.absent += 1;
-    }
-    for (const id of Object.keys(map)) {
-      const s = map[id];
-      const den = s.present + s.absent;
-      s.rate = den > 0 ? Math.round((s.present / den) * 100) : null;
+    for (const l of ledgers) {
+      const { presentes, faltas, tasa } = l.asistencia;
+      if (presentes + faltas > 0) map[l.studentId] = { present: presentes, absent: faltas, rate: tasa };
     }
     res.json({ success: true, data: map });
   } catch (err) {
@@ -686,38 +666,52 @@ router.delete('/:id/enrollments/:groupId', requireRole('ADMIN', 'SUPERADMIN', 'P
   }
 });
 
-// Ficha del estudiante: datos + historial de asistencia (combina sesiones del
-// grupo —para incluir cancelaciones— con los registros del estudiante).
-// Avance del paquete + clases por reponer del estudiante con su origen (lluvia, justificadas,
-// festivos) y las reposiciones que ya vio — misma cuenta del panel del
-// coordinador (computeMakeupDebt). null si no hay semestre activo o el
-// estudiante no entra al cálculo (inactivo, prueba, suspendido).
+// Ledger completo del estudiante (clases pagadas, consumidas, por reponer, por
+// recuperar por calendario, déficit, proyección…): lo que lee la ficha para armar
+// su resumen de paquete. null si no hay semestre activo. Se agregan los nombres
+// con que la ficha actual ya consume la respuesta (pending, calendar, remaining,
+// items, progress…); salen del mismo ledger, no son otro cálculo.
+function withFichaFields(l) {
+  const calendarItems = l.calendario.items.map((i) => ({ type: 'HOLIDAY', date: i.date, groupCode: i.groupCode, reason: i.reason }));
+  return {
+    ...l,
+    pending: l.reposicion.pendientes,
+    calendar: l.calendario.recuperables,
+    remaining: l.pendientes.total,
+    madeUp: l.reposicion.repuestas,
+    rain: l.reposicion.lluvia,
+    justified: l.reposicion.justificadas,
+    holidays: l.calendario.festivos,
+    items: [...l.reposicion.items, ...calendarItems].sort((a, b) => a.date.localeCompare(b.date)),
+    madeUpItems: l.reposicion.repuestasItems,
+    progress: {
+      total: l.paquete.total,
+      seen: Math.round((l.consumidas.presentes + l.consumidas.reposicionesVistas) * 10) / 10,
+      consumed: l.consumidas.total,
+      remaining: l.pendientes.total,
+      pct: l.paquete.total > 0 ? Math.min(100, Math.round((l.consumidas.total / l.paquete.total) * 100)) : null,
+      completedOn: l.graduadoEl,
+      projectedEnd: l.proyeccion.fin,
+      endsBeyondSemester: l.proyeccion.excedeSemestre,
+    },
+  };
+}
+
 router.get('/:id/makeup-debt', requireRole('ADMIN', 'SUPERADMIN', 'PHYSICAL_TRAINER', 'RECEPTION'), async (req, res, next) => {
   try {
-    const [{ rows }, { rows: progress }] = await Promise.all([
-      computeMakeupDebt({ studentIds: [req.params.id] }),
-      computeStudentProgress({ studentIds: [req.params.id] }),
-    ]);
-    if (!rows[0]) return res.json({ success: true, data: null });
-    // Avance del paquete y fecha de fin de semestre (real si ya graduó, estimada si no)
-    const p = progress[0] || {};
-    res.json({
-      success: true,
-      data: {
-        ...rows[0],
-        progress: {
-          total: p.total ?? null, seen: p.seen ?? null, consumed: p.consumed ?? null,
-          remaining: p.remaining ?? null, pct: p.pct ?? null,
-          completedOn: p.completedOn || null, projectedEnd: p.projectedEnd || null,
-          endsBeyondSemester: !!p.endsBeyondSemester,
-        },
-      },
-    });
+    const { ledgers } = await loadLedgers({ studentIds: [req.params.id] });
+    if (!ledgers[0]) return res.json({ success: true, data: null });
+    const data = withFichaFields(ledgers[0]);
+    // Coordinador: sin montos de matrícula
+    res.json({ success: true, data: TUITION_ROLES.includes(req.user.role) ? data : (({ tuition, ...rest }) => rest)(data) });
   } catch (err) {
     next(err);
   }
 });
 
+// Ficha del estudiante: datos + historial de asistencia (combina sesiones del
+// grupo —para incluir cancelaciones— con los registros del estudiante). Las cifras
+// del resumen salen del ledger.
 router.get('/:id/report', requireRole('ADMIN', 'SUPERADMIN', 'PHYSICAL_TRAINER', 'RECEPTION'), async (req, res, next) => {
   try {
     const student = await prisma.student.findUnique({
@@ -730,8 +724,13 @@ router.get('/:id/report', requireRole('ADMIN', 'SUPERADMIN', 'PHYSICAL_TRAINER',
     });
     if (!student) return res.status(404).json({ success: false, error: 'Estudiante no encontrado' });
 
-    const semester = await prisma.semester.findFirst({ where: { active: true } });
-    const dateRange = semester ? { gte: semester.startDate, lte: semester.endDate } : undefined;
+    // Cifras y ventana del semestre (D4) del ledger: lo dictado después del cierre y
+    // antes del siguiente semestre sigue apareciendo y descontando
+    const loaded = await loadLedgers({ studentIds: [student.id] });
+    const ledger = loaded.ledgers[0] || null;
+    const dateRange = loaded.window
+      ? { gte: new Date(`${loaded.window.from}T00:00:00.000Z`), ...(loaded.window.to ? { lt: new Date(`${loaded.window.to}T00:00:00.000Z`) } : {}) }
+      : undefined;
     const groupIds = student.enrollments.map((e) => e.group.id);
 
     const groupSessions = groupIds.length ? await prisma.classSession.findMany({
@@ -765,31 +764,27 @@ router.get('/:id/report', requireRole('ADMIN', 'SUPERADMIN', 'PHYSICAL_TRAINER',
     for (const r of records) if (!seen.has(r.sessionId)) push(r.session, r);
     timeline.sort((a, b) => new Date(b.date) - new Date(a.date));
 
-    let present = 0, absent = 0, justified = 0, na = 0, cancelledRain = 0, classesSeen = 0;
-    for (const r of records) {
-      if (r.status === 'PRESENTE') present++;
-      // Las faltas cuentan solo desde la fecha de inicio de clases del estudiante
-      else if (r.status === 'AUSENTE' && absenceCounts(r.session?.date, student.classesStartDate)) absent++;
-      else if (r.status === 'JUSTIFICADA') justified++;
-      else if (r.status === 'NO_APLICA') na++;
-      // "Vistas" = asistencias + ausencias + reposiciones (lo consumido del
-      // paquete), con las unidades de la sesión: una reposición doble vale 2.
-      classesSeen += consumedUnits(r, r.session, student.classesStartDate);
-    }
-    classesSeen = roundUnits(classesSeen);
-    for (const s of groupSessions) if (s.status === 'CANCELADA' && s.cancellationCategory === 'LLUVIA') cancelledRain++;
-    const attendanceRate = (present + absent) > 0 ? Math.round((present / (present + absent)) * 100) : null;
+    // Resumen: todo del ledger (sin semestre activo no hay paquete que calcular)
+    const l = ledger;
+    const summary = {
+      present: l ? l.asistencia.presentes : 0,
+      absent: l ? l.asistencia.faltas : 0,
+      justified: l ? l.noConsumen.justificadas : 0,
+      na: l ? l.noConsumen.na : 0,
+      cancelledRain: l ? l.reposicion.lluvia : 0,
+      classesSeen: l ? l.consumidas.total : 0,
+      attendanceRate: l ? l.asistencia.tasa : null,
+      classesAcquired: l ? l.paquete.total : (student.classesAcquired || 0) + (student.previousClasses || 0),
+    };
 
     res.json({
       success: true,
       data: {
         // Coordinador ve la ficha pero sin montos de matrícula (sin dinero).
-        student: stripTuition([await attachStudentStatusOne(student)], req.user.role)[0],
+        student: stripTuition((await attachStudentStatus([student], { loaded })), req.user.role)[0],
         timeline,
-        summary: {
-          present, absent, justified, na, cancelledRain, classesSeen, attendanceRate,
-          classesAcquired: (student.classesAcquired || 0) + (student.previousClasses || 0),
-        },
+        summary,
+        ledger: ledgerBrief(ledger),
       },
     });
   } catch (err) {

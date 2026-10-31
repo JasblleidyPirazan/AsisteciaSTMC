@@ -87,6 +87,7 @@ export default function MakeupBookingPage() {
   }
   const breakdown = [
     debt.rain > 0 && `${debt.rain} por lluvia`,
+    debt.other > 0 && `${debt.other} cancelada${debt.other !== 1 ? 's' : ''} por la Escuela`,
     debt.justified > 0 && `${debt.justified} justificada${debt.justified !== 1 ? 's' : ''}`,
   ].filter(Boolean).join(' · ');
   const openSuggestions = suggestions.filter((s) => !s.resolved);

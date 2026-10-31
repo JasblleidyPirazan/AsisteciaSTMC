@@ -63,8 +63,12 @@ export default function CoordinatorStudentsPanel() {
           <div className="lbl">Las cubre el calendario regular que queda</div>
         </div>
         <div className="stat-box">
+          <div className="num" style={{ color: 'var(--gray-600)' }}>{n(s.scheduled)}</div>
+          <div className="lbl">Reposiciones ya agendadas</div>
+        </div>
+        <div className="stat-box">
           <div className="num" style={{ color: 'var(--red)' }}>{n(s.makeupPending)}</div>
-          <div className="lbl">Clases de reposición por programar · {plural(s.makeupStudents, 'estudiante', 'estudiantes')}</div>
+          <div className="lbl">Clases de reposición por agendar · {plural(s.makeupStudents, 'estudiante', 'estudiantes')}</div>
         </div>
         <div className="stat-box">
           <div className="num" style={{ color: 'var(--blue)' }}>{n(s.calendarPending)}</div>
@@ -76,10 +80,10 @@ export default function CoordinatorStudentsPanel() {
         </div>
       </div>
       <p className="text-xs text-gray" style={{ marginBottom: 0 }}>
-        <strong>Reposición</strong> = lluvia + justificadas, menos las ya repuestas: la Escuela las agenda.{' '}
+        <strong>Reposición</strong> = lluvia + canceladas por la Escuela + justificadas, menos las ya repuestas: la Escuela las agenda.{' '}
         <strong style={{ color: 'var(--blue)' }}>Recuperar por calendario</strong> = festivos y recesos: no se reponen,
-        el calendario regular se corre y las devuelve. Lo que <strong>no alcanza</strong> son clases que ni el calendario
-        que queda ni el horario del estudiante cubren antes del cierre del semestre: hay que programarlas.
+        el calendario regular se corre y las devuelve. Lo que <strong>no alcanza</strong> (déficit) son clases que ni el calendario
+        que queda ni las reposiciones cubren antes del cierre del semestre: hay que extender el calendario o programarlas.
       </p>
 
       <div style={{ borderTop: '1px solid var(--border)', marginTop: 12, paddingTop: 4 }}>
@@ -102,13 +106,13 @@ export default function CoordinatorStudentsPanel() {
         <Section id="makeups" open={open.makeups} onToggle={toggle} color="badge-red"
           title="Clases de reposición"
           extra={<span className="text-xs text-gray" style={{ marginLeft: 6 }}>({n(data.makeupsTotal)} clases)</span>}
-          hint={`Tienen ${thresholds.makeups} o más clases de reposición: lluvia + justificadas, menos las que ya repusieron. Los festivos no cuentan aquí.`}
+          hint={`Tienen ${thresholds.makeups} o más clases de reposición por agendar: lluvia + canceladas por la Escuela + justificadas, menos las que ya repusieron. Los festivos no cuentan aquí.`}
           rows={makeups} onOpen={openStudent}
           detail={(r) => (
             <>
               <span className="badge badge-red">{n(r.pending)} por reponer</span>
               <div className="text-xs text-gray">
-                {n(r.rain)} lluvia · {plural(r.justified, 'justificada', 'justificadas')}
+                {n(r.rain)} lluvia{r.other > 0 ? ` · ${n(r.other)} de la Escuela` : ''} · {plural(r.justified, 'justificada', 'justificadas')}
                 {r.madeUp > 0 ? ` · repuso ${n(r.madeUp)}` : ''}
               </div>
               {r.calendar > 0 && (

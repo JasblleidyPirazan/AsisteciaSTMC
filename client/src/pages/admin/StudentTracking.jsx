@@ -62,13 +62,10 @@ export default function StudentTracking() {
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
-  const [from, setFrom] = useState('');
-  const [to, setTo] = useState('');
   const [q, setQ] = useState('');
   const [groupFilter, setGroupFilter] = useState('');
   const [levelFilter, setLevelFilter] = useState('');
   const [statusFilter, setStatusFilter] = useState('');
-  const [countAbsences, setCountAbsences] = useState(true);
   const [sort, setSort] = useState({ key: 'name', dir: 'asc' });
   const [exporting, setExporting] = useState(false);
   const [detail, setDetail] = useState(null); // { row, records, loading }
@@ -78,26 +75,18 @@ export default function StudentTracking() {
     let alive = true;
     setLoading(true);
     setError('');
-    const params = {};
-    if (from) params.from = from;
-    if (to) params.to = to;
-    api.get('/reports/students-tracking', params)
+    api.get('/reports/students-tracking')
       .then((d) => { if (alive) setData(d); })
       .catch((err) => { if (alive) setError(err.message); })
       .finally(() => { if (alive) setLoading(false); });
     return () => { alive = false; };
-  }, [from, to]);
+  }, []);
 
   const rows = data?.rows || [];
 
-  // Total consumido y avance se derivan en el cliente para que el interruptor
-  // de "las faltas consumen clase" no obligue a volver al servidor.
-  // Rep. puede traer medias unidades (una reposición se programa por 0.5, 1 o 2
-  // asistencias), así que el total se redondea a un decimal.
-  const decorated = useMemo(() => rows.map((r) => {
-    const total = Math.round((r.present + r.makeup + (countAbsences ? r.absent : 0)) * 10) / 10;
-    return { ...r, total, pct: r.acquired ? Math.round((total / r.acquired) * 1000) / 10 : null };
-  }), [rows, countAbsences]);
+  // Total consumido y % de avance vienen del servidor (ledger): la falta sin
+  // justificar siempre consume la clase, así que ya no hay interruptor.
+  const decorated = rows;
 
   const options = useMemo(() => ({
     groups: [...new Set(rows.map((r) => r.groupCode).filter(Boolean))].sort((a, b) => a.localeCompare(b, 'es', { numeric: true })),
@@ -141,10 +130,7 @@ export default function StudentTracking() {
     try {
       const token = localStorage.getItem('stmc_token');
       const base = import.meta.env.VITE_API_URL || '/api';
-      const qs = new URLSearchParams({ countAbsences: String(countAbsences) });
-      if (from) qs.set('from', from);
-      if (to) qs.set('to', to);
-      const res = await fetch(`${base}/reports/students-tracking/export?${qs}`, { headers: { Authorization: `Bearer ${token}` } });
+      const res = await fetch(`${base}/reports/students-tracking/export`, { headers: { Authorization: `Bearer ${token}` } });
       if (!res.ok) throw new Error('Error al exportar');
       const blob = await res.blob();
       const url = URL.createObjectURL(blob);
@@ -170,7 +156,7 @@ export default function StudentTracking() {
     if (printing || list.length === 0) return;
     setPrinting(true);
     try {
-      await printFichas(list, { rangeLabel, countAbsences, params: detailParams });
+      await printFichas(list, { rangeLabel, params: detailParams });
     } catch (err) {
       toast.error(err.message);
     } finally {
@@ -246,26 +232,9 @@ export default function StudentTracking() {
           )}
         </div>
 
-        <div className="flex items-center gap-3 mt-3" style={{ flexWrap: 'wrap' }}>
-          <div className="flex items-center gap-2" style={{ flexWrap: 'wrap' }}>
-            <label className="form-label" style={{ margin: 0, fontSize: '0.75rem' }}>Desde</label>
-            <input type="date" className="form-input" style={{ minHeight: 34, width: 'auto', maxWidth: 150, fontSize: '0.82rem' }}
-              value={from} onChange={(e) => setFrom(e.target.value)} />
-            <label className="form-label" style={{ margin: 0, fontSize: '0.75rem' }}>Hasta</label>
-            <input type="date" className="form-input" style={{ minHeight: 34, width: 'auto', maxWidth: 150, fontSize: '0.82rem' }}
-              value={to} onChange={(e) => setTo(e.target.value)} />
-            {(from || to) && (
-              <button className="btn btn-ghost" style={{ minHeight: 34, fontSize: '0.8rem', padding: '0 10px' }}
-                onClick={() => { setFrom(''); setTo(''); }}>Semestre activo</button>
-            )}
-          </div>
-          <label className="flex items-center gap-2 text-sm" style={{ cursor: 'pointer' }}
-            title="Encendido: la falta sin justificar consume la clase (el estudiante la pagó y no vino). Apagado: solo cuenta lo efectivamente visto.">
-            <input type="checkbox" checked={countAbsences} onChange={(e) => setCountAbsences(e.target.checked)}
-              style={{ width: 18, height: 18, accentColor: 'var(--primary)' }} />
-            Las faltas consumen clase
-          </label>
-        </div>
+        <p className="text-xs text-gray mt-2" style={{ marginBottom: 0 }}>
+          Semestre activo: desde su inicio hasta el inicio del siguiente semestre. La falta sin justificar siempre consume la clase.
+        </p>
       </div>
 
       {visible.length === 0 ? (
@@ -385,7 +354,7 @@ export default function StudentTracking() {
         Adq. = clases adquiridas (incluye las pendientes del semestre anterior) · Asist. = asistencias ·
         Aus. = faltas sin justificar, contadas solo desde su fecha de inicio de clases · Just. = justificadas (no consumen clase) ·
         N/A = el día no le corresponde · Rep. = reposiciones a las que asistió · Lluvia = clases de sus grupos canceladas por lluvia ·
-        Total = clases consumidas del paquete{countAbsences ? ' (asistencias + faltas + reposiciones)' : ' (asistencias + reposiciones)'} ·
+        Total = clases consumidas del paquete (asistencias + faltas + reposiciones) ·
         % Avance = Total / Adq.
       </p>
 
@@ -523,7 +492,7 @@ function detailTableHtml(r) {
     </table>`;
 }
 
-function fichaHtml(r, rangeLabel, countAbsences) {
+function fichaHtml(r, rangeLabel) {
   const pct = r.pct == null ? null : r.pct;
   const barColor = pct == null ? '#8B96BE' : pct >= 85 ? '#1FA971' : pct >= 60 ? '#E8A23B' : '#E8526A';
   const cell = (label, value, color) =>
@@ -557,7 +526,7 @@ function fichaHtml(r, rangeLabel, countAbsences) {
       ${cell('Total consumidas', r.total, '#141E45')}
     </div>
     <p class="note">
-      Total consumidas = asistencias${countAbsences ? ' + faltas' : ''} + reposiciones.
+      Total consumidas = asistencias + faltas + reposiciones.
       Las justificadas y los días marcados "no aplica" no consumen clase.
       Las clases canceladas por lluvia no se cobran del paquete.
     </p>
@@ -583,7 +552,7 @@ async function withRecords(rows, params) {
   return out;
 }
 
-export async function printFichas(list, { rangeLabel = '', countAbsences = true, params = {} } = {}) {
+export async function printFichas(list, { rangeLabel = '', params = {} } = {}) {
   if (!list || list.length === 0) return;
   const rows = await withRecords(list, params);
   const html = `<!doctype html><html lang="es"><head><meta charset="utf-8">
@@ -623,7 +592,7 @@ export async function printFichas(list, { rangeLabel = '', countAbsences = true,
   .mark { display: inline-block; min-width: 26px; text-align: center; font-weight: 700; border-radius: 10px; padding: 1px 5px; }
   footer { font-size: 10px; color: #8B96BE; margin-top: 26px; border-top: 1px solid #E6EAF3; padding-top: 8px; }
   @media print { body { -webkit-print-color-adjust: exact; print-color-adjust: exact; } }
-</style></head><body>${rows.map((r) => fichaHtml(r, rangeLabel, countAbsences)).join('')}</body></html>`;
+</style></head><body>${rows.map((r) => fichaHtml(r, rangeLabel)).join('')}</body></html>`;
 
   const iframe = document.createElement('iframe');
   iframe.setAttribute('aria-hidden', 'true');

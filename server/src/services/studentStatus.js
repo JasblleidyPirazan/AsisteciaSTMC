@@ -1,18 +1,21 @@
-// Estados de estudiante derivados (rediseño de estados + pagos).
+// Estados de estudiante derivados.
 //
-// El estado ya NO depende del checkbox manual `paymentComplete`: se deriva de
-// los datos reales del estudiante — pagos registrados (StudentPayment) y
-// asistencia — contra el valor de su plan de clases:
+// El estado ya NO depende del checkbox manual `paymentComplete` ni de la
+// asistencia (D7): se deriva de los pagos registrados (StudentPayment) contra el
+// valor de su plan de clases y de si consumió su paquete. La prioridad vive en
+// UN solo lugar, `studentLedger.deriveStatus`:
 //
 //   INACTIVO     desactivado (soft delete)
 //   SUSPENDIDO   hoy dentro del rango de suspensión temporal
 //   PRUEBA       estudiante de clase de prueba (isTrial)
-//   GRADUADO     ya consumió todo su paquete del semestre activo (vistas +
-//                faltas, ver semesterProgress.consumptionFromRecords); sale
-//                de las listas de asistencia. `graduatedOn` = fecha de fin
+//   GRADUADO     ya consumió todo su paquete del semestre activo (viene del
+//                ledger); sale de las listas de asistencia. `graduatedOn` = fecha de fin
 //   MATRICULADO  pago completo: total pagado >= valor esperado de sus clases
-//   INSCRITO     tiene alguna clase vista (regla de attendanceStats) y/o algún pago
-//   PREINSCRITO  registrado, sin asistencia ni pagos
+//   INSCRITO     pago parcial (0 < pagado < valor del plan)
+//   PREINSCRITO  registrado, sin pagos
+//
+// `attachStudentStatus` lee el estado del ledger (`loadLedgers`). Sin semestre
+// activo no hay paquete que cerrar: se deriva solo de los pagos (sin GRADUADO).
 //
 // El valor esperado depende de la categoría de precio por edad:
 //   ADULTO  → tuition_adult_total (valor de 40 clases) — edad >= tuition_adult_age
@@ -23,8 +26,7 @@
 // a MATRICULADO hasta que se ingrese la fecha.
 const prisma = require('../lib/prisma');
 const { bogotaToday } = require('../lib/dates');
-const { absenceCounts } = require('./attendanceStats');
-const { loadConsumption, computeCompletion } = require('./semesterProgress');
+const { deriveStatus, loadLedgers } = require('./studentLedger');
 
 const TUITION_KEYS = ['tuition_adult_total', 'tuition_child_total', 'tuition_plan_classes', 'tuition_adult_age'];
 
@@ -77,30 +79,33 @@ function isSuspendedOn(student, today) {
 }
 
 // Deriva el estado a partir del estudiante + sus agregados (pagos/asistencia).
-function deriveStudentStatus(student, { totalPaid = 0, hasAttendance = false, graduated = false, cfg = TUITION_DEFAULTS, today = bogotaToday() } = {}) {
-  if (!student.active) return 'INACTIVO';
-  if (isSuspendedOn(student, today)) return 'SUSPENDIDO';
-  if (student.isTrial) return 'PRUEBA';
-  if (graduated) return 'GRADUADO';
-  const expected = expectedTotal(student, cfg, today);
-  if (expected != null && totalPaid >= expected) return 'MATRICULADO';
-  if (totalPaid > 0 || hasAttendance) return 'INSCRITO';
-  return 'PREINSCRITO';
+// Estado SIN ledger (no hay semestre activo): solo pagos. Misma prioridad que el
+// ledger porque delega en `deriveStatus`.
+function deriveStudentStatus(student, { totalPaid = 0, graduated = false, cfg = TUITION_DEFAULTS, today = bogotaToday() } = {}) {
+  return deriveStatus({
+    active: student.active,
+    suspended: isSuspendedOn(student, today),
+    isTrial: student.isTrial,
+    graduated,
+    totalPaid,
+    expectedTotal: expectedTotal(student, cfg, today),
+  }).status;
 }
 
-// Decora un estudiante con el estado y el detalle de pagos del plan.
-function decorateStudent(student, { totalPaid = 0, hasAttendance = false, graduatedOn = null, cfg = TUITION_DEFAULTS, today = bogotaToday() } = {}) {
+// Decora un estudiante con el estado y el detalle de pagos del plan. `ledger`
+// (si hay semestre activo) manda el estado, GRADUADO y la fecha de fin.
+function decorateStudent(student, { totalPaid = 0, ledger = null, cfg = TUITION_DEFAULTS, today = bogotaToday() } = {}) {
   const category = priceCategory(student, cfg, today);
   const expected = expectedTotal(student, cfg, today);
-  const studentStatus = deriveStudentStatus(student, { totalPaid, hasAttendance, graduated: !!graduatedOn, cfg, today });
+  const studentStatus = ledger ? ledger.status : deriveStudentStatus(student, { totalPaid, cfg, today });
   return {
     ...student,
     studentStatus,
-    // Estado de pago/inscripción sin tener en cuenta la graduación: un graduado
-    // que pagó completo sigue siendo MATRICULADO para Contabilidad y conversión
-    tuitionStatus: deriveStudentStatus(student, { totalPaid, hasAttendance, cfg, today }),
+    // Estado de pago sin la graduación: un graduado que pagó completo sigue
+    // siendo MATRICULADO para Contabilidad y conversión
+    tuitionStatus: ledger ? ledger.tuitionStatus : studentStatus,
     // Fecha de fin de semestre: la clase con la que completó su paquete
-    graduatedOn: studentStatus === 'GRADUADO' ? graduatedOn : null,
+    graduatedOn: studentStatus === 'GRADUADO' ? (ledger?.graduadoEl || null) : null,
     // Error de datos: estudiante regular activo sin fecha de nacimiento — no
     // se puede saber su tarifa (adulto/pequeño). Se marca en TODAS las vistas.
     missingBirthDate: !!student.active && !student.isTrial && !student.birthDate,
@@ -124,74 +129,41 @@ async function getTuitionConfig() {
   return cfg;
 }
 
-// Adjunta estado + detalle de pago a una lista de estudiantes (2 queries
-// agregadas + config, sin importar el tamaño de la lista). Los objetos deben
-// traer: id, active, isTrial, birthDate, classesAcquired, suspendedFrom/Until.
-async function attachStudentStatus(students) {
+// Adjunta estado + detalle de pago a una lista de estudiantes. El estado sale del
+// ledger (una pasada: `loadLedgers`, sin importar el tamaño de la lista); el ledger
+// vuelve a leer a los estudiantes por id, así que los objetos de entrada solo
+// necesitan `id` (y los campos que se quieran conservar en la respuesta).
+// `loaded` (opcional): el resultado de un `loadLedgers` que el llamador ya hizo para
+// estos mismos estudiantes (p. ej. con `before`), para no leer dos veces.
+async function attachStudentStatus(students, { loaded: preloaded = null } = {}) {
   if (!students || students.length === 0) return [];
   const ids = students.map((s) => s.id);
-  const [cfg, paySums, presentCounts, semester] = await Promise.all([
-    getTuitionConfig(),
-    prisma.studentPayment.groupBy({
-      by: ['studentId'],
-      where: { studentId: { in: ids } },
-      _sum: { amount: true },
-    }),
-    // "Al menos una asistencia" usa la regla canónica de clase vista
-    // (attendanceStats): PRESENTE en cualquier sesión (agregado en BD)...
-    prisma.attendanceRecord.groupBy({
-      by: ['studentId'],
-      where: { studentId: { in: ids }, status: 'PRESENTE' },
-      _count: { _all: true },
-    }),
-    prisma.semester.findFirst({ where: { active: true } }),
-  ]);
-  const paidById = Object.fromEntries(paySums.map((p) => [p.studentId, parseFloat(p._sum.amount) || 0]));
-  const presentById = Object.fromEntries(presentCounts.map((p) => [p.studentId, p._count._all]));
+  const loaded = preloaded || await loadLedgers({ studentIds: ids });
+  const ledgerById = Object.fromEntries(loaded.ledgers.map((l) => [l.studentId, l]));
 
-  // ...o AUSENTE en festival, que también cuenta como clase vista pero SOLO
-  // desde la fecha de inicio de clases del estudiante (una inasistencia
-  // anterior al inicio no cuenta). Solo se consulta para quienes no tienen
-  // ningún PRESENTE (los demás ya quedaron con asistencia).
-  const withoutPresent = ids.filter((id) => !presentById[id]);
-  const festivalSeen = new Set();
-  if (withoutPresent.length > 0) {
-    const festAbs = await prisma.attendanceRecord.findMany({
-      where: { studentId: { in: withoutPresent }, status: 'AUSENTE', session: { kind: 'FESTIVAL' } },
-      select: { studentId: true, session: { select: { date: true } } },
-    });
-    if (festAbs.length > 0) {
-      const starts = await prisma.student.findMany({
-        where: { id: { in: [...new Set(festAbs.map((r) => r.studentId))] } },
-        select: { id: true, classesStartDate: true },
-      });
-      const startById = Object.fromEntries(starts.map((s) => [s.id, s.classesStartDate]));
-      for (const r of festAbs) {
-        if (absenceCounts(r.session?.date, startById[r.studentId])) festivalSeen.add(r.studentId);
-      }
-    }
-  }
-
-  // GRADUADO: solo con semestre activo (sin semestre no hay paquete que cerrar)
-  const graduatedOnById = {};
-  if (semester) {
-    const { consumedById, completedOnById } = await loadConsumption(students, semester);
-    for (const s of students) {
-      if (s.isTrial) continue;
-      const c = computeCompletion({ acquired: s.classesAcquired, previous: s.previousClasses, consumed: consumedById[s.id] || 0 });
-      // Completó ⇒ hay una clase con la que llegó al total (completedOn)
-      if (c.completed) graduatedOnById[s.id] = completedOnById[s.id];
-    }
+  // Sin ledger (sin semestre activo): el monto pagado se lee aparte
+  const withoutLedger = ids.filter((id) => !ledgerById[id]);
+  let cfg = loaded.tuitionConfig;
+  const paidById = {};
+  if (withoutLedger.length > 0) {
+    const [config, paySums] = await Promise.all([
+      cfg ? Promise.resolve(cfg) : getTuitionConfig(),
+      prisma.studentPayment.groupBy({ by: ['studentId'], where: { studentId: { in: withoutLedger } }, _sum: { amount: true } }),
+    ]);
+    cfg = config;
+    for (const p of paySums) paidById[p.studentId] = parseFloat(p._sum.amount) || 0;
   }
 
   const today = bogotaToday();
-  return students.map((s) => decorateStudent(s, {
-    totalPaid: paidById[s.id] || 0,
-    hasAttendance: (presentById[s.id] || 0) > 0 || festivalSeen.has(s.id),
-    graduatedOn: graduatedOnById[s.id] || null,
-    cfg,
-    today,
-  }));
+  return students.map((s) => {
+    const ledger = ledgerById[s.id] || null;
+    return decorateStudent(s, {
+      totalPaid: ledger ? ledger.tuition.totalPaid : (paidById[s.id] || 0),
+      ledger,
+      cfg,
+      today,
+    });
+  });
 }
 
 // Versión para un solo estudiante.
