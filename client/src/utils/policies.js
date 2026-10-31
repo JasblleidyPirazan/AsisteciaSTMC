@@ -12,7 +12,9 @@ I. Definiciones
    • Asiste: el alumno asistió. Cuenta como clase recibida.
    • No asiste: el alumno no asistió por motivos propios. Cuenta como clase recibida y no genera reposición.
    • Justificada: ausencia por incapacidad médica certificada u otra causa aceptada por el Club. Da derecho a reposición.
-   • Cancelada por lluvia: la clase no pudo realizarse por lluvia. Da derecho a reposición.
+   • Cancelada por lluvia o por causa del Club: la clase no pudo realizarse por lluvia u otra causa atribuible al Club. Da derecho a reposición.
+   • Cancelada porque no llegaron alumnos: se cuenta como clase recibida y no genera reposición.
+   • Festivos y semana de receso: no son clases del curso; no cuentan como recibidas ni se reponen. El calendario se corre y se recuperan al final, extendiendo la fecha de finalización.
 
 II. Horarios y organización
 6. En 2026 los horarios son de lunes a viernes de 6:00 a 22:00 y sábados de 6:00 a 12:00 m. Durante el primer mes puede haber ajustes con previo aviso.
@@ -24,7 +26,7 @@ III. Pagos y materiales
 10. El valor de las clases grupales incluye: profesor, asistente, cancha y materiales de entrenamiento.
 
 IV. Reposiciones
-11. Se harán reposiciones por clases Justificadas, canceladas por lluvia y días festivos. Son grupales y el Club asigna los horarios.
+11. Se harán reposiciones por clases Justificadas y canceladas por lluvia o por causa del Club. Los festivos y el receso no se reponen: el calendario se reprograma. Las reposiciones son grupales y el Club asigna los horarios.
 12. El Club aplicará una estrategia flexible: invitaciones a otros grupos, festivales de fin de semana, extensión del curso, clínicas con expertos, entre otros.
 13. Las inasistencias por motivos del alumno (No asiste) no generan reposición.
 
