@@ -29,7 +29,7 @@ export default function LedgerPage() {
   const [groupId, setGroupId] = useState('');
   const [q, setQ] = useState('');
   const [panelId, setPanelId] = useState(null);
-  const [view, setView] = useState('students');
+  const [view, setView] = useState('makeups');
   const [groupRows, setGroupRows] = useState(null);
 
   useEffect(() => {
@@ -49,6 +49,12 @@ export default function LedgerPage() {
     return [...map].sort((a, b) => String(a[1]).localeCompare(String(b[1]), 'es', { numeric: true }));
   }, [data]);
 
+  // Búsqueda por nombre: aplica a las dos pestañas de estudiantes
+  const searched = useMemo(() => {
+    const needle = q.trim().toLowerCase();
+    return (data?.ledgers || []).filter((l) => !needle || l.name.toLowerCase().includes(needle));
+  }, [data, q]);
+
   const rows = useMemo(() => {
     const needle = q.trim().toLowerCase();
     return (data?.ledgers || []).filter((l) => {
@@ -65,7 +71,7 @@ export default function LedgerPage() {
     const g = l.groups[0];
     if (action.key === 'reports') navigate('/admin/conflicts');
     else if (action.key === 'link') navigate('/admin/makeup-booking');
-    else if (action.key === 'extend') navigate('/admin/groups', { state: { focusCode: g?.code, from: { label: 'Reposiciones y reprogramación', to: '/admin/ledger' } } });
+    else if (action.key === 'extend') navigate('/admin/groups', { state: { focusCode: g?.code, from: { label: 'Reposiciones y reprogramación', to: '/admin' } } });
     else setPanelId(l.studentId);
   };
 
@@ -73,7 +79,6 @@ export default function LedgerPage() {
   return (
     <div className="page">
       <div className="page-header">
-        <button className="nav-back" onClick={() => navigate('/admin')}>←</button>
         <h1>Reposiciones y reprogramación</h1>
       </div>
       <div className="page-content">
@@ -113,20 +118,27 @@ export default function LedgerPage() {
               </div>
             </div>
 
-            <div className="flex gap-2 mb-3">
-              <button className={`btn ${view === 'students' ? 'btn-primary' : 'btn-outline'}`} style={{ flex: 1, minHeight: 36 }} onClick={() => setView('students')}>Por estudiante</button>
-              <button className={`btn ${view === 'groups' ? 'btn-primary' : 'btn-outline'}`} style={{ flex: 1, minHeight: 36 }} onClick={() => setView('groups')}>Por grupo (reprogramación)</button>
+            <div className="flex gap-2 mb-3" style={{ flexWrap: 'wrap' }}>
+              {[['makeups', 'Estudiantes por reponer'], ['students', 'Estudiantes por reponer y reprogramar'], ['groups', 'Grupos']].map(([k, label]) => (
+                <button key={k} className={`btn ${view === k ? 'btn-primary' : 'btn-outline'}`}
+                  style={{ flex: 1, minHeight: 36, minWidth: 150 }} onClick={() => setView(k)}>{label}</button>
+              ))}
             </div>
 
-            {view === 'groups' ? <GroupsView rows={groupRows} /> : (<>
-            <div className="flex gap-2 mb-3" style={{ flexWrap: 'wrap' }}>
-              <input className="form-input" style={{ flex: 1, minWidth: 160 }} placeholder="Buscar estudiante"
-                value={q} onChange={(e) => setQ(e.target.value)} />
-              <select className="form-input" style={{ width: 'auto' }} value={groupId} onChange={(e) => setGroupId(e.target.value)}>
-                <option value="">Todos los grupos</option>
-                {groups.map(([id, code]) => <option key={id} value={id}>{code}</option>)}
-              </select>
-            </div>
+            {view !== 'groups' && (
+              <div className="flex gap-2 mb-3" style={{ flexWrap: 'wrap' }}>
+                <input className="form-input" style={{ flex: 1, minWidth: 160 }} placeholder="Buscar estudiante"
+                  value={q} onChange={(e) => setQ(e.target.value)} />
+                <select className="form-input" style={{ width: 'auto' }} value={groupId} onChange={(e) => setGroupId(e.target.value)}>
+                  <option value="">Todos los grupos</option>
+                  {groups.map(([id, code]) => <option key={id} value={id}>{code}</option>)}
+                </select>
+              </div>
+            )}
+
+            {view === 'groups' ? <GroupsView rows={groupRows} totalDeficit={s.pendientes.deficit} />
+            : view === 'makeups' ? <MakeupsView ledgers={searched} onOpen={setPanelId} onLink={() => navigate('/admin/makeup-booking')} />
+            : (<>
             <div className="flex gap-2 mb-3" style={{ flexWrap: 'wrap' }}>
               {FILTERS.map(([k, label]) => (
                 <button key={k} className={`btn ${filter === k ? 'btn-primary' : 'btn-outline'}`}
@@ -168,7 +180,7 @@ export default function LedgerPage() {
       </div>
       {panelId && (
         <StudentQuickPanel studentId={panelId} onClose={() => setPanelId(null)}
-          from={{ label: 'Reposiciones y reprogramación', to: '/admin/ledger' }} />
+          from={{ label: 'Reposiciones y reprogramación', to: '/admin' }} />
       )}
     </div>
   );
@@ -176,13 +188,15 @@ export default function LedgerPage() {
 
 // Festivos y recesos se gestionan por grupo: cada uno contra su plan de clases.
 // Primero las cifras; al tocar un grupo se despliega el detalle.
-function GroupsView({ rows }) {
+function GroupsView({ rows, totalDeficit }) {
   const [open, setOpen] = useState({});
   if (!rows) return <div className="spinner" />;
   if (rows.length === 0) return <div className="alert alert-info">No hay grupos activos.</div>;
 
   const afectados = rows.filter((g) => g.students.conDeficit > 0);
-  const deficit = rows.reduce((acc, g) => acc + g.students.deficit, 0);
+  // El total viene del resumen general (cada estudiante una vez). Sumar los grupos
+  // daría más: un estudiante en dos grupos aparece en ambos.
+  const deficit = totalDeficit;
   const short = (d) => (d ? fmtDate(d, { day: 'numeric', month: 'short' }) : '—');
 
   return (
@@ -194,6 +208,7 @@ function GroupsView({ rows }) {
       </div>
       <p className="text-xs text-gray mb-2">
         Ordenados por déficit. Toca un grupo para ver los festivos, las fechas de fin y el detalle de sus estudiantes.
+        El déficit de cada grupo cuenta a todos sus estudiantes: quien está en dos grupos aparece en ambos, por eso la suma de los grupos puede ser mayor que el total.
       </p>
 
       {rows.map((g) => {
@@ -273,5 +288,88 @@ function Mini({ value, label, color, title }) {
       <div className="text-sm"><strong style={{ color }}>{value}</strong></div>
       <div className="text-xs text-gray">{label}</div>
     </div>
+  );
+}
+
+// Solo reposición: lo que la Escuela debe programar por lluvia y por justificadas
+// (y por clases que canceló la Escuela, D1). Cifras arriba; al tocar, las fechas.
+function MakeupsView({ ledgers, onOpen, onLink }) {
+  const [open, setOpen] = useState({});
+  const list = ledgers
+    .filter((l) => l.reposicion.pendientes > 0)
+    .sort((a, b) => b.reposicion.porAgendar - a.reposicion.porAgendar || b.reposicion.pendientes - a.reposicion.pendientes || a.name.localeCompare(b.name, 'es'));
+  const sum = (fn) => list.reduce((acc, l) => acc + fn(l), 0);
+  const TYPE = { RAIN: 'Lluvia', JUSTIFIED: 'Justificada', OTHER: 'Cancelada por la Escuela' };
+  const short = (d) => fmtDate(d, { day: 'numeric', month: 'short' });
+
+  return (
+    <>
+      <div className="card mb-3" style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(120px, 1fr))', gap: 8 }}>
+        <Stat value={list.length} label="estudiantes por reponer" />
+        <Stat value={n(sum((l) => l.reposicion.pendientes))} label="clases por reponer" color="var(--yellow)" />
+        <Stat value={n(sum((l) => l.reposicion.agendadas))} label="ya agendadas" />
+        <Stat value={n(sum((l) => l.reposicion.porAgendar))} label="por agendar" color={sum((l) => l.reposicion.porAgendar) ? 'var(--red)' : 'var(--green)'} />
+      </div>
+      <p className="text-xs text-gray mb-2">
+        {GLOSSARY.reposicion} Los festivos y recesos no van aquí: se reprograman. Toca un estudiante para ver las fechas.
+      </p>
+
+      {list.length === 0 ? <div className="alert alert-success">🎾 Ningún estudiante tiene clases por reponer.</div> : list.map((l) => {
+        const r = l.reposicion;
+        const isOpen = !!open[l.studentId];
+        return (
+          <div key={l.studentId} className="card mb-2" style={{ borderLeft: `4px solid ${r.porAgendar > 0 ? 'var(--yellow)' : 'var(--green)'}`, cursor: 'pointer' }}
+            onClick={() => setOpen((o) => ({ ...o, [l.studentId]: !o[l.studentId] }))}>
+            <div className="flex items-center justify-between" style={{ gap: 8 }}>
+              <div style={{ minWidth: 0 }}>
+                <span className="font-medium">{l.name}</span>{' '}
+                <span className="text-xs text-gray">{l.groups.map((g) => g.code).join(' · ') || 'Sin grupo'}</span>
+              </div>
+              <span className="text-gray" aria-hidden>{isOpen ? '▾' : '▸'}</span>
+            </div>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(84px, 1fr))', gap: 8, marginTop: 8 }}>
+              <Mini value={r.lluvia} label="lluvia" />
+              <Mini value={r.justificadas} label="justificadas" />
+              {r.otras > 0 && <Mini value={r.otras} label="canceladas por la Escuela" />}
+              <Mini value={n(r.repuestas)} label="ya repuestas" />
+              <Mini value={n(r.pendientes)} label="por reponer" color="var(--yellow)" />
+              <Mini value={n(r.porAgendar)} label="por agendar" color={r.porAgendar > 0 ? 'var(--red)' : 'var(--green)'} />
+            </div>
+
+            {isOpen && (
+              <div className="mt-2" style={{ borderTop: '1px solid var(--border)', paddingTop: 8 }} onClick={(e) => e.stopPropagation()}>
+                <div className="text-xs font-medium mb-1">Clases que dan derecho a reposición</div>
+                <div className="flex gap-1 mb-2" style={{ flexWrap: 'wrap' }}>
+                  {(r.items || []).map((it, i) => (
+                    <span key={i} className={`badge ${it.type === 'JUSTIFIED' ? 'badge-yellow' : 'badge-gray'}`}>
+                      {short(it.date)} · {TYPE[it.type] || it.type}{it.groupCode ? ` · ${it.groupCode}` : ''}
+                    </span>
+                  ))}
+                </div>
+                {(r.repuestasItems || []).length > 0 && (
+                  <>
+                    <div className="text-xs font-medium mb-1">Reposiciones vistas</div>
+                    <div className="flex gap-1 mb-2" style={{ flexWrap: 'wrap' }}>
+                      {r.repuestasItems.map((it, i) => (
+                        <span key={i} className="badge badge-green">
+                          {short(it.date)}{it.units > 1 ? ` · vale ${it.units}` : ''}{it.absent ? ' · faltó (perdida)' : ''}
+                        </span>
+                      ))}
+                    </div>
+                  </>
+                )}
+                {r.agendadas > 0 && <div className="text-xs text-gray mb-2">Tiene {n(r.agendadas)} reposición(es) ya agendada(s).</div>}
+                <div className="flex gap-2" style={{ flexWrap: 'wrap' }}>
+                  {r.porAgendar > 0 && (
+                    <button className="btn btn-outline" style={{ minHeight: 32, fontSize: '0.8rem' }} onClick={onLink}>Enviar enlace para agendar</button>
+                  )}
+                  <button className="btn btn-ghost" style={{ minHeight: 32, fontSize: '0.8rem' }} onClick={() => onOpen(l.studentId)}>Ver ficha</button>
+                </div>
+              </div>
+            )}
+          </div>
+        );
+      })}
+    </>
   );
 }
