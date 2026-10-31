@@ -1,3 +1,4 @@
+import { GLOSSARY } from '../../utils/glossary';
 import { useState, useEffect } from 'react';
 import { api } from '../../api/client';
 import { cacheGet, cacheSet, CACHE_KEYS } from '../../utils/offlineCache';
@@ -203,8 +204,10 @@ export default function Step3Students({ groupId, date, records, onChange, onNext
             )}
             {meta[r.studentId]?.seen != null && (
               <div className="text-xs text-gray" style={{ fontWeight: 400, marginTop: 2 }}
-                title="Vistas = asistencias + ausencias + reposiciones / clases adquiridas">
-                Clases: {meta[r.studentId].seen}/{meta[r.studentId].acquired}
+                title={GLOSSARY.vistas}>
+                {meta[r.studentId].acquired > 0
+                  ? <>Clases: {meta[r.studentId].seen}/{meta[r.studentId].acquired}</>
+                  : <span style={{ color: 'var(--red)' }}>Sin paquete</span>}
               </div>
             )}
           </div>

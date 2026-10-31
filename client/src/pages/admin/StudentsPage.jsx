@@ -1,3 +1,5 @@
+import StudentLedgerCard from '../../components/StudentLedgerCard';
+import { GLOSSARY } from '../../utils/glossary';
 import { useState, useEffect, useMemo } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { api } from '../../api/client';
@@ -651,17 +653,17 @@ export default function StudentsPage() {
           {st.email && <a className="btn btn-outline" style={{ flex: 1 }} href={`mailto:${st.email}`}>Enviar correo</a>}
         </div>
 
+        {makeupDebt && !makeupDebt.error && !makeupDebt.none && (
+          <div className="card mb-3" style={{ background: 'var(--surface-2)' }}>
+            <StudentLedgerCard ledger={makeupDebt} />
+          </div>
+        )}
+
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(108px, 1fr))', gap: 8 }} className="mb-3">
           <div className="stat-box"><div className="num">{totalClasses}</div><div className="lbl">Clases adquiridas</div></div>
-          <div className="stat-box"><div className="num">{sum.attendanceRate != null ? `${sum.attendanceRate}%` : '—'}</div><div className="lbl" title="Vistas = asistencias + ausencias + reposiciones">Asistencia · {sum.classesSeen} vistas</div></div>
+          <div className="stat-box"><div className="num">{sum.attendanceRate != null ? `${sum.attendanceRate}%` : '—'}</div><div className="lbl" title={GLOSSARY.vistas}>Asistencia · {sum.classesSeen} vistas</div></div>
           <div className="stat-box"><div className="num" style={{ color: 'var(--red)' }}>{sum.absent}</div><div className="lbl">Faltas</div></div>
           <div className="stat-box"><div className="num" style={{ color: 'var(--blue)' }}>{sum.cancelledRain}</div><div className="lbl">Canceladas · lluvia</div></div>
-          {makeupDebt?.progress?.total > 0 && (
-            <div className="stat-box" title="Las faltas sin justificar consumen la clase: el estudiante la pagó y no vino">
-              <div className="num" style={{ color: 'var(--green)' }}>{makeupDebt.progress.consumed}/{makeupDebt.progress.total}</div>
-              <div className="lbl">Avance (asistencias + faltas) · le quedan {makeupDebt.progress.remaining}</div>
-            </div>
-          )}
         </div>
 
         {isAdmin && (

@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { api } from '../../api/client';
 import { useAuth } from '../../hooks/useAuth';
 import { fmtDate } from '../../utils/dates';
+import StudentLedgerCard from '../../components/StudentLedgerCard';
 import PoliciesModal from '../../components/PoliciesModal';
 import { StudentStatusBadge, fmtCOP } from '../../utils/studentStatus';
 
@@ -99,19 +100,13 @@ export default function ParentPortalPage() {
               )}
             </div>
 
-            {/* Estado del paquete (ledger): lo que falta y si el calendario alcanza */}
-            {selected.ledger && selected.ledger.paquete.total > 0 && selected.ledger.status !== 'GRADUADO'
-              && (selected.ledger.pendientes.deficit > 0 || selected.ledger.reposicion.porAgendar > 0) && (
-              <div className="alert mb-3" style={{
-                background: selected.ledger.pendientes.deficit > 0 ? 'var(--red-light)' : 'var(--yellow-light)',
-                color: selected.ledger.pendientes.deficit > 0 ? 'var(--red)' : 'var(--yellow)',
-              }}>
-                ⚠️ {selected.name} lleva {selected.ledger.consumidas.total} de {selected.ledger.paquete.total} clases
-                y le faltan {selected.ledger.pendientes.total}.
-                {selected.ledger.pendientes.deficit > 0
-                  && ` Al calendario regular no le alcanza: faltan ${selected.ledger.pendientes.deficit} por programar con la Escuela.`}
-                {selected.ledger.reposicion.porAgendar > 0
-                  && ` Tiene ${selected.ledger.reposicion.porAgendar} clase(s) de reposición por agendar.`}
+            {/* Estado del paquete: misma tarjeta que ve la Escuela */}
+            {selected.ledger && (
+              <div className="card mb-3">
+                <StudentLedgerCard ledger={selected.ledger} compact />
+                {selected.ledger.reposicion?.porAgendar > 0 && (
+                  <div className="text-xs mt-1">Tiene {selected.ledger.reposicion.porAgendar} clase(s) de reposición por agendar con la Escuela.</div>
+                )}
               </div>
             )}
 

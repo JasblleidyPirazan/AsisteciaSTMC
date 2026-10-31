@@ -1,3 +1,4 @@
+import { SEMAFORO } from '../../utils/glossary';
 import { useState, useEffect } from 'react';
 import { api } from '../../api/client';
 import { fmtDate } from '../../utils/dates';
@@ -11,21 +12,7 @@ import { fmtDate } from '../../utils/dates';
 
 const short = (d) => (d ? fmtDate(d, { day: 'numeric', month: 'short', year: 'numeric' }) : '—');
 
-function trafficColor(pct) {
-  if (pct == null) return 'var(--gray-400)';
-  if (pct >= 85) return 'var(--green)';
-  if (pct >= 60) return 'var(--yellow)';
-  return 'var(--red)';
-}
-
-// Avance del estudiante frente al del grupo: al día = verde, rezagado = rojo.
-function vsGroupColor(studentPct, groupPct) {
-  if (studentPct == null || groupPct == null) return 'var(--gray-400)';
-  const delta = studentPct - groupPct;
-  if (delta >= -10) return 'var(--green)';
-  if (delta >= -25) return 'var(--yellow)';
-  return 'var(--red)';
-}
+const GROUP_BAR = 'var(--brand-indigo)'; // avance del calendario del grupo: neutro, el color es del estudiante
 
 function Bar({ pct, color }) {
   return (
@@ -93,8 +80,8 @@ export default function GroupsProgress() {
               </div>
 
               <div className="flex items-center gap-2 mt-2">
-                <Bar pct={g.pct} color={trafficColor(g.pct)} />
-                <span className="text-sm font-medium" style={{ width: 46, textAlign: 'right', color: trafficColor(g.pct) }}>
+                <Bar pct={g.pct} color={GROUP_BAR} />
+                <span className="text-sm font-medium" style={{ width: 46, textAlign: 'right' }}>
                   {g.pct == null ? '—' : `${g.pct}%`}
                 </span>
               </div>
@@ -135,7 +122,7 @@ export default function GroupsProgress() {
                       </span>
                     </div>
                     <div className="flex items-center gap-2">
-                      <Bar pct={s.pct} color={vsGroupColor(s.pct, g.pct)} />
+                      <Bar pct={s.pct} color={(SEMAFORO[s.semaforo] || { color: GROUP_BAR }).color} />
                       <span className="text-xs" style={{ width: 40, textAlign: 'right' }}>{s.pct == null ? '—' : `${s.pct}%`}</span>
                     </div>
                     <div className="text-xs text-gray">
@@ -229,7 +216,7 @@ function SummaryTable({ groups, plan }) {
             <tr key={g.groupId}>
               <td className="font-medium" style={{ whiteSpace: 'nowrap' }}>{g.code}</td>
               <td>{g.professor?.name || '—'}</td>
-              <td style={{ textAlign: 'right', color: trafficColor(g.pct), fontWeight: 600 }}>{g.pct == null ? '—' : `${g.pct}%`}</td>
+              <td style={{ textAlign: 'right', fontWeight: 600 }}>{g.pct == null ? '—' : `${g.pct}%`}</td>
               <td style={{ textAlign: 'right' }}>{g.given}</td>
               <td style={{ textAlign: 'right' }}>{g.upcoming}</td>
               <td style={{ textAlign: 'right', color: g.holidaysLostPast > 0 ? 'var(--blue)' : undefined }}>{g.holidaysLostPast}</td>

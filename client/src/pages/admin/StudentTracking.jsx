@@ -2,7 +2,7 @@ import { useState, useEffect, useMemo } from 'react';
 import { api } from '../../api/client';
 import { fmtDate } from '../../utils/dates';
 import { StudentStatusIcon, STUDENT_STATUS } from '../../utils/studentStatus';
-import { useSemesterCompleted } from '../../utils/semesterCompleted';
+import { SEMAFORO } from '../../utils/glossary';
 import { toast } from '../../utils/toast';
 
 // Seguimiento de Estudiantes (Reportes → Estudiantes).
@@ -16,14 +16,6 @@ import { toast } from '../../utils/toast';
 // clase" cambia el criterio sin recargar: encendido (por defecto) suma las
 // ausencias — el estudiante pagó la clase y no vino; apagado cuenta solo lo
 // efectivamente visto (asistencias + reposiciones).
-
-// Semáforo del avance: al día = verde; atrasado = rojo.
-function trafficColor(pct) {
-  if (pct == null) return 'var(--gray-400)';
-  if (pct >= 85) return 'var(--green)';
-  if (pct >= 60) return 'var(--yellow)';
-  return 'var(--red)';
-}
 
 function pctText(pct) {
   return pct == null ? '—' : `${pct}%`;
@@ -44,13 +36,15 @@ function SortTh({ label, col, sort, setSort, numeric, className, title }) {
   );
 }
 
-function PctBar({ pct }) {
+// El color es el semáforo del servidor (el mismo de toda la app); sin semáforo, neutro
+function PctBar({ pct, semaforo }) {
+  const color = (SEMAFORO[semaforo] || { color: 'var(--brand-indigo)' }).color;
   return (
     <div className="flex items-center gap-2">
       <div className="load-bar" style={{ flex: 1, minWidth: 40 }}>
-        <span style={{ width: `${Math.min(100, pct || 0)}%`, background: trafficColor(pct) }} />
+        <span style={{ width: `${Math.min(100, pct || 0)}%`, background: color }} />
       </div>
-      <span className="text-sm font-medium" style={{ color: trafficColor(pct), width: 46, textAlign: 'right' }}>
+      <span className="text-sm font-medium" style={{ color, width: 46, textAlign: 'right' }}>
         {pctText(pct)}
       </span>
     </div>
@@ -58,7 +52,6 @@ function PctBar({ pct }) {
 }
 
 export default function StudentTracking() {
-  const semesterCompleted = useSemesterCompleted();
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
@@ -268,7 +261,7 @@ export default function StudentTracking() {
                     <td className="font-medium" style={{ whiteSpace: 'nowrap' }}>
                       <StudentStatusIcon status={r.studentStatus} missingBirthDate={r.missingBirthDate} />
                       {r.name}
-                      {semesterCompleted.has(r.id) && <span title="Graduado" style={{ marginLeft: 4 }}>🎓</span>}
+                      {r.studentStatus === 'GRADUADO' && <span title="Graduado" style={{ marginLeft: 4 }}>🎓</span>}
                     </td>
                     <td className="text-sm" style={{ whiteSpace: 'nowrap' }}>
                       {r.groupCode || <span className="text-gray">Sin grupo</span>}
@@ -282,7 +275,7 @@ export default function StudentTracking() {
                     <td className="num" style={{ color: r.makeup > 0 ? 'var(--brand-violet)' : 'var(--gray-400)' }}>{r.makeup || '—'}</td>
                     <td className="num" style={{ color: r.rain > 0 ? 'var(--brand-aqua)' : 'var(--gray-400)' }}>{r.rain || '—'}</td>
                     <td className="num font-medium">{r.total}</td>
-                    <td style={{ minWidth: 108 }}><PctBar pct={r.pct} /></td>
+                    <td style={{ minWidth: 108 }}><PctBar pct={r.pct} semaforo={r.semaforo} /></td>
                     <td style={{ textAlign: 'center' }}>
                       <button className="btn btn-ghost" style={{ minHeight: 30, padding: '0 8px', fontSize: '0.9rem' }}
                         title={`Ficha PDF de ${r.name}`}
@@ -323,7 +316,7 @@ export default function StudentTracking() {
                     <div className="font-medium">
                       <StudentStatusIcon status={r.studentStatus} missingBirthDate={r.missingBirthDate} />
                       {r.name}
-                      {semesterCompleted.has(r.id) && <span title="Graduado" style={{ marginLeft: 4 }}>🎓</span>}
+                      {r.studentStatus === 'GRADUADO' && <span title="Graduado" style={{ marginLeft: 4 }}>🎓</span>}
                     </div>
                     <div className="text-xs text-gray">
                       {r.groupCode || 'Sin grupo'}{r.document ? ` · ${r.document}` : ''}
@@ -342,7 +335,7 @@ export default function StudentTracking() {
                 </div>
                 <div className="mt-2">
                   <div className="text-xs text-gray mb-1">{r.total} de {r.acquired || '—'} clases consumidas</div>
-                  <PctBar pct={r.pct} />
+                  <PctBar pct={r.pct} semaforo={r.semaforo} />
                 </div>
               </div>
             ))}
@@ -393,7 +386,7 @@ function StudentDetailModal({ detail, rangeLabel, printing, onPrint, onClose }) 
           <div className="stat-box"><div className="num">{row.absent}</div><div className="lbl">Faltas</div></div>
           <div className="stat-box"><div className="num">{row.makeup}</div><div className="lbl">Reposiciones</div></div>
         </div>
-        <PctBar pct={row.pct} />
+        <PctBar pct={row.pct} semaforo={row.semaforo} />
 
         <div className="flex gap-2 mt-3 mb-3">
           <button className="btn btn-outline btn-full" style={{ minHeight: 36, fontSize: '0.82rem' }}
