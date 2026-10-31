@@ -11,7 +11,6 @@ import MakeupAttendancePage from './pages/MakeupAttendancePage';
 import EnrollmentPage from './pages/EnrollmentPage';
 import ParentPortalPage from './pages/parent/ParentPortalPage';
 import MyPayrollPage from './pages/MyPayrollPage';
-import AdminDashboard from './pages/admin/AdminDashboard';
 import StudentsPage from './pages/admin/StudentsPage';
 import GroupsPage from './pages/admin/GroupsPage';
 import ProfessorsPage from './pages/admin/ProfessorsPage';
@@ -155,7 +154,8 @@ function AppRoutes() {
 
       <Route path="/admin" element={
         <RequireAuth roles={['ADMIN', 'PHYSICAL_TRAINER', 'RECEPTION']}>
-          <Shell><AdminDashboard /></Shell>
+          {/* Inicio de la gestión = Reposiciones y reprogramación. Recepción no lo usa: va a Estudiantes */}
+          {user?.role === 'RECEPTION' ? <Navigate to="/admin/students" replace /> : <Shell><LedgerPage /></Shell>}
         </RequireAuth>
       } />
       <Route path="/admin/students" element={
@@ -203,11 +203,7 @@ function AppRoutes() {
           <Shell><FestivalsPage /></Shell>
         </RequireAuth>
       } />
-      <Route path="/admin/ledger" element={
-        <RequireAuth roles={['ADMIN', 'PHYSICAL_TRAINER']}>
-          <Shell><LedgerPage /></Shell>
-        </RequireAuth>
-      } />
+      <Route path="/admin/ledger" element={<Navigate to="/admin" replace />} />
       <Route path="/admin/alerts" element={
         <RequireAuth roles={['ADMIN', 'PHYSICAL_TRAINER']}>
           <Shell><AlertsPage /></Shell>

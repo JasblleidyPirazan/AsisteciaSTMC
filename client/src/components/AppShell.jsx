@@ -13,10 +13,10 @@ const SEARCH_ROLES = ['ADMIN', 'SUPERADMIN', 'PHYSICAL_TRAINER', 'RECEPTION'];
 const NAV = [
   { section: 'Principal' },
   { label: 'Inicio', path: '/', icon: '🏠', roles: ['ADMIN', 'TEACHER', 'PHYSICAL_TRAINER', 'ASSISTANT'] },
-  // Panel de bienvenida (/admin). El ADMIN llega solo (su Inicio redirige),
-  // pero Coordinador y Superadmin entran a "Grupos del día", así que
-  // necesitan este acceso directo.
-  { label: 'Panel de gestión', path: '/admin', icon: '🧭', roles: ['ADMIN', 'PHYSICAL_TRAINER'] },
+  // Inicio de la gestión (/admin) = Reposiciones y reprogramación. El ADMIN llega
+  // solo (su Inicio redirige); Coordinador y Superadmin entran a "Grupos del día",
+  // así que necesitan este acceso directo.
+  { label: 'Reposiciones y reprogramación', path: '/admin', icon: '🎯', roles: ['ADMIN', 'PHYSICAL_TRAINER'] },
   { label: 'Mi quincena', path: '/my-payroll', icon: '💵', roles: ['TEACHER', 'ASSISTANT'] },
   { label: 'Clases dadas', path: '/reporte', icon: '📋', roles: ['TEACHER', 'ADMIN', 'PHYSICAL_TRAINER'] },
   { label: 'Horarios', path: '/horarios', icon: '🗓️', roles: ['ADMIN', 'TEACHER', 'PHYSICAL_TRAINER', 'ASSISTANT', 'RECEPTION', 'PARENT'] },
@@ -35,7 +35,6 @@ const NAV = [
   { label: 'Reportes', path: '/admin/reports', icon: '📈', roles: ['ADMIN', 'PHYSICAL_TRAINER'] },
   { label: 'Validación asistentes', path: '/admin/validation', icon: '✅', roles: ['ADMIN', 'PHYSICAL_TRAINER'] },
   { label: 'Validación profesores', path: '/admin/conflicts', icon: '⚖️', roles: ['ADMIN', 'PHYSICAL_TRAINER'] },
-  { label: 'Reposiciones y reprogramación', path: '/admin/ledger', icon: '🎯', roles: ['ADMIN', 'PHYSICAL_TRAINER'] },
   { label: 'Alertas', path: '/admin/alerts', icon: '🚨', roles: ['ADMIN', 'PHYSICAL_TRAINER'] },
 
   { section: 'Administración', roles: ['ADMIN'] },

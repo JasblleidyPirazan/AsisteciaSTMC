@@ -49,7 +49,7 @@ export default function AlertsPage() {
 
         <div className="alert alert-info mb-3 text-sm">
           El seguimiento por estudiante (quién necesita reposición, reprogramación o cierre de reportes)
-          y el calendario por grupo (festivos, lluvia, fin estimado) están en <button className="link-name" onClick={() => navigate('/admin/ledger')}>Reposiciones y reprogramación ›</button>
+          y el calendario por grupo (festivos, lluvia, fin estimado) están en <button className="link-name" onClick={() => navigate('/admin')}>Reposiciones y reprogramación ›</button>
         </div>
 
         {error && <div className="alert alert-error mb-3">{error}</div>}
