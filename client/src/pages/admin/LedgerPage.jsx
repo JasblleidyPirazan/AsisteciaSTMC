@@ -118,7 +118,7 @@ export default function LedgerPage() {
               <button className={`btn ${view === 'groups' ? 'btn-primary' : 'btn-outline'}`} style={{ flex: 1, minHeight: 36 }} onClick={() => setView('groups')}>Por grupo (reprogramación)</button>
             </div>
 
-            {view === 'groups' ? <GroupsView rows={groupRows} navigate={navigate} /> : (<>
+            {view === 'groups' ? <GroupsView rows={groupRows} /> : (<>
             <div className="flex gap-2 mb-3" style={{ flexWrap: 'wrap' }}>
               <input className="form-input" style={{ flex: 1, minWidth: 160 }} placeholder="Buscar estudiante"
                 value={q} onChange={(e) => setQ(e.target.value)} />
@@ -174,41 +174,104 @@ export default function LedgerPage() {
   );
 }
 
-// Festivos y recesos se gestionan por grupo: cada uno contra su plan de clases
-function GroupsView({ rows, navigate }) {
+// Festivos y recesos se gestionan por grupo: cada uno contra su plan de clases.
+// Primero las cifras; al tocar un grupo se despliega el detalle.
+function GroupsView({ rows }) {
+  const [open, setOpen] = useState({});
   if (!rows) return <div className="spinner" />;
   if (rows.length === 0) return <div className="alert alert-info">No hay grupos activos.</div>;
-  return rows.map((g) => {
-    const afectados = g.students.conDeficit;
-    return (
-      <div key={g.groupId} className="card mb-2" style={{ borderLeft: `4px solid ${afectados > 0 ? 'var(--red)' : 'var(--green)'}` }}>
-        <div className="flex items-center justify-between" style={{ gap: 8, flexWrap: 'wrap' }}>
-          <div>
-            <div className="font-medium">{g.code} <span className="text-xs text-gray">{g.professor?.name}</span></div>
-            <div className="text-xs text-gray">
-              Plan {g.plan} · dadas {g.dadas} · por dar {g.porDar}
-            </div>
-          </div>
-          <button className="btn btn-outline" style={{ minHeight: 34, fontSize: '0.8rem' }}
-            onClick={() => navigate('/admin/groups', { state: { focusCode: g.code, from: { label: 'Reposiciones y reprogramación', to: '/admin/ledger' } } })}>
-            {afectados > 0 ? 'Proponer extensión' : 'Ver grupo'}
-          </button>
-        </div>
-        <div className="text-xs mt-1">
-          <span title={GLOSSARY.reprogramacion} style={{ color: 'var(--blue)' }}>Festivos y recesos: {g.festivos}</span>
-          {g.festivosFechas?.length > 0 && <> ({g.festivosFechas.map((f) => `${fmtDate(f.date, { day: 'numeric', month: 'short' })}${f.reason ? ` · ${f.reason}` : ''}`).join('; ')})</>}
-          {' · '}Lluvia: {g.lluvia}
-        </div>
-        <div className="text-xs text-gray">
-          Fin planeado {g.finPlaneado ? fmtDate(g.finPlaneado) : '—'} · fin estimado {g.finEstimado ? fmtDate(g.finEstimado) : '—'}
-          {g.retrasoDias > 0 && ` (${g.retrasoDias} días de retraso)`}
-        </div>
-        <div className="text-xs mt-1" style={{ color: afectados > 0 ? 'var(--red)' : 'var(--green)' }}>
-          {afectados > 0
-            ? `${afectados} de ${g.students.conPaquete} estudiantes no alcanzan antes del cierre (déficit ${g.students.deficit})`
-            : `Los ${g.students.conPaquete} estudiantes con paquete alcanzan antes del cierre`}
-        </div>
+
+  const afectados = rows.filter((g) => g.students.conDeficit > 0);
+  const deficit = rows.reduce((acc, g) => acc + g.students.deficit, 0);
+  const short = (d) => (d ? fmtDate(d, { day: 'numeric', month: 'short' }) : '—');
+
+  return (
+    <>
+      <div className="card mb-3" style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(120px, 1fr))', gap: 8 }}>
+        <Stat value={rows.length} label="grupos activos" />
+        <Stat value={afectados.length} label="grupos con estudiantes que no alcanzan" color={afectados.length ? 'var(--red)' : 'var(--green)'} />
+        <Stat value={n(deficit)} label="clases de déficit en total" color={deficit ? 'var(--red)' : 'var(--green)'} />
       </div>
-    );
-  });
+      <p className="text-xs text-gray mb-2">
+        Ordenados por déficit. Toca un grupo para ver los festivos, las fechas de fin y el detalle de sus estudiantes.
+      </p>
+
+      {rows.map((g) => {
+        const isOpen = !!open[g.groupId];
+        const pct = g.plan > 0 ? Math.min(100, Math.round((g.dadas / g.plan) * 100)) : 0;
+        const bad = g.students.conDeficit > 0;
+        return (
+          <div key={g.groupId} className="card mb-2" style={{ borderLeft: `4px solid ${bad ? 'var(--red)' : 'var(--green)'}`, cursor: 'pointer' }}
+            onClick={() => setOpen((o) => ({ ...o, [g.groupId]: !o[g.groupId] }))}>
+            <div className="flex items-center justify-between" style={{ gap: 8 }}>
+              <div style={{ minWidth: 0 }}>
+                <span className="font-medium">{g.code}</span>{' '}
+                <span className="text-xs text-gray">{g.professor?.name}</span>
+              </div>
+              <span className="text-gray" aria-hidden>{isOpen ? '▾' : '▸'}</span>
+            </div>
+
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(92px, 1fr))', gap: 8, marginTop: 8 }}>
+              <div>
+                <div className="text-sm"><strong>{g.dadas}</strong><span className="text-gray">/{g.plan}</span></div>
+                <div className="load-bar" style={{ margin: '3px 0' }}><span style={{ width: `${pct}%`, background: 'var(--brand-indigo)' }} /></div>
+                <div className="text-xs text-gray">clases dadas</div>
+              </div>
+              <Mini value={g.festivos} label="festivos y recesos" color="var(--blue)" title={GLOSSARY.reprogramacion} />
+              <Mini value={g.lluvia} label="por lluvia" />
+              <Mini value={g.retrasoDias > 0 ? `+${g.retrasoDias}` : '0'} label="días de retraso" color={g.retrasoDias > 0 ? 'var(--yellow)' : undefined} />
+              <Mini value={`${g.students.conDeficit}/${g.students.conPaquete}`} label="no alcanzan" color={bad ? 'var(--red)' : 'var(--green)'} />
+            </div>
+
+            {isOpen && (
+              <div className="mt-2" style={{ borderTop: '1px solid var(--border)', paddingTop: 8 }} onClick={(e) => e.stopPropagation()}>
+                <div className="text-sm mb-1">
+                  Fin planeado <strong>{short(g.finPlaneado)}</strong> → fin estimado <strong>{short(g.finEstimado)}</strong>
+                  {g.retrasoDias > 0 && <span style={{ color: 'var(--yellow)' }}> ({g.retrasoDias} días después)</span>}
+                </div>
+                <div className="text-xs text-gray mb-2">Le faltan {g.porDar} de {g.plan} clases del plan.</div>
+
+                <div className="text-xs font-medium mb-1" style={{ color: 'var(--blue)' }}>Festivos y recesos ({g.festivos}) — se reprograman, no se reponen</div>
+                {g.festivosFechas?.length > 0 ? (
+                  <div className="flex gap-1 mb-2" style={{ flexWrap: 'wrap' }}>
+                    {g.festivosFechas.map((f) => (
+                      <span key={f.date} className="badge badge-blue">{short(f.date)}{f.reason ? ` · ${f.reason}` : ''}</span>
+                    ))}
+                  </div>
+                ) : <div className="text-xs text-gray mb-2">Ninguno en sus días.</div>}
+
+                <div className="text-xs font-medium mb-1">Sus estudiantes</div>
+                <div className="text-xs" style={{ color: bad ? 'var(--red)' : 'var(--green)' }}>
+                  {bad
+                    ? `${g.students.conDeficit} de ${g.students.conPaquete} no alcanzan antes del cierre · déficit de ${n(g.students.deficit)} clases`
+                    : `Los ${g.students.conPaquete} estudiantes con paquete alcanzan antes del cierre`}
+                </div>
+                <div className="text-xs text-gray">
+                  Reposición por agendar: {n(g.students.porAgendar)} · clases sin consolidar: {g.students.sinConsolidar}
+                </div>
+              </div>
+            )}
+          </div>
+        );
+      })}
+    </>
+  );
+}
+
+function Stat({ value, label, color }) {
+  return (
+    <div>
+      <div style={{ fontSize: '1.5rem', fontWeight: 700, color }}>{value}</div>
+      <div className="text-xs text-gray">{label}</div>
+    </div>
+  );
+}
+
+function Mini({ value, label, color, title }) {
+  return (
+    <div title={title}>
+      <div className="text-sm"><strong style={{ color }}>{value}</strong></div>
+      <div className="text-xs text-gray">{label}</div>
+    </div>
+  );
 }
