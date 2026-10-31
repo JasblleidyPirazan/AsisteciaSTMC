@@ -8,7 +8,7 @@ import { fmtDate } from '../../utils/dates';
 
 const n = (v) => Number(v || 0).toLocaleString('es-CO', { maximumFractionDigits: 1 });
 const FILTERS = [
-  ['ROJO', 'Rojos'], ['AMBAR', 'Ámbar'], ['SIN_PAQUETE', 'Sin paquete'], ['SIN_CONSOLIDAR', 'Sin consolidar'], ['TODOS', 'Todos'],
+  ['ROJO', 'Rojos'], ['AMBAR', 'Ámbar'], ['SIN_PAQUETE', 'Sin paquete'], ['SIN_CONSOLIDAR', 'Sin consolidar'], ['EXCEDENTE', 'Con excedente'], ['TODOS', 'Todos'],
 ];
 
 // La acción que corresponde a cada fila según el color (brief 4.3)
@@ -56,6 +56,7 @@ export default function LedgerPage() {
       if (filter === 'ROJO' || filter === 'AMBAR') return l.semaforo === filter;
       if (filter === 'SIN_PAQUETE') return l.paquete.total === 0;
       if (filter === 'SIN_CONSOLIDAR') return l.sinConsolidar.clases > 0;
+      if (filter === 'EXCEDENTE') return l.consumidas.excedente > 0;
       return true;
     });
   }, [data, filter, q]);
@@ -97,6 +98,12 @@ export default function LedgerPage() {
                 <span title={GLOSSARY.porAgendar} style={{ color: 'var(--yellow)' }}>Por agendar <strong>{n(s.pendientes.porAgendar)}</strong></span>
                 <span title={GLOSSARY.deficit} style={{ color: 'var(--red)' }}>Déficit <strong>{n(s.pendientes.deficit)}</strong></span>
               </div>
+              {s.excedente?.clases > 0 && (
+                <div className="text-xs mt-2" style={{ color: 'var(--blue)' }} title={GLOSSARY.excedente}>
+                  +{n(s.excedente.clases)} clases vistas de más en {s.excedente.students} {s.excedente.students === 1 ? 'estudiante' : 'estudiantes'}
+                  {' '}(clases regaladas por encima de lo pagado) · <button className="link-name" onClick={() => setFilter('EXCEDENTE')}>ver ›</button>
+                </div>
+              )}
               <div className="text-xs text-gray mt-2">
                 {Object.entries(SEMAFORO).map(([k, v]) => (
                   <span key={k} style={{ marginRight: 12 }} title={v.help}>

@@ -25,6 +25,7 @@ beforeAll(async () => {
 beforeEach(() => {
   resetPrisma();
   prismaMock.student = { findUnique: vi.fn().mockResolvedValue(STUDENT) };
+  prismaMock.systemConfig = { findMany: vi.fn().mockResolvedValue([]) }; // reglas de agendamiento por defecto
 });
 
 describe('enlace público', () => {

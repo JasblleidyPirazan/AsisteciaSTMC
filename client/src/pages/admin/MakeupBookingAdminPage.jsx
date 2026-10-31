@@ -22,11 +22,12 @@ function waNumber(phone) {
   return digits.length === 10 && digits.startsWith('3') ? `57${digits}` : digits;
 }
 
-function message(s) {
+function message(s, rules) {
   const n = s.pending;
+  const turnos = (rules?.slots || []).map((t) => `${t.day} ${t.label}`).join(' · ');
   return `Hola${s.guardianName ? ` ${s.guardianName}` : ''}, ${s.name} tiene ${n} clase${n !== 1 ? 's' : ''} por reponer `
     + 'en la Escuela de Tenis Santa María. Puedes agendar sus reposiciones aquí, sin usuario ni contraseña:\n'
-    + `${linkFor(s.token)}\n\nTurnos: viernes 5:15–6:45 p. m. y sábados 1:30–3:00 p. m. (45 minutos cada uno).`;
+    + `${linkFor(s.token)}${turnos ? `\n\nTurnos: ${turnos}.` : ''}`;
 }
 
 const tabBtn = (active) => ({
@@ -83,7 +84,7 @@ export default function MakeupBookingAdminPage() {
 
   async function copy(s) {
     try {
-      await navigator.clipboard.writeText(message(s));
+      await navigator.clipboard.writeText(message(s, data.rules));
       setNotice(`Mensaje de ${s.name} copiado. Pégalo donde quieras enviarlo.`);
     } catch {
       window.prompt('Copia el enlace:', linkFor(s.token));
@@ -145,7 +146,7 @@ export default function MakeupBookingAdminPage() {
         {tab === 'agenda' && (
           <>
             <p className="text-sm text-gray mb-3">
-              Turnos de 45 min de las próximas 2 semanas (máx. {data.rules.capacity} estudiantes, todos los niveles).
+              Turnos de los próximos {data.rules.horizonDays} días (máx. {data.rules.capacity} estudiantes, todos los niveles).
               Cada turno reservado es una reposición normal: asígnale profesor para que le aparezca en su panel.
             </p>
             {noProfessor > 0 && (
@@ -236,13 +237,13 @@ export default function MakeupBookingAdminPage() {
                       <>
                         {wa ? (
                           <a className="btn btn-primary" style={smallBtn} target="_blank" rel="noreferrer"
-                            href={`https://wa.me/${wa}?text=${encodeURIComponent(message(s))}`}>📲 WhatsApp</a>
+                            href={`https://wa.me/${wa}?text=${encodeURIComponent(message(s, data.rules))}`}>📲 WhatsApp</a>
                         ) : (
                           <span className="text-xs text-gray" style={{ alignSelf: 'center' }}>Sin celular</span>
                         )}
                         {s.email ? (
                           <a className="btn btn-outline" style={smallBtn}
-                            href={`mailto:${s.email}?subject=${encodeURIComponent(`Reposiciones de ${s.name} — Escuela de Tenis`)}&body=${encodeURIComponent(message(s))}`}>
+                            href={`mailto:${s.email}?subject=${encodeURIComponent(`Reposiciones de ${s.name} — Escuela de Tenis`)}&body=${encodeURIComponent(message(s, data.rules))}`}>
                             ✉️ Correo
                           </a>
                         ) : (

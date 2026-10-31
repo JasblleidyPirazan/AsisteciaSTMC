@@ -118,4 +118,16 @@ describe('una sola cifra en todas las pantallas', () => {
     expect(byEffect('DERECHO')).toBe(1); // la justificada
     expect(t.find((x) => x.kind === 'MAKEUP')).toMatchObject({ effect: 'CONSUME', units: 2 });
   });
+
+  it('el excedente (vistas > pagadas) se ve en el ledger y en el resumen, sin toparse', async () => {
+    const extra = Array.from({ length: 20 }, (_, i) => rec('PRESENTE', sess(`x${i}`, `2026-03-${String(2 + (i % 20)).padStart(2, '0')}`, { id: `x${i}` })));
+    await mockLedgerDeps({ semester: SEM, students: [ARIA], records: [...RECORDS, ...extra], sessions: [...RECORDS, ...extra].map((r) => r.session) });
+    const auth = `Bearer ${authAs('ADMIN')}`;
+    const { body: { data } } = await request(ledgerApp).get('/api/ledger').set('Authorization', auth);
+    const l = data.ledgers[0];
+    expect(l.consumidas.total).toBeGreaterThan(l.paquete.total);
+    expect(l.consumidas.excedente).toBe(Math.round((l.consumidas.total - l.paquete.total) * 10) / 10);
+    expect(data.summary.excedente).toEqual({ clases: l.consumidas.excedente, students: 1 });
+    expect(data.summary.consumidas).toBe(l.paquete.total); // el avance sí se topa en el paquete
+  });
 });

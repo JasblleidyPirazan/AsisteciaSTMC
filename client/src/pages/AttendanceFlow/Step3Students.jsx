@@ -206,7 +206,7 @@ export default function Step3Students({ groupId, date, records, onChange, onNext
               <div className="text-xs text-gray" style={{ fontWeight: 400, marginTop: 2 }}
                 title={GLOSSARY.vistas}>
                 {meta[r.studentId].acquired > 0
-                  ? <>Clases: {meta[r.studentId].seen}/{meta[r.studentId].acquired}</>
+                  ? <>Clases: {meta[r.studentId].seen}/{meta[r.studentId].acquired}{meta[r.studentId].seen > meta[r.studentId].acquired && <span style={{ color: 'var(--blue)' }} title="Ya vio más clases de las que pagó"> · +{Math.round((meta[r.studentId].seen - meta[r.studentId].acquired) * 10) / 10} de más</span>}</>
                   : <span style={{ color: 'var(--red)' }}>Sin paquete</span>}
               </div>
             )}
