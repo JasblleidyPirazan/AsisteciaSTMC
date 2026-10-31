@@ -29,6 +29,7 @@ import ConflictsPage from './pages/admin/ConflictsPage';
 import FestivalsPage from './pages/admin/FestivalsPage';
 import FestivalAttendancePage from './pages/FestivalAttendancePage';
 import AlertsPage from './pages/admin/AlertsPage';
+import LedgerPage from './pages/admin/LedgerPage';
 import HorariosPage from './pages/HorariosPage';
 import ReportePage from './pages/ReportePage';
 import AuditPage from './pages/admin/AuditPage';
@@ -200,6 +201,11 @@ function AppRoutes() {
       <Route path="/admin/festivals" element={
         <RequireAuth roles={['ADMIN', 'PHYSICAL_TRAINER']}>
           <Shell><FestivalsPage /></Shell>
+        </RequireAuth>
+      } />
+      <Route path="/admin/ledger" element={
+        <RequireAuth roles={['ADMIN', 'PHYSICAL_TRAINER']}>
+          <Shell><LedgerPage /></Shell>
         </RequireAuth>
       } />
       <Route path="/admin/alerts" element={

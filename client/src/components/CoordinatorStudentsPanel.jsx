@@ -56,7 +56,7 @@ export default function CoordinatorStudentsPanel() {
         {n(s.seen)} clases consumidas de {n(s.paid)} pagadas (asistencias + faltas: la falta consume la clase) · faltan {n(s.remaining)}
       </div>
 
-      <div className="text-sm font-medium mb-2">¿De dónde saldrán las {n(s.remaining)} que faltan?</div>
+      <div className="text-sm font-medium mb-2">¿De dónde saldrán las {n(s.remaining)} que faltan? (las cuatro partes suman {n(s.remaining)})</div>
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(140px, 1fr))', gap: 8 }} className="mb-2">
         <div className="stat-box">
           <div className="num" style={{ color: 'var(--green)' }}>{n(s.coveredByCalendar)}</div>
@@ -68,17 +68,17 @@ export default function CoordinatorStudentsPanel() {
         </div>
         <div className="stat-box">
           <div className="num" style={{ color: 'var(--red)' }}>{n(s.makeupPending)}</div>
-          <div className="lbl">Clases de reposición por agendar · {plural(s.makeupStudents, 'estudiante', 'estudiantes')}</div>
-        </div>
-        <div className="stat-box">
-          <div className="num" style={{ color: 'var(--blue)' }}>{n(s.calendarPending)}</div>
-          <div className="lbl">Por recuperar por calendario (festivos y recesos) · {plural(s.calendarStudents, 'estudiante', 'estudiantes')}</div>
+          <div className="lbl">Reposición por agendar · {plural(s.makeupStudents, 'estudiante', 'estudiantes')}</div>
         </div>
         <div className="stat-box">
           <div className="num" style={{ color: s.shortfall > 0 ? 'var(--yellow)' : 'var(--gray-400)' }}>{n(s.shortfall)}</div>
           <div className="lbl">No alcanzan antes del cierre · {plural(s.shortfallStudents, 'estudiante', 'estudiantes')}</div>
         </div>
       </div>
+      <p className="text-xs text-gray mb-2">
+        <button className="link-name" onClick={() => navigate('/admin/ledger')}>Ver estudiante por estudiante en «Reposiciones y reprogramación» ›</button>
+        {s.calendarPending > 0 && <> · Informativo: {n(s.calendarPending)} clases reprogramadas por festivos o recesos ({plural(s.calendarStudents, 'estudiante', 'estudiantes')}), ya incluidas en las partes de arriba.</>}
+      </p>
       <p className="text-xs text-gray" style={{ marginBottom: 0 }}>
         <strong>Reposición</strong> = lluvia + canceladas por la Escuela + justificadas, menos las ya repuestas: la Escuela las agenda.{' '}
         <strong style={{ color: 'var(--blue)' }}>Recuperar por calendario</strong> = festivos y recesos: no se reponen,
