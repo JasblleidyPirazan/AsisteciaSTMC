@@ -311,6 +311,9 @@ export default function Step3Students({ groupId, date, records, onChange, onNext
         }}>
           <div className="card" style={{ width: '100%', borderRadius: '16px 16px 0 0', padding: 20 }}>
             <h3 className="mb-2">Justificación — {justifStudent.name}</h3>
+            <div className="alert alert-info text-sm mb-2">
+              Una justificada <strong>no consume la clase</strong> y <strong>genera una reposición</strong> que la Escuela debe ofrecerle.
+            </div>
             <textarea
               className="form-input"
               style={{ minHeight: 80, resize: 'none' }}

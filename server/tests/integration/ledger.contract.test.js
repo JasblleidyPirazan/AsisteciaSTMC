@@ -34,7 +34,7 @@ const sess = (id, date, over = {}) => ({
   cancellationCategory: null, consolidationStatus: 'MATCHED', ...over,
 });
 const rec = (status, session, attendanceType = 'REGULAR') => ({
-  studentId: 'st1', status, attendanceType, justification: null, session,
+  studentId: 'st1', sessionId: session.id, status, attendanceType, justification: null, session,
 });
 // 3 presentes + 2 faltas + 1 justificada + una reposición doble vista = 7 consumidas
 const RECORDS = [
@@ -102,5 +102,20 @@ describe('una sola cifra en todas las pantallas', () => {
       .set('Authorization', `Bearer ${authAs('ADMIN')}`);
     const p = l.pendientes;
     expect(Math.round((p.cubreCalendario + p.agendadasAplicadas + p.porAgendar + p.deficit) * 10) / 10).toBe(p.total);
+  });
+
+  it('la línea de tiempo de la ficha termina en las vistas del ledger y etiqueta el efecto', async () => {
+    prismaMock.student.findUnique = vi.fn().mockResolvedValue(ARIA);
+    const auth = `Bearer ${authAs('ADMIN')}`;
+    const { body: { data: ledger } } = await request(ledgerApp).get('/api/ledger/st1').set('Authorization', auth);
+    const { body } = await request(studentsApp).get('/api/students/st1/report').set('Authorization', auth);
+    const t = body.data.timeline;
+
+    // La fila más reciente trae el acumulado final = vistas del ledger
+    expect(t[0].acumulado).toBe(ledger.consumidas.total);
+    const byEffect = (e) => t.filter((x) => x.effect === e).length;
+    expect(byEffect('CONSUME')).toBe(6); // 3 P + 2 A + reposición doble
+    expect(byEffect('DERECHO')).toBe(1); // la justificada
+    expect(t.find((x) => x.kind === 'MAKEUP')).toMatchObject({ effect: 'CONSUME', units: 2 });
   });
 });

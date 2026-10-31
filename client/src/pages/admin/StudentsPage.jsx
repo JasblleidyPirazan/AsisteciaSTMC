@@ -40,7 +40,17 @@ const HISTORY_BADGE = {
   JUSTIFICADA: ['badge-blue', 'Justificado'],
   NO_APLICA: ['badge-gray', 'No aplica'],
 };
+// Efecto de cada clase en el balance del paquete (lo calcula el servidor)
+const EFFECT = {
+  CONSUME: { label: 'Consume', color: 'var(--green)' },
+  DERECHO: { label: 'Derecho a reposición', color: 'var(--yellow)' },
+  REPROGRAMADA: { label: 'Reprogramada', color: 'var(--blue)' },
+  NO_CUENTA: { label: 'No cuenta', color: 'var(--gray-400)' },
+};
 function historyBadge(t) {
+  if (t.studentStatus === 'REPROGRAMADA') {
+    return <span className="badge badge-blue" title={t.reason || 'Festivo o receso'}>Festivo / receso</span>;
+  }
   if (t.studentStatus === 'CANCELADA') {
     return <span className="badge badge-gray">Cancelado{t.cancellationCategory === 'LLUVIA' ? ' por lluvia' : ''}</span>;
   }
@@ -854,14 +864,22 @@ export default function StudentsPage() {
             <span className="badge badge-blue">{sum.justified} Justif.</span>
           </div>
         </div>
-        <div className="card" style={{ maxHeight: 260, overflowY: 'auto' }}>
+        <div className="card" style={{ maxHeight: 320, overflowY: 'auto' }}>
           {detail.timeline.length === 0 ? <div className="text-sm text-gray">Sin registros.</div> : detail.timeline.map((t, i) => (
             <div key={i} className="home-list-row">
               <span className="text-sm text-gray" style={{ width: 56 }}>{fmtDay(t.date)}</span>
               <div style={{ flex: 1, minWidth: 0 }}>
                 <div className="text-sm font-medium">{t.groupCode} <span className="text-xs text-gray">{t.kind === 'MAKEUP' ? 'Reposición' : t.kind === 'FESTIVAL' ? 'Festival' : 'Regular'}</span></div>
                 <div className="text-xs text-gray">{t.professor}</div>
+                {EFFECT[t.effect] && (
+                  <div className="text-xs" style={{ color: EFFECT[t.effect].color }}>
+                    {EFFECT[t.effect].label}{t.units > 1 ? ` (cuenta ${t.units})` : ''}
+                  </div>
+                )}
               </div>
+              <span className="text-xs text-gray" style={{ marginRight: 8 }} title="Clases vistas acumuladas hasta esta fecha">
+                {t.acumulado}/{sum.classesAcquired}
+              </span>
               {historyBadge(t)}
             </div>
           ))}
