@@ -2,9 +2,9 @@ import { useState } from 'react';
 
 // Structured cancellation categories — LLUVIA feeds the per-group rain alert
 const CANCEL_OPTIONS = [
-  { category: 'LLUVIA', label: '🌧️ Cancelada por lluvia' },
-  { category: 'SIN_ESTUDIANTES', label: '👥 No llegaron estudiantes' },
-  { category: 'OTRA', label: '📝 Otro motivo' },
+  { category: 'LLUVIA', label: '🌧️ Cancelada por lluvia', effect: 'Se repone a todos los estudiantes del grupo.' },
+  { category: 'SIN_ESTUDIANTES', label: '👥 No llegaron estudiantes', effect: 'Consume una clase a cada estudiante; no se repone.' },
+  { category: 'OTRA', label: '📝 Otro motivo', effect: 'Causa de la Escuela: se repone a todos los estudiantes del grupo.' },
 ];
 
 export default function Step1ClassStatus({ group, onHeld, onCancel, loading }) {
@@ -52,6 +52,11 @@ export default function Step1ClassStatus({ group, onHeld, onCancel, loading }) {
               </button>
             ))}
           </div>
+          {category && (
+            <div className="alert alert-info text-sm mt-3">
+              <strong>Efecto en el balance:</strong> {CANCEL_OPTIONS.find((o) => o.category === category)?.effect}
+            </div>
+          )}
           {needsText && (
             <div className="form-group mt-3">
               <label className="form-label">Describe el motivo *</label>

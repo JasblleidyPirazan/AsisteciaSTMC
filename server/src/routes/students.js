@@ -7,6 +7,7 @@ const { notSuspended } = require('../lib/filters');
 const { importFromBuffer } = require('../services/enrollmentImport');
 const { attachStudentStatus, attachStudentStatusOne, stripTuition, TUITION_ROLES } = require('../services/studentStatus');
 const { loadLedgers, ledgerBrief } = require('../services/studentLedger');
+const { consumedUnits, roundUnits } = require('../services/attendanceStats');
 const { normalizeWeekdays } = require('../lib/weekdays');
 
 const router = express.Router();
@@ -744,6 +745,28 @@ router.get('/:id/report', requireRole('ADMIN', 'SUPERADMIN', 'PHYSICAL_TRAINER',
     });
     const recBySession = Object.fromEntries(records.map((r) => [r.sessionId, r]));
 
+    // Línea de tiempo con el EFECTO de cada clase en el balance (consume / da derecho
+    // a reposición / se reprograma / no cuenta) y el acumulado de clases vistas.
+    const day = (d) => new Date(d).toISOString().slice(0, 10);
+    const suspendedOn = (d) => student.suspendedFrom && student.suspendedUntil
+      && day(student.suspendedFrom) <= day(d) && day(d) <= day(student.suspendedUntil);
+    const effectOf = (sess, rec) => {
+      if (sess.status === 'CANCELADA') {
+        if (suspendedOn(sess.date)) return { effect: 'NO_CUENTA', units: 0 };
+        if (sess.cancellationCategory === 'SIN_ESTUDIANTES') return { effect: 'CONSUME', units: 1 };
+        return { effect: 'DERECHO', units: 0 }; // lluvia u otra causa de la Escuela
+      }
+      if (!rec) return { effect: null, units: 0 };
+      if (rec.status === 'JUSTIFICADA') {
+        const gives = sess.kind === 'REGULAR' && rec.attendanceType === 'REGULAR' && !suspendedOn(sess.date);
+        return { effect: gives ? 'DERECHO' : 'NO_CUENTA', units: 0 };
+      }
+      if (rec.status === 'NO_APLICA') return { effect: 'NO_CUENTA', units: 0 };
+      const units = suspendedOn(sess.date) && rec.status === 'AUSENTE'
+        ? 0 : consumedUnits(rec, sess, student.classesStartDate);
+      return { effect: units > 0 ? 'CONSUME' : 'NO_CUENTA', units };
+    };
+
     const seen = new Set();
     const timeline = [];
     const push = (sess, rec) => {
@@ -758,11 +781,24 @@ router.get('/:id/report', requireRole('ADMIN', 'SUPERADMIN', 'PHYSICAL_TRAINER',
         cancellationCategory: cancelled ? sess.cancellationCategory : null,
         studentStatus: cancelled ? 'CANCELADA' : (rec?.status || null),
         attendanceType: rec?.attendanceType || null,
+        ...effectOf(sess, rec),
       });
     };
     for (const s of groupSessions) push(s, recBySession[s.id]);
     for (const r of records) if (!seen.has(r.sessionId)) push(r.session, r);
-    timeline.sort((a, b) => new Date(b.date) - new Date(a.date));
+    // Festivos y recesos: el calendario se corre, no se repone
+    for (const it of (ledger?.calendario.items || [])) {
+      timeline.push({
+        date: new Date(`${it.date}T00:00:00.000Z`), groupCode: it.groupCode || '—', professor: '—',
+        kind: 'REGULAR', cancellationCategory: null, studentStatus: 'REPROGRAMADA',
+        attendanceType: null, effect: 'REPROGRAMADA', units: 0, reason: it.reason || null,
+      });
+    }
+    // Acumulado de clases vistas, de la más antigua a la más reciente
+    let acc = 0;
+    timeline.sort((a, b) => new Date(a.date) - new Date(b.date));
+    for (const t of timeline) { acc = roundUnits(acc + t.units); t.acumulado = acc; }
+    timeline.reverse();
 
     // Resumen: todo del ledger (sin semestre activo no hay paquete que calcular)
     const l = ledger;

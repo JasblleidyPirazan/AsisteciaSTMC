@@ -29,12 +29,19 @@ export default function LedgerPage() {
   const [groupId, setGroupId] = useState('');
   const [q, setQ] = useState('');
   const [panelId, setPanelId] = useState(null);
+  const [view, setView] = useState('students');
+  const [groupRows, setGroupRows] = useState(null);
 
   useEffect(() => {
     setData(null);
     const params = groupId ? { groupId } : undefined;
     api.get('/ledger', params).then(setData).catch((e) => setError(e.message));
   }, [groupId]);
+
+  useEffect(() => {
+    if (view !== 'groups' || groupRows) return;
+    api.get('/ledger/groups').then((d) => setGroupRows(d.groups || [])).catch((e) => setError(e.message));
+  }, [view, groupRows]);
 
   const groups = useMemo(() => {
     const map = new Map();
@@ -99,6 +106,12 @@ export default function LedgerPage() {
               </div>
             </div>
 
+            <div className="flex gap-2 mb-3">
+              <button className={`btn ${view === 'students' ? 'btn-primary' : 'btn-outline'}`} style={{ flex: 1, minHeight: 36 }} onClick={() => setView('students')}>Por estudiante</button>
+              <button className={`btn ${view === 'groups' ? 'btn-primary' : 'btn-outline'}`} style={{ flex: 1, minHeight: 36 }} onClick={() => setView('groups')}>Por grupo (reprogramación)</button>
+            </div>
+
+            {view === 'groups' ? <GroupsView rows={groupRows} navigate={navigate} /> : (<>
             <div className="flex gap-2 mb-3" style={{ flexWrap: 'wrap' }}>
               <input className="form-input" style={{ flex: 1, minWidth: 160 }} placeholder="Buscar estudiante"
                 value={q} onChange={(e) => setQ(e.target.value)} />
@@ -142,6 +155,7 @@ export default function LedgerPage() {
                 </div>
               );
             })}
+            </>)}
           </>
         )}
       </div>
@@ -151,4 +165,43 @@ export default function LedgerPage() {
       )}
     </div>
   );
+}
+
+// Festivos y recesos se gestionan por grupo: cada uno contra su plan de clases
+function GroupsView({ rows, navigate }) {
+  if (!rows) return <div className="spinner" />;
+  if (rows.length === 0) return <div className="alert alert-info">No hay grupos activos.</div>;
+  return rows.map((g) => {
+    const afectados = g.students.conDeficit;
+    return (
+      <div key={g.groupId} className="card mb-2" style={{ borderLeft: `4px solid ${afectados > 0 ? 'var(--red)' : 'var(--green)'}` }}>
+        <div className="flex items-center justify-between" style={{ gap: 8, flexWrap: 'wrap' }}>
+          <div>
+            <div className="font-medium">{g.code} <span className="text-xs text-gray">{g.professor?.name}</span></div>
+            <div className="text-xs text-gray">
+              Plan {g.plan} · dadas {g.dadas} · por dar {g.porDar}
+            </div>
+          </div>
+          <button className="btn btn-outline" style={{ minHeight: 34, fontSize: '0.8rem' }}
+            onClick={() => navigate('/admin/groups', { state: { focusCode: g.code, from: { label: 'Reposiciones y reprogramación', to: '/admin/ledger' } } })}>
+            {afectados > 0 ? 'Proponer extensión' : 'Ver grupo'}
+          </button>
+        </div>
+        <div className="text-xs mt-1">
+          <span title={GLOSSARY.reprogramacion} style={{ color: 'var(--blue)' }}>Festivos y recesos: {g.festivos}</span>
+          {g.festivosFechas?.length > 0 && <> ({g.festivosFechas.map((f) => `${fmtDate(f.date, { day: 'numeric', month: 'short' })}${f.reason ? ` · ${f.reason}` : ''}`).join('; ')})</>}
+          {' · '}Lluvia: {g.lluvia}
+        </div>
+        <div className="text-xs text-gray">
+          Fin planeado {g.finPlaneado ? fmtDate(g.finPlaneado) : '—'} · fin estimado {g.finEstimado ? fmtDate(g.finEstimado) : '—'}
+          {g.retrasoDias > 0 && ` (${g.retrasoDias} días de retraso)`}
+        </div>
+        <div className="text-xs mt-1" style={{ color: afectados > 0 ? 'var(--red)' : 'var(--green)' }}>
+          {afectados > 0
+            ? `${afectados} de ${g.students.conPaquete} estudiantes no alcanzan antes del cierre (déficit ${g.students.deficit})`
+            : `Los ${g.students.conPaquete} estudiantes con paquete alcanzan antes del cierre`}
+        </div>
+      </div>
+    );
+  });
 }
