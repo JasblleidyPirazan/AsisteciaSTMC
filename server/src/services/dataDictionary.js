@@ -584,6 +584,7 @@ const TABLES = [
       col('session_id', 'sessionId', 'text', false, 'Make-up / festival session.', { key: 'PK, FK → class_sessions.id' }),
       col('student_id', 'studentId', 'text', false, 'Participant.', { key: 'PK, FK → students.id' }),
       col('booked_at', 'bookedAt', 'timestamp', true, 'When the guardian booked this seat from the public booking link. Null = assigned by the coordinator. Only guardian bookings can be cancelled by the guardian.'),
+      col('reprogramming', 'reprogramming', 'boolean', false, 'True = the seat recovers a holiday/recess (reprogramming link); false = a make-up for rain, school cancellation or justified absence. Both share the same booking slots. Default false.'),
     ],
     keys: { primary: ['session_id', 'student_id'] },
     relations: [['session', 'ClassSession', ''], ['student', 'Student', '']],

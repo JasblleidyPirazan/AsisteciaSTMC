@@ -1,8 +1,13 @@
-// Agendamiento público de reposiciones (ver services/makeupBooking.js).
+// Agendamiento público de reposiciones y reprogramaciones (ver services/makeupBooking.js).
+//
+// Dos propósitos con el mismo enlace personal y los mismos turnos:
+//   REPOSICION     (/reponer/:token)     → lluvia, canceladas por la Escuela, justificadas
+//   REPROGRAMACION (/reprogramar/:token) → clases no vistas por festivos o recesos
+// El propósito viaja en `?purpose=` (GET) o en el body (`purpose`); por defecto REPOSICION.
 //
 // Público (sin login, con el código secreto del enlace):
 //   GET    /:token                       → estudiante, deuda, turnos y sus reservas
-//   POST   /:token/book                  → reservar { date, slotKey }
+//   POST   /:token/book                  → reservar { date, slotKey, purpose? }
 //   DELETE /:token/book/:sessionId       → cancelar una reserva propia
 //   POST   /:token/suggestions           → sugerir otro horario { text }
 // Coordinación (ADMIN / Coordinador, auth inline):
@@ -32,6 +37,9 @@ const publicLimiter = rateLimit({
   message: { success: false, error: 'Demasiadas solicitudes, intenta más tarde' },
 });
 
+const REPROGRAMACION = 'REPROGRAMACION';
+const purposeOf = (v) => (String(v || '').toUpperCase() === REPROGRAMACION ? REPROGRAMACION : 'REPOSICION');
+
 const INVALID_LINK = 'Este enlace no es válido o ya no está activo. Comunícate con la Escuela.';
 
 function fail(res, status, error) {
@@ -49,9 +57,9 @@ async function loadExcludedDates() {
 
 // Reposiciones programadas (aún sin reportar) en las que ya está el estudiante:
 // cuentan como "agendadas" y descuentan de lo que puede reservar.
-async function loadReservations(studentId) {
+async function loadReservations(studentId, purpose) {
   return prisma.makeupParticipant.findMany({
-    where: { studentId, session: { kind: 'MAKEUP', status: 'PROGRAMADA' } },
+    where: { studentId, reprogramming: purpose === REPROGRAMACION, session: { kind: 'MAKEUP', status: 'PROGRAMADA' } },
     include: {
       session: { select: { id: true, date: true, title: true, bookingSlot: true, effectiveUnits: true } },
     },
@@ -64,8 +72,20 @@ async function loadReservations(studentId) {
 //               justificadas, menos las repuestas)
 //   scheduled = las que ya tiene agendadas (reposiciones PROGRAMADA)
 //   toSchedule = pending − scheduled: lo que todavía puede reservar
-async function loadDebt(studentId) {
+// Con purpose=REPROGRAMACION la deuda es la del calendario (festivos y recesos):
+//   pending = recuperables, scheduled = reprogramaciones agendadas, toSchedule = por agendar.
+async function loadDebt(studentId, purpose) {
   const { ledgers } = await loadLedgers({ studentIds: [studentId] });
+  if (purpose === REPROGRAMACION) {
+    const c = ledgers[0]?.calendario;
+    return {
+      pending: c?.recuperables || 0,
+      scheduled: c?.agendadas || 0,
+      toSchedule: c?.porAgendar || 0,
+      holidays: c?.festivos || 0,
+      items: (c?.items || []).map((i) => ({ date: i.date, groupCode: i.groupCode, reason: i.reason || null })),
+    };
+  }
   const r = ledgers[0]?.reposicion;
   return {
     pending: r?.pendientes || 0,
@@ -88,13 +108,15 @@ async function studentByToken(token) {
 }
 
 // Estado completo que ve el acudiente.
-async function buildPublicState(student, now = new Date()) {
+async function buildPublicState(student, purpose = 'REPOSICION', now = new Date()) {
   const todayStr = bogotaDateStr(now);
   const cfg = await loadBookingConfig();
-  const [excluded, debt, reservations, suggestions] = await Promise.all([
+  const [excluded, debt, reservations, otherReservations, suggestions] = await Promise.all([
     loadExcludedDates(),
-    loadDebt(student.id),
-    loadReservations(student.id),
+    loadDebt(student.id, purpose),
+    loadReservations(student.id, purpose),
+    // Reservas del otro propósito: ese turno ya lo tiene ocupado
+    loadReservations(student.id, purpose === REPROGRAMACION ? 'REPOSICION' : REPROGRAMACION),
     prisma.makeupBookingSuggestion.findMany({
       where: { studentId: student.id },
       orderBy: { createdAt: 'desc' },
@@ -112,6 +134,7 @@ async function buildPublicState(student, now = new Date()) {
   });
   const sessionBySlot = Object.fromEntries(sessions.map((s) => [`${dbDateStr(s.date)}|${s.bookingSlot}`, s]));
   const mineBySession = Object.fromEntries(reservations.map((r) => [r.sessionId, r]));
+  const otherBySession = Object.fromEntries(otherReservations.map((r) => [r.sessionId, r]));
 
   // Lo agendado ya está descontado en el ledger (`toSchedule = pendientes − agendadas`)
   const reservedUnits = debt.scheduled;
@@ -121,6 +144,7 @@ async function buildPublicState(student, now = new Date()) {
     const session = sessionBySlot[`${slot.date}|${slot.key}`];
     const taken = session?._count.makeupParticipants || 0;
     const mine = !!(session && mineBySession[session.id]);
+    const busyOther = !!(session && otherBySession[session.id]);
     const open = !session || session.status === 'PROGRAMADA';
     const timeOk = canBookAt(now, slot.date, slot.start, cfg.bookCutoffHours);
     return {
@@ -131,7 +155,8 @@ async function buildPublicState(student, now = new Date()) {
       full: taken >= cfg.capacity,
       closed: !open || !timeOk,
       mine,
-      bookable: !mine && open && timeOk && taken < cfg.capacity && available > 0,
+      busyOther,
+      bookable: !mine && !busyOther && open && timeOk && taken < cfg.capacity && available > 0,
     };
   });
 
@@ -150,6 +175,7 @@ async function buildPublicState(student, now = new Date()) {
   });
 
   return {
+    purpose,
     student: {
       name: student.name,
       groups: student.enrollments.filter((e) => e.group?.active).map((e) => e.group.code),
@@ -210,33 +236,36 @@ router.get('/admin/overview', ...staff, async (req, res, next) => {
         status: s?.status || null,
         professor: s?.makeupProfessor || null,
         participants: (s?.makeupParticipants || []).map((p) => ({
-          id: p.student.id, name: p.student.name, bookedByParent: !!p.bookedAt,
+          id: p.student.id, name: p.student.name, bookedByParent: !!p.bookedAt, reprogramming: !!p.reprogramming,
         })),
       };
     });
 
-    // Estudiantes con reposiciones pendientes (del ledger)
+    // Estudiantes con reposiciones pendientes y con clases por reprogramar (del ledger)
     const owing = ledgers.filter((l) => l.reposicion.pendientes > 0);
+    const owingCalendar = ledgers.filter((l) => l.calendario.recuperables > 0);
     const contacts = await prisma.student.findMany({
-      where: { id: { in: owing.map((l) => l.studentId) } },
+      where: { id: { in: [...new Set([...owing, ...owingCalendar].map((l) => l.studentId))] } },
       select: { id: true, email: true, phone: true, guardianName: true, bookingToken: true },
     });
     const contactById = Object.fromEntries(contacts.map((c) => [c.id, c]));
-    const students = owing.map((l) => {
+    const row = (l, part) => {
       const c = contactById[l.studentId] || {};
       return {
         studentId: l.studentId,
         name: l.name,
         groups: l.groups.map((g) => g.code).filter(Boolean),
-        pending: l.reposicion.pendientes,
-        reserved: l.reposicion.agendadas,
-        toSchedule: bookableCount(l.reposicion.porAgendar, 0),
+        pending: part === 'calendario' ? l.calendario.recuperables : l.reposicion.pendientes,
+        reserved: l[part].agendadas,
+        toSchedule: bookableCount(l[part].porAgendar, 0),
         email: c.email || null,
         phone: c.phone || null,
         guardianName: c.guardianName || null,
         token: c.bookingToken || null,
       };
-    });
+    };
+    const students = owing.map((l) => row(l, 'reposicion'));
+    const reprogStudents = owingCalendar.map((l) => row(l, 'calendario'));
 
     res.json({
       success: true,
@@ -245,6 +274,7 @@ router.get('/admin/overview', ...staff, async (req, res, next) => {
         rules: { capacity: cfg.capacity, horizonDays: cfg.horizonDays, slots: describeSlots(cfg.slots), bookCutoffHours: cfg.bookCutoffHours, cancelCutoffHours: cfg.cancelCutoffHours },
         agenda,
         students,
+        reprogStudents,
         suggestions: suggestions.map((s) => ({
           id: s.id, text: s.text, createdAt: s.createdAt,
           student: s.student,
@@ -292,7 +322,7 @@ router.get('/:token', publicLimiter, async (req, res, next) => {
   try {
     const student = await studentByToken(req.params.token);
     if (!student) return fail(res, 404, INVALID_LINK);
-    res.json({ success: true, data: await buildPublicState(student) });
+    res.json({ success: true, data: await buildPublicState(student, purposeOf(req.query.purpose)) });
   } catch (err) {
     next(err);
   }
@@ -312,6 +342,8 @@ router.post('/:token/book', publicLimiter, async (req, res, next) => {
     if (!student) return fail(res, 404, INVALID_LINK);
 
     const { date, slotKey } = req.body || {};
+    const purpose = purposeOf(req.body?.purpose);
+    const reprogramming = purpose === REPROGRAMACION;
     const now = new Date();
     const cfg = await loadBookingConfig();
     const excluded = await loadExcludedDates();
@@ -321,9 +353,11 @@ router.post('/:token/book', publicLimiter, async (req, res, next) => {
       return fail(res, 409, `Los turnos se reservan hasta ${cfg.bookCutoffHours} horas antes.`);
     }
 
-    const debt = await loadDebt(student.id);
+    const debt = await loadDebt(student.id, purpose);
     if (bookableCount(debt.toSchedule, 0) <= 0) {
-      return fail(res, 409, 'Ya agendaste todas las clases que tienes por reponer.');
+      return fail(res, 409, reprogramming
+        ? 'Ya agendaste todas las clases que tienes por reprogramar.'
+        : 'Ya agendaste todas las clases que tienes por reponer.');
     }
 
     const dateObj = new Date(`${slot.date}T00:00:00Z`);
@@ -366,7 +400,7 @@ router.post('/:token/book', publicLimiter, async (req, res, next) => {
             throw new BookingError(409, 'Ese turno se acaba de llenar. Elige otro.');
           }
           await tx.makeupParticipant.create({
-            data: { sessionId: session.id, studentId: student.id, bookedAt: new Date() },
+            data: { sessionId: session.id, studentId: student.id, bookedAt: new Date(), reprogramming },
           });
         }, { isolationLevel: 'Serializable' });
         lastErr = null;
@@ -380,7 +414,7 @@ router.post('/:token/book', publicLimiter, async (req, res, next) => {
     }
     if (lastErr) return fail(res, 409, 'Hubo muchas reservas al mismo tiempo. Intenta de nuevo.');
 
-    res.status(201).json({ success: true, data: await buildPublicState(student) });
+    res.status(201).json({ success: true, data: await buildPublicState(student, purpose) });
   } catch (err) {
     next(err);
   }
@@ -416,7 +450,7 @@ router.delete('/:token/book/:sessionId', publicLimiter, async (req, res, next) =
       await prisma.classSession.delete({ where: { id: session.id } }).catch(() => {});
     }
 
-    res.json({ success: true, data: await buildPublicState(student) });
+    res.json({ success: true, data: await buildPublicState(student, participation.reprogramming ? REPROGRAMACION : 'REPOSICION') });
   } catch (err) {
     next(err);
   }
@@ -435,8 +469,11 @@ router.post('/:token/suggestions', publicLimiter, async (req, res, next) => {
     if (open >= MAX_OPEN_SUGGESTIONS) {
       return fail(res, 409, 'Ya tienes varias sugerencias pendientes; la Escuela te contactará.');
     }
-    await prisma.makeupBookingSuggestion.create({ data: { studentId: student.id, text } });
-    res.status(201).json({ success: true, data: await buildPublicState(student) });
+    const purpose = purposeOf(req.body?.purpose);
+    await prisma.makeupBookingSuggestion.create({
+      data: { studentId: student.id, text: purpose === REPROGRAMACION ? `[Reprogramación] ${text}` : text },
+    });
+    res.status(201).json({ success: true, data: await buildPublicState(student, purpose) });
   } catch (err) {
     next(err);
   }

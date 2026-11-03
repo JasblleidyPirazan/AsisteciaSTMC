@@ -3,18 +3,20 @@ import { Link } from 'react-router-dom';
 import { api } from '../../api/client';
 import { fmtDate, bogotaTodayStr } from '../../utils/dates';
 
-// Agendamiento de reposiciones — vista de coordinación (/admin/makeup-booking).
+// Agendamiento de reposiciones y reprogramaciones — vista de coordinación (/admin/makeup-booking).
 // Agenda: turnos de las próximas 2 semanas con quién reservó y el profesor.
-// Enviar enlaces: estudiantes con clases por reponer y su enlace personal por
-//   WhatsApp (abre WhatsApp con el mensaje listo, sin conexión de API),
-//   correo (abre el programa de correo) o copiar.
+//   Reposiciones y reprogramaciones comparten los mismos turnos y cupo.
+// Enlaces de reposición (/reponer/:token): lluvia, canceladas por la Escuela, justificadas.
+// Enlaces de reprogramación (/reprogramar/:token): clases no vistas por festivos o recesos.
+//   Ambos se envían por WhatsApp (mensaje listo, sin conexión de API), correo o copiar.
 // Sugerencias: horarios que pidieron los acudientes cuando nada les sirvió.
 
 const dayTitle = (date) => {
   const t = fmtDate(date, { weekday: 'long', day: 'numeric', month: 'short' });
   return t.charAt(0).toUpperCase() + t.slice(1);
 };
-const linkFor = (token) => `${window.location.origin}/reponer/${token}`;
+// kind: 'repos' (reposiciones) | 'reprog' (reprogramaciones por festivos y recesos)
+const linkFor = (token, kind = 'repos') => `${window.location.origin}/${kind === 'reprog' ? 'reprogramar' : 'reponer'}/${token}`;
 
 function waNumber(phone) {
   const digits = String(phone || '').replace(/\D/g, '');
@@ -22,13 +24,30 @@ function waNumber(phone) {
   return digits.length === 10 && digits.startsWith('3') ? `57${digits}` : digits;
 }
 
-function message(s, rules) {
+function message(s, rules, kind = 'repos') {
   const n = s.pending;
   const turnos = (rules?.slots || []).map((t) => `${t.day} ${t.label}`).join(' · ');
-  return `Hola${s.guardianName ? ` ${s.guardianName}` : ''}, ${s.name} tiene ${n} clase${n !== 1 ? 's' : ''} por reponer `
-    + 'en la Escuela de Tenis Santa María. Puedes agendar sus reposiciones aquí, sin usuario ni contraseña:\n'
-    + `${linkFor(s.token)}${turnos ? `\n\nTurnos: ${turnos}.` : ''}`;
+  const hola = `Hola${s.guardianName ? ` ${s.guardianName}` : ''}, `;
+  const body = kind === 'reprog'
+    ? `${s.name} tiene ${n} clase${n !== 1 ? 's' : ''} por reprogramar (no se dictaron por festivos o días de receso) `
+      + 'en la Escuela de Tenis Santa María. Puedes agendarlas aquí, sin usuario ni contraseña:\n'
+    : `${s.name} tiene ${n} clase${n !== 1 ? 's' : ''} por reponer `
+      + 'en la Escuela de Tenis Santa María. Puedes agendar sus reposiciones aquí, sin usuario ni contraseña:\n';
+  return `${hola}${body}${linkFor(s.token, kind)}${turnos ? `\n\nTurnos: ${turnos}.` : ''}`;
 }
+
+const KIND_TEXT = {
+  repos: {
+    title: '🔁 Enlaces de reposición',
+    intro: 'Estudiantes con clases por reponer (lluvia, canceladas por la Escuela y justificadas).',
+    owe: 'debe', subject: 'Reposiciones',
+  },
+  reprog: {
+    title: '📆 Enlaces de reprogramación',
+    intro: 'Estudiantes con clases no vistas por festivos o días de receso. El enlace es distinto al de reposiciones (/reprogramar/…) y solo deja agendar estas clases.',
+    owe: 'por reprogramar', subject: 'Reprogramación de clases',
+  },
+};
 
 const tabBtn = (active) => ({
   className: `btn ${active ? 'btn-primary' : 'btn-outline'}`,
@@ -82,12 +101,12 @@ export default function MakeupBookingAdminPage() {
     }
   }
 
-  async function copy(s) {
+  async function copy(s, kind) {
     try {
-      await navigator.clipboard.writeText(message(s, data.rules));
+      await navigator.clipboard.writeText(message(s, data.rules, kind));
       setNotice(`Mensaje de ${s.name} copiado. Pégalo donde quieras enviarlo.`);
     } catch {
-      window.prompt('Copia el enlace:', linkFor(s.token));
+      window.prompt('Copia el enlace:', linkFor(s.token, kind));
     }
   }
 
@@ -108,10 +127,13 @@ export default function MakeupBookingAdminPage() {
 
   const today = bogotaTodayStr();
   const q = search.trim().toLowerCase();
-  const students = data.students
+  const kind = tab === 'reprog' ? 'reprog' : 'repos';
+  const sourceList = kind === 'reprog' ? (data.reprogStudents || []) : data.students;
+  const students = sourceList
     .filter((s) => !onlyToSchedule || s.toSchedule > 0)
     .filter((s) => !q || s.name.toLowerCase().includes(q) || s.groups.join(' ').toLowerCase().includes(q));
   const withoutLink = students.filter((s) => !s.token);
+  const kt = KIND_TEXT[kind];
   const days = [];
   for (const slot of data.agenda) {
     const last = days[days.length - 1];
@@ -125,15 +147,18 @@ export default function MakeupBookingAdminPage() {
     <div className="page">
       <div className="page-header">
         <div style={{ flex: 1 }}>
-          <h1>📅 Agendar reposiciones</h1>
-          <p className="text-xs text-gray">Los acudientes reservan desde su enlace personal, sin usuario ni contraseña</p>
+          <h1>📅 Agendar reposiciones y reprogramaciones</h1>
+          <p className="text-xs text-gray">Los acudientes reservan desde su enlace personal, sin usuario ni contraseña. Ambas comparten los mismos turnos.</p>
         </div>
       </div>
       <div className="page-content">
         <div style={{ display: 'flex', gap: 8, marginBottom: 16, flexWrap: 'wrap' }}>
           <button {...tabBtn(tab === 'agenda')} onClick={() => setTab('agenda')}>Agenda ({booked})</button>
           <button {...tabBtn(tab === 'links')} onClick={() => setTab('links')}>
-            Enviar enlaces ({data.students.filter((s) => s.toSchedule > 0).length})
+            🔁 Enlaces reposición ({data.students.filter((s) => s.toSchedule > 0).length})
+          </button>
+          <button {...tabBtn(tab === 'reprog')} onClick={() => setTab('reprog')}>
+            📆 Enlaces reprogramación ({(data.reprogStudents || []).filter((s) => s.toSchedule > 0).length})
           </button>
           <button {...tabBtn(tab === 'suggestions')} onClick={() => setTab('suggestions')}>
             Sugerencias ({data.suggestions.length})
@@ -168,7 +193,13 @@ export default function MakeupBookingAdminPage() {
                     ) : (
                       <>
                         <div className="text-sm mt-1">
-                          {slot.participants.map((p) => p.name).join(' · ')}
+                          {slot.participants.map((p, i) => (
+                            <span key={p.id}>
+                              {i > 0 && ' · '}
+                              {p.name}
+                              {p.reprogramming && <span title="Reprogramación (festivo o receso)"> 📆</span>}
+                            </span>
+                          ))}
                         </div>
                         <div className="flex items-center gap-2 mt-2" style={{ flexWrap: 'wrap' }}>
                           <select className="form-input form-select" style={{ flex: 1, minWidth: 180, minHeight: 36 }}
@@ -189,16 +220,20 @@ export default function MakeupBookingAdminPage() {
                 ))}
               </div>
             ))}
+            <p className="text-xs text-gray mb-1">📆 = reprogramación (clase no vista por festivo o receso); sin marca = reposición.</p>
             <p className="text-xs text-gray">
               Para mover a un estudiante de turno o quitarlo, edita la reposición en <Link to="/admin/makeups">Reposiciones</Link>.
             </p>
           </>
         )}
 
-        {tab === 'links' && (
+        {(tab === 'links' || tab === 'reprog') && (
           <>
+            <div className={`alert ${kind === 'reprog' ? 'alert-info' : 'alert-success'} mb-3`} style={{ fontWeight: 600 }}>
+              {kt.title}
+            </div>
             <p className="text-sm text-gray mb-3">
-              Estudiantes con clases por reponer. Crea su enlace personal y envíalo: <strong>WhatsApp</strong> abre
+              {kt.intro} Crea su enlace personal y envíalo: <strong>WhatsApp</strong> abre
               la conversación con el mensaje listo (solo hay que darle enviar) y <strong>Correo</strong> abre tu
               programa de correo. No necesita ninguna conexión adicional.
             </p>
@@ -222,7 +257,7 @@ export default function MakeupBookingAdminPage() {
                     <div style={{ minWidth: 0 }}>
                       <div className="font-medium">{s.name}</div>
                       <div className="text-xs text-gray">
-                        {s.groups.join(', ')} · debe {s.pending}
+                        {s.groups.join(', ')} · {kt.owe} {s.pending}
                         {s.reserved > 0 && ` · agendadas ${s.reserved}`}
                         {s.toSchedule > 0 ? ` · faltan ${s.toSchedule}` : ' · todo agendado ✓'}
                       </div>
@@ -237,22 +272,22 @@ export default function MakeupBookingAdminPage() {
                       <>
                         {wa ? (
                           <a className="btn btn-primary" style={smallBtn} target="_blank" rel="noreferrer"
-                            href={`https://wa.me/${wa}?text=${encodeURIComponent(message(s, data.rules))}`}>📲 WhatsApp</a>
+                            href={`https://wa.me/${wa}?text=${encodeURIComponent(message(s, data.rules, kind))}`}>📲 WhatsApp</a>
                         ) : (
                           <span className="text-xs text-gray" style={{ alignSelf: 'center' }}>Sin celular</span>
                         )}
                         {s.email ? (
                           <a className="btn btn-outline" style={smallBtn}
-                            href={`mailto:${s.email}?subject=${encodeURIComponent(`Reposiciones de ${s.name} — Escuela de Tenis`)}&body=${encodeURIComponent(message(s, data.rules))}`}>
+                            href={`mailto:${s.email}?subject=${encodeURIComponent(`${kt.subject} de ${s.name} — Escuela de Tenis`)}&body=${encodeURIComponent(message(s, data.rules, kind))}`}>
                             ✉️ Correo
                           </a>
                         ) : (
                           <span className="text-xs text-gray" style={{ alignSelf: 'center' }}>Sin correo</span>
                         )}
-                        <button className="btn btn-outline" style={smallBtn} onClick={() => copy(s)}>📋 Copiar mensaje</button>
+                        <button className="btn btn-outline" style={smallBtn} onClick={() => copy(s, kind)}>📋 Copiar mensaje</button>
                         <button className="btn btn-ghost" style={smallBtn} disabled={!!busy}
                           title="Invalida el enlace anterior (por ejemplo, si se envió a quien no era)"
-                          onClick={() => window.confirm(`¿Cambiar el enlace de ${s.name}? El anterior dejará de funcionar.`) && createLink(s, true)}>
+                          onClick={() => window.confirm(`¿Cambiar el enlace de ${s.name}? Dejarán de funcionar sus enlaces anteriores (de reposición y de reprogramación).`) && createLink(s, true)}>
                           🔄 Cambiar enlace
                         </button>
                       </>

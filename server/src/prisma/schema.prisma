@@ -351,6 +351,9 @@ model MakeupParticipant {
   // Lo reservó el acudiente desde su enlace (no el coordinador): solo esas
   // reservas las puede cancelar el acudiente.
   bookedAt  DateTime? @map("booked_at")
+  // Reprogramación (recupera un festivo/receso) en vez de reposición
+  // (lluvia, OTRA, justificada). Comparten turnos; solo cambia de qué saldo descuenta.
+  reprogramming Boolean @default(false) @map("reprogramming")
 
   session ClassSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
   student Student      @relation(fields: [studentId], references: [id])

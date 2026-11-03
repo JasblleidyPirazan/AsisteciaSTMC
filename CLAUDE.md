@@ -125,7 +125,7 @@ CORS_ORIGIN        # URL del dominio en Railway (ej: https://asisteciastmc.up.ra
 | `StudentEnrollment` | Relación estudiante↔grupo (PRIMARY o SECONDARY). `weekdays` (`Int[]`, 0 = domingo … 6 = sábado) = días que el estudiante toma en ese grupo; `null`/vacío = todos los días del grupo (D9, nota 56) |
 | `ClassSession` | Sesión de clase: PROGRAMADA/REALIZADA/CANCELADA/CANCELADA_MITAD(legacy). `kind` REGULAR/MAKEUP/FESTIVAL. Cancelación estructurada (`cancellationCategory` LLUVIA/SIN_ESTUDIANTES/OTRA). "No dicté la clase yo": `dictatedByOwner` + `notDictatedNote` obligatoria. Pago suspendido: `firstReportedAt` (solo primer reporte) + `paymentUnlocked*`. Triple coincidencia: `assistantConfirmedId/At` + `coordinatorValidated*`. Festivales: `festivalRate` |
 | `FestivalProfessor` | Profesores participantes de un festival (M2M sessionId+professorId); cada uno cobra `festivalRate` (pago igualitario) |
-| `MakeupParticipant` | Estudiantes asignados a una reposición grupal (sessionId + studentId). `bookedAt` = lo reservó el acudiente desde su enlace (nota 53) |
+| `MakeupParticipant` | Estudiantes asignados a una reposición grupal (sessionId + studentId). `bookedAt` = lo reservó el acudiente desde su enlace (nota 53). `reprogramming` = la reserva recupera un festivo/receso (enlace de reprogramación, nota 63) en vez de ser reposición |
 | `MakeupBookingSuggestion` | Horarios alternativos que sugiere el acudiente desde el enlace de agendamiento cuando ningún turno le sirve (`resolvedAt` = atendida) |
 | `AttendanceRecord` | Asistencia por estudiante: PRESENTE/AUSENTE/JUSTIFICADA/NO_APLICA + tipo REGULAR/REPOSICION |
 | `CostRecord` | Costos calculados por sesión (professorId XOR assistantId, payeeType). `payStatus`: PAYABLE / SUSPENDED_LATE (reporte tardío, desbloquea solo ADMIN) / PENDING_MATCH (asistente sin triple coincidencia). Liquidación y export separan habilitado vs retenido |
@@ -251,8 +251,8 @@ Desde la base de datos o el seed, crear un `User` con `role: 'PHYSICAL_TRAINER'`
 - `finalize`/`cancel`/`PUT`/`DELETE` respetan el cierre de quincena (`isSessionPeriodLocked` → 409), igual que las clases regulares
 
 ### Agendamiento público de reposiciones (nota 53)
-- `GET /api/makeup-booking/:token` — **público**, sin login: estudiante, deuda de reposiciones, turnos y sus reservas
-- `POST /api/makeup-booking/:token/book` — reservar `{ date, slotKey }`
+- `GET /api/makeup-booking/:token[?purpose=REPROGRAMACION]` — **público**, sin login: estudiante, deuda (de reposiciones, o de reprogramación con `purpose`), turnos y sus reservas
+- `POST /api/makeup-booking/:token/book` — reservar `{ date, slotKey, purpose? }` (`REPOSICION` por defecto | `REPROGRAMACION`)
 - `DELETE /api/makeup-booking/:token/book/:sessionId` — cancelar una reserva propia (hasta 24 h antes)
 - `POST /api/makeup-booking/:token/suggestions` — sugerir otro horario `{ text }`
 - `GET /api/makeup-booking/admin/overview` (ADMIN/Coordinador) — agenda, estudiantes por reponer con su enlace, sugerencias
@@ -418,6 +418,7 @@ Si un test revela un bug real de la lógica de negocio, reportarlo antes de corr
 | `/admin/makeups` | MakeupsPage | ADMIN, PHYSICAL_TRAINER |
 | `/admin/makeup-booking` | MakeupBookingAdminPage — Agendar reposiciones | ADMIN, PHYSICAL_TRAINER |
 | `/reponer/:token` | MakeupBookingPage — agendamiento del acudiente | Público (enlace personal) |
+| `/reprogramar/:token` | MakeupBookingPage `purpose="REPROGRAMACION"` — clases no vistas por festivos/recesos | Público (mismo código personal) |
 | `/parent` | ParentPortalPage | PARENT, ADMIN |
 | `/admin` | LedgerPage — Reposiciones y reprogramación (inicio de la gestión) | ADMIN, PHYSICAL_TRAINER |
 | `/admin/students` | StudentsPage | ADMIN |
@@ -855,6 +856,13 @@ cd client && npm run build
     - **Excedente (vistas > pagadas)**: `summary.excedente {clases, students}` en `GET /api/ledger` (el avance sigue topado en el paquete, el excedente se muestra aparte); chip "+N de más" en la tarjeta del estudiante, filtro **Con excedente** y línea de aviso en "Reposiciones y reprogramación", y "· +N de más" en el roster del flujo de asistencia.
     - Tests: `tests/unit/makeupBooking.test.js` (reglas configurables), `tests/integration/config.makeup.test.js`, `ledger.contract.test.js` (excedente).
     - **Pendiente de T10 (parte 2):** retirar tablas y columnas legadas (`MakeupClass`, `Event`/`EventsPage`, `paymentComplete`, `classUnits`, `CANCELADA_MITAD`). Requiere respaldo previo y migración defensiva; **no** se ha tocado.
+
+63. **Enlaces de reprogramación (festivos y recesos) en el agendamiento:** además del enlace de reposición (`/reponer/:token`), la Escuela envía un enlace de **reprogramación** (`/reprogramar/:token`, mismo `bookingToken`) para que el acudiente agende las clases no vistas por festivos o días de receso. **Comparten la agenda**: mismos turnos, cupo y reglas de `/admin/config` (nota 62); un turno puede tener reservas de los dos tipos (cuentan juntas para el cupo) y un estudiante no puede tener dos reservas en el mismo turno.
+    - **Dato:** `MakeupParticipant.reprogramming` (Boolean, default `false` = reposición; migración `20261103010000_makeup_reprogramming`, defensiva). Todo lo existente queda como reposición.
+    - **Ledger:** `reposicion.agendadas` cuenta solo las reservas de reposición; `calendario.agendadas` las de reprogramación; `calendario.porAgendar` = recuperables − reprogramaciones agendadas. Tope común: lo que se puede agendar entre las dos no pasa de `reposicion.pendientes + calendario.recuperables − todo lo agendado` (como una clase vista salda primero la reposición, sin el tope se podría reservar de más). `pendientes.agendadasAplicadas` y `proyeccion.n` usan **todo** lo agendado; `pendientes.porAgendar` sigue siendo solo de reposición. Sin reservas de reprogramación las cifras son idénticas a antes. `summary.calendario` suma `agendadas`, `porAgendar`, `studentsPorAgendar`.
+    - **API:** `purpose` (`REPOSICION` | `REPROGRAMACION`) en `GET /:token?purpose=`, `POST /:token/book` y `/suggestions` (la sugerencia queda con prefijo "[Reprogramación]"). Cancelar no lo necesita (sale de la reserva). `GET /admin/overview` trae `reprogStudents` (estudiantes con `calendario.recuperables > 0`) y `participants[].reprogramming`. Cada slot público trae `busyOther` (ya tiene ahí una reserva del otro tipo).
+    - **UI:** `/admin/makeup-booking` tiene pestañas separadas **🔁 Enlaces reposición** y **📆 Enlaces reprogramación** (mensaje de WhatsApp/correo propio, con el enlace `/reprogramar/…`); en la Agenda las reservas de reprogramación llevan 📆. "Cambiar enlace" rota el código y por tanto invalida los dos enlaces.
+    - Tests: `tests/unit/studentLedger.test.js` (reprogramaciones agendadas + invariante), `tests/integration/makeupBooking.test.js`; validado contra Postgres real.
 
 45. **Estado de asistencia N/A (`NO_APLICA`):** para estudiantes que **compran menos clases** que los días del grupo (p. ej. vienen 1 vez/semana en un grupo de 3 días). No cuenta **ni como asistencia ni como ausencia**: no consume paquete (no es "clase vista" — allowlist de `attendanceStats`), no genera reposición, no suma al pago del profesor (costEngine solo cuenta PRESENTE), no dispara INSCRITO, queda **fuera del denominador** de `attendanceRate` (reportes de clase/estudiante/profesor y portal padres) y **fuera de la distribución** del dashboard. (Las alertas de asistencia que descontaban N/A de las clases esperadas están **obsoletas**: D8. Desde D9 los días que toma el estudiante se registran en la matrícula, `StudentEnrollment.weekdays`; N/A queda como excepción puntual.) Cuarto botón **N/A** (gris) solo en el flujo regular (Step3); reposiciones y festivales no lo muestran (participantes asignados a mano) aunque el server lo acepta en las 3 whitelists. En la doble consolidación ambos reportes deben coincidir también en N/A (igualdad de string). Migración aislada `20260725010000_attendance_status_no_aplica` (`ADD VALUE IF NOT EXISTS`). Tests: `attendanceStats`, `consolidation`, `attendanceAlerts` (nuevo) y whitelist en `finalize.dual`.
 

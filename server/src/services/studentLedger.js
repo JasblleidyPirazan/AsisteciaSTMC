@@ -195,7 +195,12 @@ function buildLedger(input) {
   const derecho = rainSessions.length + otherSessions.length + justifiedRights.length;
   const repuestas = consumidas.reposicionesVistas; // una falta a la reposición la pierde y salda la deuda
   const reposicionPendientes = round1(Math.min(Math.max(0, derecho - repuestas), pendientesTotal));
-  const agendadas = round1((input.scheduled || []).reduce((acc, s) => acc + units(s), 0));
+  // Lo agendado se separa por propósito: reposición (lluvia, OTRA, justificadas)
+  // o reprogramación (festivos y recesos, `reprogramming`). Comparten turnos.
+  const scheduledAll = input.scheduled || [];
+  const agendadas = round1(scheduledAll.filter((s) => !s.reprogramming).reduce((acc, s) => acc + units(s), 0));
+  const agendadasReprog = round1(scheduledAll.filter((s) => s.reprogramming).reduce((acc, s) => acc + units(s), 0));
+  const agendadasTotal = round1(agendadas + agendadasReprog);
   const reposicion = {
     lluvia: rainSessions.length,
     otras: otherSessions.length,
@@ -204,7 +209,7 @@ function buildLedger(input) {
     repuestas,
     pendientes: reposicionPendientes,
     agendadas,
-    porAgendar: Math.max(0, round1(reposicionPendientes - agendadas)),
+    porAgendar: 0, // se fija abajo, cuando se conoce el calendario
     items: [
       ...rainSessions.map((s) => ({ type: 'RAIN', date: s.date, groupCode: groupCode(s.groupId) })),
       ...otherSessions.map((s) => ({ type: 'OTHER', date: s.date, groupCode: groupCode(s.groupId) })),
@@ -239,8 +244,19 @@ function buildLedger(input) {
       Math.max(0, festivoItems.length - sobranteReposicion),
       Math.max(0, round1(pendientesTotal - reposicionPendientes)),
     )),
+    agendadas: agendadasReprog,
+    porAgendar: 0,
     items: festivoItems,
   };
+  // Cuánto falta por agendar de cada cosa. Una clase vista primero salda la
+  // reposición, así que el tope común (lo que se debe entre ambas menos todo lo
+  // agendado) evita reservar de más cuando ya se vio una reprogramación.
+  const libre = Math.max(0, round1(reposicionPendientes + calendario.recuperables - agendadasTotal));
+  reposicion.porAgendar = round1(Math.min(Math.max(0, round1(reposicionPendientes - agendadas)), libre));
+  calendario.porAgendar = round1(Math.min(
+    Math.max(0, round1(calendario.recuperables - agendadasReprog)),
+    Math.max(0, round1(libre - reposicion.porAgendar)),
+  ));
 
   // ── pendientes (necesidad: siempre suma) ──
   // Las clases que le tocan: pares (grupo, fecha) — un estudiante en dos grupos
@@ -260,9 +276,10 @@ function buildLedger(input) {
   const restantesEnSemestre = semesterEnd && from <= semesterEnd ? mineDates(from, semesterEnd).length : 0;
   const cubreCalendario = Math.min(pendientesTotal, restantesEnSemestre);
   const resto1 = round1(pendientesTotal - cubreCalendario);
-  const agendadasAplicadas = Math.min(resto1, agendadas);
+  const agendadasAplicadas = Math.min(resto1, agendadasTotal);
   const resto2 = round1(resto1 - agendadasAplicadas);
-  const porAgendar = Math.min(resto2, Math.max(0, round1(reposicionPendientes - agendadasAplicadas)));
+  const reposAplicadas = Math.min(agendadasAplicadas, agendadas);
+  const porAgendar = Math.min(resto2, Math.max(0, round1(reposicionPendientes - reposAplicadas)));
   const pendientes = {
     total: pendientesTotal,
     from,
@@ -290,7 +307,7 @@ function buildLedger(input) {
   };
 
   // ── proyeccion ──
-  const n = Math.ceil(Math.max(0, pendientesTotal - agendadas));
+  const n = Math.ceil(Math.max(0, pendientesTotal - agendadasTotal));
   let fin = null;
   if (n > 0) {
     const dates = mineDates(from, addDays(from, SEARCH_DAYS)).map((x) => x.date).sort();
@@ -399,6 +416,9 @@ function summarizeLedgers(ledgers) {
     calendario: {
       festivos: sum(inScope, (l) => l.calendario.festivos),
       recuperables: sum(inScope, (l) => l.calendario.recuperables),
+      agendadas: sum(inScope, (l) => l.calendario.agendadas),
+      porAgendar: sum(inScope, (l) => l.calendario.porAgendar),
+      studentsPorAgendar: count((l) => l.calendario.porAgendar > 0),
       studentsRecuperables: count((l) => l.calendario.recuperables > 0),
     },
     sinConsolidar: {
@@ -510,7 +530,7 @@ async function loadLedgers({ studentIds = null, groupIds = null, semester = null
     }),
     prisma.makeupParticipant.findMany({
       where: { studentId: { in: ids }, session: { kind: 'MAKEUP', status: 'PROGRAMADA' } },
-      select: { studentId: true, session: { select: { id: true, date: true, effectiveUnits: true } } },
+      select: { studentId: true, reprogramming: true, session: { select: { id: true, date: true, effectiveUnits: true } } },
     }),
     prisma.studentPayment.groupBy({ by: ['studentId'], where: { studentId: { in: ids } }, _sum: { amount: true } }),
     getTuitionConfig(),
@@ -533,7 +553,7 @@ async function loadLedgers({ studentIds = null, groupIds = null, semester = null
       enrollments: st.enrollments,
       records: recordsByStudent[st.id] || [],
       sessions: st.enrollments.flatMap((e) => sessionsByGroup[e.groupId] || []),
-      scheduled: (scheduledByStudent[st.id] || []).map((x) => x.session),
+      scheduled: (scheduledByStudent[st.id] || []).map((x) => ({ ...x.session, reprogramming: !!x.reprogramming })),
       exclusions,
       window,
       semesterEnd: dbDateStr(active.endDate),

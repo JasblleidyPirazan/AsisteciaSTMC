@@ -94,6 +94,7 @@ function AppRoutes() {
       <Route path="/validar" element={<PublicValidationPage />} />
       {/* Agendamiento de reposiciones: enlace personal del acudiente, sin login */}
       <Route path="/reponer/:token" element={<MakeupBookingPage />} />
+      <Route path="/reprogramar/:token" element={<MakeupBookingPage purpose="REPROGRAMACION" />} />
 
       <Route path="/" element={
         <RequireAuth>
