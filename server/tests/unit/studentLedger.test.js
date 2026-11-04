@@ -454,7 +454,7 @@ function randomInput(seed) {
       });
     }
   }
-  const scheduled = Array.from({ length: int(0, 3) }, (_, i) => ({ sessionId: `m${i}`, date: day(int(60, span)), effectiveUnits: pick([1, 1, 2, 0.5]) }));
+  const scheduled = Array.from({ length: int(0, 3) }, (_, i) => ({ sessionId: `m${i}`, date: day(int(60, span)), effectiveUnits: pick([1, 1, 2, 0.5]), reprogramming: r() > 0.6 }));
   const suspended = r() > 0.8;
   const from = day(int(20, 60));
 
@@ -491,7 +491,7 @@ describe('buildLedger — invariante sobre 200 entradas aleatorias', () => {
       for (const n of [p.total, p.cubreCalendario, p.agendadasAplicadas, p.porAgendar, p.deficit, p.restantesEnSemestre,
         l.consumidas.total, l.consumidas.excedente, l.consumidas.presentes, l.consumidas.ausentes, l.consumidas.reposicionesVistas,
         l.reposicion.pendientes, l.reposicion.porAgendar, l.reposicion.agendadas, l.reposicion.derecho,
-        l.calendario.festivos, l.calendario.recuperables, l.sinConsolidar.clases, l.sinConsolidar.conflictos, l.proyeccion.n]) {
+        l.calendario.festivos, l.calendario.recuperables, l.calendario.agendadas, l.calendario.porAgendar, l.sinConsolidar.clases, l.sinConsolidar.conflictos, l.proyeccion.n]) {
         expect(finite(n)).toBe(true);
         expect(n).toBeGreaterThanOrEqual(0);
       }
@@ -518,4 +518,50 @@ describe('buildLedger — invariante sobre 200 entradas aleatorias', () => {
       if (l.tuitionStatus !== l.status) expect(l.status).toBe('GRADUADO');
     });
   }
+});
+
+describe('buildLedger — reprogramaciones agendadas (festivos y recesos)', () => {
+  const rain = sess('s1', '2026-09-02', 'CANCELADA', 'LLUVIA');
+  const makeupSeen = rec('PRESENTE', { id: 'm1', date: '2026-10-02', kind: 'MAKEUP', status: 'REALIZADA', groupId: null });
+
+  it('una reprogramación agendada descuenta del calendario, no de la reposición', () => {
+    const l = buildLedger(base({
+      sessions: [rain],
+      scheduled: [{ sessionId: 'm9', date: '2026-10-23', effectiveUnits: 1, reprogramming: true }],
+    }));
+    expect(l.calendario.festivos).toBe(1);
+    expect(l.calendario.recuperables).toBe(1);
+    expect(l.calendario.agendadas).toBe(1);
+    expect(l.calendario.porAgendar).toBe(0);
+    expect(l.reposicion.agendadas).toBe(0);
+    expect(l.reposicion.porAgendar).toBe(1);
+  });
+
+  it('sin reservas, lo recuperable queda por agendar', () => {
+    const l = buildLedger(base({ sessions: [rain] }));
+    expect(l.calendario.porAgendar).toBe(1);
+    expect(l.reposicion.porAgendar).toBe(1);
+  });
+
+  it('una clase vista salda primero la reposición: no deja reservar de más', () => {
+    // Debía 1 de lluvia + 1 festivo, ya vio una (salda la lluvia) y tiene 1 reprogramación agendada
+    const l = buildLedger(base({
+      sessions: [rain],
+      records: [makeupSeen],
+      scheduled: [{ sessionId: 'm9', date: '2026-10-23', effectiveUnits: 1, reprogramming: true }],
+    }));
+    expect(l.reposicion.pendientes).toBe(0);
+    expect(l.calendario.recuperables).toBe(1);
+    expect(l.reposicion.porAgendar).toBe(0);
+    expect(l.calendario.porAgendar).toBe(0);
+
+    // Mismo caso, pero lo agendado es una reposición: tampoco queda nada por agendar
+    const l2 = buildLedger(base({
+      sessions: [rain],
+      records: [makeupSeen],
+      scheduled: [{ sessionId: 'm9', date: '2026-10-23', effectiveUnits: 1 }],
+    }));
+    expect(l2.calendario.porAgendar).toBe(0);
+    expect(l2.reposicion.porAgendar).toBe(0);
+  });
 });

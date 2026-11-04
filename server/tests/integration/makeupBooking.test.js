@@ -61,6 +61,20 @@ describe('enlace público', () => {
     expect(prismaMock.makeupParticipant.delete).not.toHaveBeenCalled();
   });
 
+  it('una reprogramación sin clases por reprogramar no se reserva (y no toca la reposición)', async () => {
+    prismaMock.semester = { findFirst: vi.fn().mockResolvedValue(null) };
+    // Sin semestre activo el ledger está vacío: no hay nada por reprogramar
+    const date = (() => {
+      const d = new Date(Date.now() - 5 * 3600000 + 7 * 86400000);
+      while (d.getUTCDay() !== 5) d.setUTCDate(d.getUTCDate() + 1);
+      return d.toISOString().slice(0, 10);
+    })();
+    const res = await request(app).post(`/api/makeup-booking/${TOKEN}/book`)
+      .send({ date, slotKey: 'VIE-1715', purpose: 'REPROGRAMACION' });
+    expect(res.status).toBe(409);
+    expect(res.body.error).toMatch(/reprogramar/);
+  });
+
   it('la sugerencia exige texto', async () => {
     const res = await request(app).post(`/api/makeup-booking/${TOKEN}/suggestions`).send({ text: ' ' });
     expect(res.status).toBe(400);

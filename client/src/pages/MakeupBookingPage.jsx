@@ -7,6 +7,8 @@ import { fmtDate } from '../utils/dates';
 // del enlace identifica al estudiante. El acudiente ve cuántas clases tiene por
 // reponer, reserva turnos de 45 min y, si ninguno le sirve, sugiere otro horario.
 // Datos de /makeup-booking/:token (server/src/routes/makeupBooking.js).
+// Con purpose="REPROGRAMACION" (/reprogramar/:token) es la misma página para las
+// clases no vistas por festivos o recesos: mismos turnos, saldo distinto.
 
 const dayTitle = (date) => {
   const t = fmtDate(date, { weekday: 'long', day: 'numeric', month: 'long' });
@@ -18,8 +20,10 @@ const fmtStart = (hm) => {
   return `${((h + 11) % 12) + 1}:${String(m).padStart(2, '0')} ${h < 12 ? 'a. m.' : 'p. m.'}`;
 };
 
-export default function MakeupBookingPage() {
+export default function MakeupBookingPage({ purpose = 'REPOSICION' }) {
   const { token } = useParams();
+  const reprog = purpose === 'REPROGRAMACION';
+  const stateUrl = `/makeup-booking/${token}${reprog ? '?purpose=REPROGRAMACION' : ''}`;
   const [data, setData] = useState(null);
   const [error, setError] = useState('');
   const [notice, setNotice] = useState('');
@@ -27,8 +31,8 @@ export default function MakeupBookingPage() {
   const [suggestion, setSuggestion] = useState('');
 
   useEffect(() => {
-    api.get(`/makeup-booking/${token}`).then(setData).catch((e) => setError(e.message));
-  }, [token]);
+    api.get(stateUrl).then(setData).catch((e) => setError(e.message));
+  }, [stateUrl]);
 
   async function run(key, fn, okMsg) {
     setBusy(key); setError(''); setNotice('');
@@ -38,14 +42,14 @@ export default function MakeupBookingPage() {
     } catch (e) {
       setError(e.message);
       // Refresca: el cupo pudo cambiar mientras tanto
-      api.get(`/makeup-booking/${token}`).then(setData).catch(() => {});
+      api.get(stateUrl).then(setData).catch(() => {});
     } finally {
       setBusy('');
     }
   }
 
   const book = (slot) => run(`${slot.date}|${slot.key}`,
-    () => api.post(`/makeup-booking/${token}/book`, { date: slot.date, slotKey: slot.key }),
+    () => api.post(`/makeup-booking/${token}/book`, { date: slot.date, slotKey: slot.key, purpose }),
     `✅ Reservado: ${dayTitle(slot.date)}, ${slot.label}.`);
   const cancel = (b) => {
     if (!window.confirm('¿Cancelar esta reserva?')) return;
@@ -53,7 +57,7 @@ export default function MakeupBookingPage() {
   };
   const suggest = (e) => {
     e.preventDefault();
-    run('suggest', () => api.post(`/makeup-booking/${token}/suggestions`, { text: suggestion.trim() }),
+    run('suggest', () => api.post(`/makeup-booking/${token}/suggestions`, { text: suggestion.trim(), purpose }),
       '📨 Recibimos tu sugerencia. La Escuela te contactará.')
       .then(() => setSuggestion(''));
   };
@@ -61,7 +65,7 @@ export default function MakeupBookingPage() {
   const header = (
     <div className="page-header">
       <div style={{ flex: 1 }}>
-        <h1>🎾 Agenda tus reposiciones</h1>
+        <h1>{reprog ? '📆 Agenda tus clases reprogramadas' : '🎾 Agenda tus reposiciones'}</h1>
         <p className="text-xs text-gray">Escuela de Tenis Santa María</p>
       </div>
     </div>
@@ -85,7 +89,8 @@ export default function MakeupBookingPage() {
     if (last && last.date === s.date) last.slots.push(s);
     else days.push({ date: s.date, slots: [s] });
   }
-  const breakdown = [
+  const word = reprog ? 'reprogramar' : 'reponer';
+  const breakdown = reprog ? '' : [
     debt.rain > 0 && `${debt.rain} por lluvia`,
     debt.other > 0 && `${debt.other} cancelada${debt.other !== 1 ? 's' : ''} por la Escuela`,
     debt.justified > 0 && `${debt.justified} justificada${debt.justified !== 1 ? 's' : ''}`,
@@ -102,16 +107,22 @@ export default function MakeupBookingPage() {
           <div className="mt-2">
             {debt.pending > 0 ? (
               <>
-                Tiene <strong>{debt.pending} clase{debt.pending !== 1 ? 's' : ''} por reponer</strong>
-                {breakdown && <span className="text-sm text-gray"> ({breakdown})</span>}.
+                Tiene <strong>{debt.pending} clase{debt.pending !== 1 ? 's' : ''} por {word}</strong>
+                {breakdown && <span className="text-sm text-gray"> ({breakdown})</span>}
+                {reprog && <span className="text-sm text-gray"> (no se dictaron por festivos o días de receso)</span>}.
+                {reprog && debt.items?.length > 0 && (
+                  <div className="text-xs text-gray mt-1">
+                    {debt.items.map((i) => `${fmtDate(i.date)}${i.reason ? ` (${i.reason})` : ''}`).join(' · ')}
+                  </div>
+                )}
                 <div className="text-sm mt-1">
                   {available > 0
                     ? <>Puedes reservar <strong>{available}</strong> turno{available !== 1 ? 's' : ''} más.</>
-                    : <>Ya agendaste todas sus reposiciones. 🙌</>}
+                    : <>Ya agendaste todas sus {reprog ? 'clases reprogramadas' : 'reposiciones'}. 🙌</>}
                 </div>
               </>
             ) : (
-              <span>No tiene clases pendientes por reponer. 🙌</span>
+              <span>No tiene clases pendientes por {word}. 🙌</span>
             )}
           </div>
         </div>
@@ -121,7 +132,7 @@ export default function MakeupBookingPage() {
 
         {myBookings.length > 0 && (
           <div className="card mb-3">
-            <h3 style={{ marginBottom: 8 }}>Tus reposiciones agendadas</h3>
+            <h3 style={{ marginBottom: 8 }}>{reprog ? 'Tus clases reprogramadas' : 'Tus reposiciones agendadas'}</h3>
             {myBookings.map((b) => (
               <div key={b.sessionId} className="flex items-center justify-between mb-2" style={{ gap: 8 }}>
                 <div>
@@ -157,6 +168,7 @@ export default function MakeupBookingPage() {
               const left = s.capacity - s.taken;
               let status;
               if (s.mine) status = <span className="badge badge-green">✓ Reservado</span>;
+              else if (s.busyOther) status = <span className="badge badge-gray">Ya tienes {reprog ? 'una reposición' : 'una reprogramación'} aquí</span>;
               else if (s.full) status = <span className="badge badge-gray">Lleno</span>;
               else if (s.closed) status = <span className="badge badge-gray">Cerrado</span>;
               else status = <span className="text-xs text-gray">{left} cupo{left !== 1 ? 's' : ''}</span>;
