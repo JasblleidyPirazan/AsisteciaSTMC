@@ -10,9 +10,18 @@
 //   POST   /:token/book                  → reservar { date, slotKey, purpose? }
 //   DELETE /:token/book/:sessionId       → cancelar una reserva propia
 //   POST   /:token/suggestions           → sugerir otro horario { text }
+// Enlace de reprogramación por GRUPO (/reprogramar/g/:groupToken): un solo enlace
+// para todos los estudiantes del grupo. El acudiente elige a su hijo y reserva
+// como con el enlace personal, siempre con purpose=REPROGRAMACION:
+//   GET    /group/:groupToken                                 → grupo y sus estudiantes por reprogramar
+//   GET    /group/:groupToken/students/:studentId             → estado (igual que GET /:token)
+//   POST   /group/:groupToken/students/:studentId/book        → reservar
+//   DELETE /group/:groupToken/students/:studentId/book/:sessionId
+//   POST   /group/:groupToken/students/:studentId/suggestions
 // Coordinación (ADMIN / Coordinador, auth inline):
 //   GET    /admin/overview               → agenda de turnos, estudiantes por reponer, sugerencias
 //   POST   /admin/students/:id/link      → crea (o rota con regenerate) el enlace del estudiante
+//   POST   /admin/groups/:id/link        → crea (o rota con regenerate) el enlace de reprogramación del grupo
 //   PATCH  /admin/suggestions/:id        → marcar una sugerencia como atendida { resolved }
 const express = require('express');
 const rateLimit = require('express-rate-limit');
@@ -105,6 +114,40 @@ async function studentByToken(token) {
     include: { enrollments: { include: { group: { select: { code: true, active: true } } } } },
   });
   return student && student.active ? student : null;
+}
+
+async function groupByToken(token) {
+  if (!token || String(token).length < 16) return null;
+  const group = await prisma.group.findUnique({ where: { bookingToken: String(token) } });
+  return group && group.active ? group : null;
+}
+
+// Resuelve al estudiante del enlace: personal (/:token) o del grupo
+// (/group/:groupToken/students/:studentId, solo si está inscrito en ese grupo).
+// En el enlace de grupo el propósito es siempre REPROGRAMACION.
+async function resolveStudent(req, res, next) {
+  try {
+    if (req.params.groupToken) {
+      const group = await groupByToken(req.params.groupToken);
+      if (!group) return fail(res, 404, INVALID_LINK);
+      const student = await prisma.student.findUnique({
+        where: { id: String(req.params.studentId) },
+        include: { enrollments: { include: { group: { select: { code: true, active: true } } } } },
+      });
+      if (!student || !student.active || !student.enrollments.some((e) => e.groupId === group.id)) {
+        return fail(res, 404, 'Ese estudiante no está en este grupo.');
+      }
+      req.student = student;
+      req.fixedPurpose = REPROGRAMACION;
+      return next();
+    }
+    const student = await studentByToken(req.params.token);
+    if (!student) return fail(res, 404, INVALID_LINK);
+    req.student = student;
+    return next();
+  } catch (err) {
+    return next(err);
+  }
 }
 
 // Estado completo que ve el acudiente.
@@ -267,6 +310,27 @@ router.get('/admin/overview', ...staff, async (req, res, next) => {
     const students = owing.map((l) => row(l, 'reposicion'));
     const reprogStudents = owingCalendar.map((l) => row(l, 'calendario'));
 
+    // Grupos con estudiantes por reprogramar (para el enlace de grupo). Un
+    // estudiante en dos grupos aparece en ambos: el enlace de cualquiera le sirve.
+    const byGroup = {};
+    for (const l of owingCalendar) {
+      for (const g of l.groups) {
+        if (!g.id) continue;
+        const acc = (byGroup[g.id] ||= { students: 0, pending: 0, reserved: 0, toSchedule: 0 });
+        acc.students += 1;
+        acc.pending += l.calendario.recuperables;
+        acc.reserved += l.calendario.agendadas;
+        acc.toSchedule += bookableCount(l.calendario.porAgendar, 0);
+      }
+    }
+    const groupRows = await prisma.group.findMany({
+      where: { id: { in: Object.keys(byGroup) }, active: true },
+      select: { id: true, code: true, bookingToken: true, professor: { select: { name: true } } },
+    });
+    const reprogGroups = groupRows
+      .map((g) => ({ groupId: g.id, code: g.code, professor: g.professor?.name || null, token: g.bookingToken || null, ...byGroup[g.id] }))
+      .sort((a, b) => a.code.localeCompare(b.code, 'es', { numeric: true }));
+
     res.json({
       success: true,
       data: {
@@ -275,6 +339,7 @@ router.get('/admin/overview', ...staff, async (req, res, next) => {
         agenda,
         students,
         reprogStudents,
+        reprogGroups,
         suggestions: suggestions.map((s) => ({
           id: s.id, text: s.text, createdAt: s.createdAt,
           student: s.student,
@@ -301,6 +366,21 @@ router.post('/admin/students/:id/link', ...staff, async (req, res, next) => {
   }
 });
 
+router.post('/admin/groups/:id/link', ...staff, async (req, res, next) => {
+  try {
+    const group = await prisma.group.findUnique({ where: { id: req.params.id } });
+    if (!group || !group.active) return fail(res, 404, 'Grupo no encontrado');
+    let token = group.bookingToken;
+    if (!token || req.body?.regenerate) {
+      token = newToken();
+      await prisma.group.update({ where: { id: group.id }, data: { bookingToken: token } });
+    }
+    res.json({ success: true, data: { token } });
+  } catch (err) {
+    next(err);
+  }
+});
+
 router.patch('/admin/suggestions/:id', ...staff, async (req, res, next) => {
   try {
     const resolved = req.body?.resolved !== false;
@@ -318,11 +398,42 @@ router.patch('/admin/suggestions/:id', ...staff, async (req, res, next) => {
 });
 
 // ────────────────────────────── Público ──────────────────────────────
-router.get('/:token', publicLimiter, async (req, res, next) => {
+// Enlace de grupo: lista de estudiantes del grupo para que el acudiente elija al suyo.
+router.get('/group/:groupToken', publicLimiter, async (req, res, next) => {
   try {
-    const student = await studentByToken(req.params.token);
-    if (!student) return fail(res, 404, INVALID_LINK);
-    res.json({ success: true, data: await buildPublicState(student, purposeOf(req.query.purpose)) });
+    const group = await groupByToken(req.params.groupToken);
+    if (!group) return fail(res, 404, INVALID_LINK);
+    const cfg = await loadBookingConfig();
+    const { ledgers } = await loadLedgers({ groupIds: [group.id] });
+    const students = ledgers
+      .filter((l) => l.status !== 'PRUEBA' && l.status !== 'INACTIVO')
+      .map((l) => ({
+        id: l.studentId,
+        name: l.name,
+        pending: l.calendario.recuperables,
+        reserved: l.calendario.agendadas,
+        toSchedule: bookableCount(l.calendario.porAgendar, 0),
+      }))
+      .filter((s) => s.pending > 0 || s.reserved > 0);
+    res.json({
+      success: true,
+      data: {
+        group: { code: group.code },
+        students,
+        rules: { capacity: cfg.capacity, horizonDays: cfg.horizonDays, slots: describeSlots(cfg.slots), bookCutoffHours: cfg.bookCutoffHours, cancelCutoffHours: cfg.cancelCutoffHours },
+      },
+    });
+  } catch (err) {
+    next(err);
+  }
+});
+
+const GROUP_STUDENT = '/group/:groupToken/students/:studentId';
+
+router.get(['/:token', GROUP_STUDENT], publicLimiter, resolveStudent, async (req, res, next) => {
+  try {
+    const { student } = req;
+    res.json({ success: true, data: await buildPublicState(student, req.fixedPurpose || purposeOf(req.query.purpose)) });
   } catch (err) {
     next(err);
   }
@@ -336,13 +447,11 @@ class BookingError extends Error {
   }
 }
 
-router.post('/:token/book', publicLimiter, async (req, res, next) => {
+router.post(['/:token/book', `${GROUP_STUDENT}/book`], publicLimiter, resolveStudent, async (req, res, next) => {
   try {
-    const student = await studentByToken(req.params.token);
-    if (!student) return fail(res, 404, INVALID_LINK);
-
+    const { student } = req;
     const { date, slotKey } = req.body || {};
-    const purpose = purposeOf(req.body?.purpose);
+    const purpose = req.fixedPurpose || purposeOf(req.body?.purpose);
     const reprogramming = purpose === REPROGRAMACION;
     const now = new Date();
     const cfg = await loadBookingConfig();
@@ -420,16 +529,17 @@ router.post('/:token/book', publicLimiter, async (req, res, next) => {
   }
 });
 
-router.delete('/:token/book/:sessionId', publicLimiter, async (req, res, next) => {
+router.delete(['/:token/book/:sessionId', `${GROUP_STUDENT}/book/:sessionId`], publicLimiter, resolveStudent, async (req, res, next) => {
   try {
-    const student = await studentByToken(req.params.token);
-    if (!student) return fail(res, 404, INVALID_LINK);
+    const { student } = req;
 
     const participation = await prisma.makeupParticipant.findUnique({
       where: { sessionId_studentId: { sessionId: req.params.sessionId, studentId: student.id } },
       include: { session: true },
     });
     if (!participation || participation.session.kind !== 'MAKEUP') return fail(res, 404, 'Reserva no encontrada');
+    // Con el enlace de grupo solo se cancelan reprogramaciones
+    if (req.fixedPurpose === REPROGRAMACION && !participation.reprogramming) return fail(res, 404, 'Reserva no encontrada');
     if (!participation.bookedAt) {
       return fail(res, 403, 'Esta reposición la programó la Escuela. Para cambiarla, comunícate con ellos.');
     }
@@ -456,10 +566,9 @@ router.delete('/:token/book/:sessionId', publicLimiter, async (req, res, next) =
   }
 });
 
-router.post('/:token/suggestions', publicLimiter, async (req, res, next) => {
+router.post(['/:token/suggestions', `${GROUP_STUDENT}/suggestions`], publicLimiter, resolveStudent, async (req, res, next) => {
   try {
-    const student = await studentByToken(req.params.token);
-    if (!student) return fail(res, 404, INVALID_LINK);
+    const { student } = req;
     const text = String(req.body?.text || '').trim();
     if (text.length < 3) return fail(res, 400, 'Escribe qué días u horarios te servirían.');
     if (text.length > SUGGESTION_MAX_LENGTH) {
@@ -469,7 +578,7 @@ router.post('/:token/suggestions', publicLimiter, async (req, res, next) => {
     if (open >= MAX_OPEN_SUGGESTIONS) {
       return fail(res, 409, 'Ya tienes varias sugerencias pendientes; la Escuela te contactará.');
     }
-    const purpose = purposeOf(req.body?.purpose);
+    const purpose = req.fixedPurpose || purposeOf(req.body?.purpose);
     await prisma.makeupBookingSuggestion.create({
       data: { studentId: student.id, text: purpose === REPROGRAMACION ? `[Reprogramación] ${text}` : text },
     });

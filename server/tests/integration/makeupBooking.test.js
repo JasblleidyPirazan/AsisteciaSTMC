@@ -81,6 +81,52 @@ describe('enlace público', () => {
   });
 });
 
+describe('enlace de reprogramación por grupo', () => {
+  const GT = 'g'.repeat(24);
+  const GROUP = { id: 'g1', code: 'LMV1', active: true, bookingToken: GT };
+
+  it('un código de grupo inexistente o de un grupo inactivo es 404', async () => {
+    prismaMock.group = { findUnique: vi.fn().mockResolvedValueOnce(null).mockResolvedValueOnce({ ...GROUP, active: false }) };
+    expect((await request(app).get(`/api/makeup-booking/group/${GT}`)).status).toBe(404);
+    expect((await request(app).get(`/api/makeup-booking/group/${GT}`)).status).toBe(404);
+  });
+
+  it('solo sirve para estudiantes inscritos en ese grupo', async () => {
+    prismaMock.group = { findUnique: vi.fn().mockResolvedValue(GROUP) };
+    prismaMock.student.findUnique.mockResolvedValueOnce({ ...STUDENT, enrollments: [{ groupId: 'otro', group: { code: 'X', active: true } }] });
+    const res = await request(app).get(`/api/makeup-booking/group/${GT}/students/st1`);
+    expect(res.status).toBe(404);
+    expect(res.body.error).toMatch(/no está en este grupo/);
+  });
+
+  it('reserva siempre como reprogramación, aunque pidan reposición', async () => {
+    prismaMock.group = { findUnique: vi.fn().mockResolvedValue(GROUP) };
+    prismaMock.student.findUnique.mockResolvedValueOnce({ ...STUDENT, enrollments: [{ groupId: 'g1', group: { code: 'LMV1', active: true } }] });
+    prismaMock.semester = { findFirst: vi.fn().mockResolvedValue(null) };
+    const date = (() => {
+      const d = new Date(Date.now() - 5 * 3600000 + 7 * 86400000);
+      while (d.getUTCDay() !== 5) d.setUTCDate(d.getUTCDate() + 1);
+      return d.toISOString().slice(0, 10);
+    })();
+    const res = await request(app).post(`/api/makeup-booking/group/${GT}/students/st1/book`)
+      .send({ date, slotKey: 'VIE-1715', purpose: 'REPOSICION' });
+    expect(res.status).toBe(409);
+    expect(res.body.error).toMatch(/reprogramar/);
+  });
+
+  it('la coordinación crea el enlace del grupo', async () => {
+    const token = authAs('PHYSICAL_TRAINER');
+    prismaMock.group = {
+      findUnique: vi.fn().mockResolvedValue({ ...GROUP, bookingToken: null }),
+      update: vi.fn().mockResolvedValue({}),
+    };
+    const res = await request(app).post('/api/makeup-booking/admin/groups/g1/link').set('Authorization', `Bearer ${token}`);
+    expect(res.status).toBe(200);
+    expect(res.body.data.token.length).toBeGreaterThanOrEqual(24);
+    expect(prismaMock.group.update).toHaveBeenCalledTimes(1);
+  });
+});
+
 describe('coordinación', () => {
   it('la agenda exige sesión de ADMIN o Coordinador', async () => {
     expect((await request(app).get('/api/makeup-booking/admin/overview')).status).toBe(401);
