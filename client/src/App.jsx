@@ -1,4 +1,5 @@
 import { Component } from 'react';
+import { hasAnyRole } from './utils/roles';
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
 import { AuthProvider, useAuth } from './hooks/useAuth';
 import AppShell from './components/AppShell';
@@ -73,7 +74,8 @@ function RequireAuth({ children, roles }) {
   const { user } = useAuth();
   if (!user) return <Navigate to="/login" replace />;
   // SUPERADMIN is the superset of ADMIN — it passes every role gate.
-  if (roles && user.role !== 'SUPERADMIN' && !roles.includes(user.role)) {
+  // TEACHER_L = Profesor L (TEACHER con leadTeacher), ver utils/roles.js
+  if (roles && !hasAnyRole(user, roles)) {
     return <Navigate to="/" replace />;
   }
   return children;
@@ -156,7 +158,7 @@ function AppRoutes() {
       } />
 
       <Route path="/admin" element={
-        <RequireAuth roles={['ADMIN', 'PHYSICAL_TRAINER', 'RECEPTION']}>
+        <RequireAuth roles={['ADMIN', 'PHYSICAL_TRAINER', 'RECEPTION', 'TEACHER_L']}>
           {/* Inicio de la gestión = Reposiciones y reprogramación. Recepción no lo usa: va a Estudiantes */}
           {user?.role === 'RECEPTION' ? <Navigate to="/admin/students" replace /> : <Shell><LedgerPage /></Shell>}
         </RequireAuth>
@@ -177,7 +179,7 @@ function AppRoutes() {
         </RequireAuth>
       } />
       <Route path="/admin/makeup-booking" element={
-        <RequireAuth roles={['ADMIN', 'PHYSICAL_TRAINER']}>
+        <RequireAuth roles={['ADMIN', 'PHYSICAL_TRAINER', 'TEACHER_L']}>
           <Shell><MakeupBookingAdminPage /></Shell>
         </RequireAuth>
       } />

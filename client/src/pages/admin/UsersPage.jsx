@@ -184,7 +184,7 @@ export default function UsersPage() {
                       {u.name ? `${u.name} · ` : ''}{u.email}
                     </div>
                     <div className="text-xs text-gray" style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
-                      <span className={`badge ${ROLE_BADGE[u.role] || 'badge-gray'}`}>{roleLabel(u.role)}</span>
+                      <span className={`badge ${ROLE_BADGE[u.role] || 'badge-gray'}`}>{u.leadTeacher ? 'Profesor L' : roleLabel(u.role)}</span>
                       {!u.active && <span className="badge badge-red">Inactivo</span>}
                       {!u.manageable && MANAGED_AT[u.role] && (
                         <span>Se gestiona en «{MANAGED_AT[u.role]}»</span>

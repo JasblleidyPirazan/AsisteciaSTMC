@@ -12,7 +12,7 @@ router.get('/', async (req, res, next) => {
     const professors = await prisma.professor.findMany({
       where,
       include: {
-        user: { select: { email: true } },
+        user: { select: { email: true, leadTeacher: true } },
         groups: { where: { active: true }, select: { id: true, code: true, name: true } },
       },
       orderBy: { name: 'asc' },
@@ -40,7 +40,7 @@ router.post('/', requireRole('ADMIN'), async (req, res, next) => {
 
     const professor = await prisma.professor.create({
       data: { name, userId },
-      include: { user: { select: { email: true } } },
+      include: { user: { select: { email: true, leadTeacher: true } } },
     });
     res.status(201).json({ success: true, data: professor });
   } catch (err) {
@@ -50,7 +50,7 @@ router.post('/', requireRole('ADMIN'), async (req, res, next) => {
 
 router.put('/:id', requireRole('ADMIN'), async (req, res, next) => {
   try {
-    const { name, active, email, password } = req.body;
+    const { name, active, email, password, leadTeacher } = req.body;
 
     const existing = await prisma.professor.findUnique({
       where: { id: req.params.id },
@@ -106,10 +106,19 @@ router.put('/:id', requireRole('ADMIN'), async (req, res, next) => {
       }
     }
 
+    // "Profesor L" (nota 66): marca de la cuenta de acceso del profesor
+    if (leadTeacher !== undefined) {
+      const userId = data.userId || existing.userId;
+      if (!userId) {
+        return res.status(400).json({ success: false, error: 'El profesor necesita una cuenta de acceso para ser Profesor L' });
+      }
+      await prisma.user.update({ where: { id: userId }, data: { leadTeacher: !!leadTeacher } });
+    }
+
     const professor = await prisma.professor.update({
       where: { id: req.params.id },
       data,
-      include: { user: { select: { email: true } }, groups: { where: { active: true }, select: { id: true, code: true, name: true } } },
+      include: { user: { select: { email: true, leadTeacher: true } }, groups: { where: { active: true }, select: { id: true, code: true, name: true } } },
     });
     res.json({ success: true, data: professor });
   } catch (err) {

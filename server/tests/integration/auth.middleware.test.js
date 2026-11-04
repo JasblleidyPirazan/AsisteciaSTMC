@@ -19,6 +19,7 @@ beforeAll(async () => {
   router.get('/admin-only', requireRole('ADMIN'), (req, res) =>
     res.json({ success: true, user: req.user })
   );
+  router.get('/agenda', requireRole('ADMIN', 'TEACHER_L'), (req, res) => res.json({ success: true }));
 
   app = express();
   app.use(express.json());
@@ -83,7 +84,7 @@ describe('authMiddleware', () => {
       .get('/api/whoami')
       .set('Authorization', `Bearer ${tokenFor({ role: 'ADMIN' })}`);
     expect(res.status).toBe(200);
-    expect(res.body.user).toEqual({ id: 'u1', email: 'teach@stmc.co', role: 'TEACHER' });
+    expect(res.body.user).toEqual({ id: 'u1', email: 'teach@stmc.co', role: 'TEACHER', leadTeacher: false });
   });
 });
 
@@ -126,5 +127,24 @@ describe('requireRole', () => {
       .get('/api/admin-only')
       .set('Authorization', `Bearer ${tokenFor({ id: 's1', role: 'SUPERADMIN' })}`);
     expect(res.status).toBe(200);
+  });
+
+  it('Profesor L (TEACHER con leadTeacher) pasa las puertas TEACHER_L; un TEACHER normal no', async () => {
+    prismaMock.user.findUnique.mockResolvedValue({ id: 'u1', email: 'l@stmc.co', role: 'TEACHER', active: true, leadTeacher: true });
+    let res = await request(app).get('/api/agenda').set('Authorization', `Bearer ${tokenFor()}`);
+    expect(res.status).toBe(200);
+    // ...pero no gana otros accesos de administración
+    res = await request(app).get('/api/admin-only').set('Authorization', `Bearer ${tokenFor()}`);
+    expect(res.status).toBe(403);
+
+    prismaMock.user.findUnique.mockResolvedValue({ id: 'u2', email: 't@stmc.co', role: 'TEACHER', active: true, leadTeacher: false });
+    res = await request(app).get('/api/agenda').set('Authorization', `Bearer ${tokenFor()}`);
+    expect(res.status).toBe(403);
+  });
+
+  it('la marca leadTeacher no sirve en una cuenta que no es de profesor', async () => {
+    prismaMock.user.findUnique.mockResolvedValue({ id: 'u3', email: 'r@stmc.co', role: 'RECEPTION', active: true, leadTeacher: true });
+    const res = await request(app).get('/api/agenda').set('Authorization', `Bearer ${tokenFor()}`);
+    expect(res.status).toBe(403);
   });
 });

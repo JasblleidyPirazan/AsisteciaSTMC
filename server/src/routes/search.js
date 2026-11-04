@@ -9,7 +9,8 @@ const router = express.Router();
 // Búsqueda global (buscador ⌘K): estudiantes y grupos activos que coincidan con
 // el texto. Solo roles de gestión con acceso a esas vistas. Devuelve lo mínimo
 // para pintar cada resultado y navegar a su detalle.
-router.get('/', requireRole('ADMIN', 'SUPERADMIN', 'PHYSICAL_TRAINER', 'RECEPTION'), async (req, res, next) => {
+// TEACHER_L: el Profesor L busca estudiantes para agregarlos a la agenda de reposiciones
+router.get('/', requireRole('ADMIN', 'SUPERADMIN', 'PHYSICAL_TRAINER', 'RECEPTION', 'TEACHER_L'), async (req, res, next) => {
   try {
     const q = String(req.query.q || '').trim();
     if (q.length < 2) return res.json({ success: true, data: { students: [], groups: [] } });

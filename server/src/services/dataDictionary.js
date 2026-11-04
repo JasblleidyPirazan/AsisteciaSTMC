@@ -211,6 +211,7 @@ const TABLES = [
       col('role', 'role', 'Role', false, 'Access level. Default TEACHER.'),
       col('active', 'active', 'boolean', false, 'Soft delete. false = account blocked. Default true.'),
       col('policies_accepted_at', 'policiesAcceptedAt', 'timestamp', true, 'When the user accepted the academy policies (blocking modal on the parent portal).'),
+      col('lead_teacher', 'leadTeacher', 'boolean', false, '"Profesor L": a TEACHER account that can also see the make-up/reprogramming screen and the make-up booking agenda, and add or move students there. Only meaningful with role TEACHER. Default false.'),
       createdAt(),
       col('updated_at', 'updatedAt', 'timestamp', false, 'Last update, maintained by Prisma.'),
     ],

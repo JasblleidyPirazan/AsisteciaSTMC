@@ -13,13 +13,13 @@ async function authMiddleware(req, res, next) {
     // immediately instead of waiting for the 7-day token expiry
     const user = await prisma.user.findUnique({
       where: { id: payload.id },
-      select: { id: true, email: true, role: true, active: true },
+      select: { id: true, email: true, role: true, active: true, leadTeacher: true },
     });
     if (!user || !user.active) {
       return res.status(401).json({ success: false, error: 'Usuario inactivo o no encontrado' });
     }
 
-    req.user = { id: user.id, email: user.email, role: user.role };
+    req.user = { id: user.id, email: user.email, role: user.role, leadTeacher: user.role === 'TEACHER' && !!user.leadTeacher };
     next();
   } catch (err) {
     if (err.name === 'JsonWebTokenError' || err.name === 'TokenExpiredError') {
@@ -29,11 +29,18 @@ async function authMiddleware(req, res, next) {
   }
 }
 
+// "Profesor L" no es un valor del enum Role: es un TEACHER con
+// `leadTeacher = true`. Así conserva todo lo del profesor y, además, pasa las
+// puertas que listan la pseudo-rol TEACHER_L.
+const TEACHER_L = 'TEACHER_L';
+const isLeadTeacher = (user) => user?.role === 'TEACHER' && !!user?.leadTeacher;
+
 function requireRole(...roles) {
   return (req, res, next) => {
     // SUPERADMIN is the top role: a strict superset of ADMIN, so it passes
     // every role gate without having to be listed explicitly everywhere.
     if (req.user?.role === 'SUPERADMIN') return next();
+    if (roles.includes(TEACHER_L) && isLeadTeacher(req.user)) return next();
     if (!roles.includes(req.user?.role)) {
       return res.status(403).json({ success: false, error: 'Acceso no autorizado' });
     }
@@ -46,4 +53,4 @@ function requireRole(...roles) {
 // SUPERADMIN is included as the superset of ADMIN.
 const MANAGEMENT = ['SUPERADMIN', 'ADMIN', 'PHYSICAL_TRAINER'];
 
-module.exports = { authMiddleware, requireRole, MANAGEMENT };
+module.exports = { authMiddleware, requireRole, MANAGEMENT, TEACHER_L, isLeadTeacher };

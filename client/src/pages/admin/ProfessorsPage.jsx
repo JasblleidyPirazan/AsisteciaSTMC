@@ -15,7 +15,7 @@ export default function ProfessorsPage() {
 
   // Edit modal
   const [editTarget, setEditTarget] = useState(null); // professor object
-  const [editForm, setEditForm] = useState({ name: '', email: '', password: '' });
+  const [editForm, setEditForm] = useState({ name: '', email: '', password: '', leadTeacher: false });
   const [editError, setEditError] = useState('');
   const [editSaving, setEditSaving] = useState(false);
 
@@ -54,7 +54,7 @@ export default function ProfessorsPage() {
 
   function openEdit(p) {
     setEditTarget(p);
-    setEditForm({ name: p.name, email: p.user?.email || '', password: '' });
+    setEditForm({ name: p.name, email: p.user?.email || '', password: '', leadTeacher: !!p.user?.leadTeacher });
     setEditError('');
   }
 
@@ -69,6 +69,8 @@ export default function ProfessorsPage() {
         payload.email = editForm.email;
       }
       if (editForm.password) payload.password = editForm.password;
+      // "Profesor L" se guarda en la cuenta de acceso: solo si tiene o va a tener una
+      if (editForm.leadTeacher !== !!editTarget.user?.leadTeacher) payload.leadTeacher = editForm.leadTeacher;
       const updated = await api.put(`/professors/${editTarget.id}`, payload);
       setProfessors(professors.map((p) => (p.id === editTarget.id ? { ...p, ...updated } : p)));
       setEditTarget(null);
@@ -162,7 +164,10 @@ export default function ProfessorsPage() {
             <div key={p.id} className="card mb-2">
               <div className="flex items-center justify-between">
                 <div style={{ flex: 1, minWidth: 0 }}>
-                  <div className="font-medium">{p.name}</div>
+                  <div className="font-medium">
+                    {p.name}
+                    {p.user?.leadTeacher && <span className="badge badge-blue" style={{ marginLeft: 6 }}>Profesor L</span>}
+                  </div>
                   {p.user?.email ? (
                     <div className="text-xs text-gray">{p.user.email}</div>
                   ) : (
@@ -270,6 +275,19 @@ export default function ProfessorsPage() {
                     : 'Escribe correo y contraseña para habilitar el acceso del profesor.'}
                 </span>
               </div>
+
+              <label className="flex items-center gap-2 text-sm" style={{ alignItems: 'flex-start' }}>
+                <input type="checkbox" checked={editForm.leadTeacher}
+                  disabled={!editTarget.user?.email && !(editForm.email && editForm.password)}
+                  onChange={(e) => setEditForm({ ...editForm, leadTeacher: e.target.checked })} />
+                <span>
+                  <strong>Profesor L</strong>
+                  <span className="text-xs text-gray" style={{ display: 'block' }}>
+                    Además de lo de cualquier profesor, ve «Reposiciones y reprogramación» y la Agenda de reposiciones,
+                    y puede agregar y mover estudiantes en los turnos. Necesita cuenta de acceso.
+                  </span>
+                </span>
+              </label>
 
               <div className="flex gap-2 mt-2">
                 <button type="button" className="btn btn-outline" style={{ flex: 1 }}

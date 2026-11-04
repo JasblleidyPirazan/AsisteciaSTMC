@@ -41,7 +41,7 @@ const byUrgency = (a, b) =>
 
 // ─── GET /api/ledger ──────────────────────────────────────────────────────
 
-router.get('/', requireRole('ADMIN', 'PHYSICAL_TRAINER', 'RECEPTION'), async (req, res, next) => {
+router.get('/', requireRole('ADMIN', 'PHYSICAL_TRAINER', 'RECEPTION', 'TEACHER_L'), async (req, res, next) => {
   try {
     const { groupId, semaforo, q } = req.query;
     if (semaforo && !SEMAFOROS.includes(String(semaforo).toUpperCase())) {
@@ -75,7 +75,7 @@ router.get('/', requireRole('ADMIN', 'PHYSICAL_TRAINER', 'RECEPTION'), async (re
 // Avance de las reposiciones: totales (causadas, dictadas, programadas, por
 // agendar) y reporte por semana. Ver services/makeupProgress.js.
 
-router.get('/makeups-progress', requireRole('ADMIN', 'PHYSICAL_TRAINER'), async (req, res, next) => {
+router.get('/makeups-progress', requireRole('ADMIN', 'PHYSICAL_TRAINER', 'TEACHER_L'), async (req, res, next) => {
   try {
     const { buildMakeupProgress } = require('../services/makeupProgress');
     const { dbDateStr } = require('../lib/dates');
@@ -99,7 +99,7 @@ router.get('/makeups-progress', requireRole('ADMIN', 'PHYSICAL_TRAINER'), async 
 // ─── GET /api/ledger/groups ───────────────────────────────────────────────
 // (antes de /:studentId para que "groups" no se tome como un id)
 
-router.get('/groups', requireRole('ADMIN', 'PHYSICAL_TRAINER'), async (req, res, next) => {
+router.get('/groups', requireRole('ADMIN', 'PHYSICAL_TRAINER', 'TEACHER_L'), async (req, res, next) => {
   try {
     const loaded = await loadLedgers();
     if (!loaded.semester) return res.json({ success: true, data: { semester: null, groups: [] } });
@@ -183,8 +183,9 @@ router.get('/:studentId', async (req, res, next) => {
       // Solo su hijo
       if (student.parentUserId !== userId) return res.status(403).json({ success: false, error: 'Acceso no autorizado' });
       ownChild = true;
-    } else if (role === 'TEACHER') {
-      // Solo estudiantes de grupos donde es el titular
+    } else if (role === 'TEACHER' && !req.user.leadTeacher) {
+      // Solo estudiantes de grupos donde es el titular (el Profesor L ve a todos,
+      // como en la lista de Reposiciones y reprogramación)
       const professorId = await professorIdOf(req.user);
       const mine = professorId && await prisma.studentEnrollment.findFirst({
         where: { studentId, group: { professorId } },
