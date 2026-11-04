@@ -31,7 +31,9 @@ router.post('/login', async (req, res, next) => {
     }
 
     const token = jwt.sign(
-      { id: user.id, email: user.email, role: user.role },
+      // leadTeacher en el token para que la app sepa del Profesor L al recargar
+      // (el servidor igual la revalida en BD en cada petición)
+      { id: user.id, email: user.email, role: user.role, leadTeacher: user.role === 'TEACHER' && !!user.leadTeacher },
       process.env.JWT_SECRET,
       { expiresIn: '7d' }
     );
@@ -42,6 +44,7 @@ router.post('/login', async (req, res, next) => {
         token,
         user: {
           id: user.id, email: user.email, role: user.role, policiesAcceptedAt: user.policiesAcceptedAt,
+          leadTeacher: user.role === 'TEACHER' && !!user.leadTeacher,
           professorId: user.professor?.id || null, assistantId: user.assistant?.id || null,
         },
       },
@@ -56,7 +59,7 @@ router.get('/me', authMiddleware, async (req, res, next) => {
     const user = await prisma.user.findUnique({
       where: { id: req.user.id },
       select: {
-        id: true, email: true, role: true, active: true, policiesAcceptedAt: true,
+        id: true, email: true, role: true, active: true, policiesAcceptedAt: true, leadTeacher: true,
         professor: { select: { id: true } }, assistant: { select: { id: true } },
       },
     });
@@ -68,6 +71,7 @@ router.get('/me', authMiddleware, async (req, res, next) => {
       data: {
         id: user.id, email: user.email, role: user.role, active: user.active,
         policiesAcceptedAt: user.policiesAcceptedAt,
+        leadTeacher: user.role === 'TEACHER' && !!user.leadTeacher,
         professorId: user.professor?.id || null, assistantId: user.assistant?.id || null,
       },
     });

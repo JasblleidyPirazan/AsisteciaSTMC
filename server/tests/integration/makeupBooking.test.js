@@ -127,6 +127,32 @@ describe('enlace de reprogramación por grupo', () => {
   });
 });
 
+describe('Profesor L en la agenda', () => {
+  function authLead() {
+    prismaMock.user = {
+      findUnique: vi.fn().mockResolvedValue({ id: 'u9', email: 'l@stmc.co', role: 'TEACHER', active: true, leadTeacher: true }),
+    };
+    return tokenFor({ id: 'u9', role: 'TEACHER' });
+  }
+
+  it('puede agregar (pasa la puerta) pero no quitar', async () => {
+    const token = authLead();
+    prismaMock.semester = { findFirst: vi.fn().mockResolvedValue(null) };
+    const add = await request(app).post('/api/makeup-booking/admin/agenda/participants').set('Authorization', `Bearer ${token}`)
+      .send({ date: '2020-01-03', slotKey: 'VIE-1715', studentId: 'st1' });
+    expect(add.status).toBe(400); // pasó la puerta; el turno no está en la agenda
+    const rm = await request(app).delete('/api/makeup-booking/admin/agenda/s1/participants/st1').set('Authorization', `Bearer ${token}`);
+    expect(rm.status).toBe(403);
+  });
+
+  it('no envía enlaces ni atiende sugerencias', async () => {
+    const token = authLead();
+    expect((await request(app).post('/api/makeup-booking/admin/students/st1/link').set('Authorization', `Bearer ${token}`)).status).toBe(403);
+    expect((await request(app).post('/api/makeup-booking/admin/groups/g1/link').set('Authorization', `Bearer ${token}`)).status).toBe(403);
+    expect((await request(app).patch('/api/makeup-booking/admin/suggestions/x').set('Authorization', `Bearer ${token}`).send({})).status).toBe(403);
+  });
+});
+
 describe('edición de la agenda por la coordinación', () => {
   it('solo ADMIN o Coordinador editan la agenda', async () => {
     const teacher = authAs('TEACHER');

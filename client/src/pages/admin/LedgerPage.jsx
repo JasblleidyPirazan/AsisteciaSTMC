@@ -5,6 +5,8 @@ import StudentLedgerCard from '../../components/StudentLedgerCard';
 import StudentQuickPanel from '../../components/StudentQuickPanel';
 import { GLOSSARY, SEMAFORO } from '../../utils/glossary';
 import { fmtDate } from '../../utils/dates';
+import { useAuth } from '../../hooks/useAuth';
+import { isLeadTeacher } from '../../utils/roles';
 
 const n = (v) => Number(v || 0).toLocaleString('es-CO', { maximumFractionDigits: 1 });
 const FILTERS = [
@@ -22,6 +24,8 @@ function actionFor(l) {
 }
 
 export default function LedgerPage() {
+  const { user } = useAuth();
+  const lead = isLeadTeacher(user);
   const navigate = useNavigate();
   const [data, setData] = useState(null);
   const [error, setError] = useState('');
@@ -149,7 +153,9 @@ export default function LedgerPage() {
             {rows.length === 0 ? (
               <div className="alert alert-success">🎾 Ningún estudiante en este filtro.</div>
             ) : rows.map((l) => {
-              const action = actionFor(l);
+              let action = actionFor(l);
+              // El Profesor L no extiende calendario ni envía enlaces (pantallas de la coordinación)
+              if (lead && action && (action.key === 'extend' || action.key === 'link')) action = null;
               return (
                 <div key={l.studentId} className="card mb-2"
                   style={{ borderLeft: `4px solid ${(SEMAFORO[l.semaforo] || SEMAFORO.GRIS).color}` }}>
@@ -178,7 +184,8 @@ export default function LedgerPage() {
           </>
         )}
       </div>
-      {panelId && (
+      {/* El panel rápido trae la ficha completa (contacto, pagos): no para el Profesor L */}
+      {panelId && !lead && (
         <StudentQuickPanel studentId={panelId} onClose={() => setPanelId(null)}
           from={{ label: 'Reposiciones y reprogramación', to: '/admin' }} />
       )}
