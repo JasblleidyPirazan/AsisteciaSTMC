@@ -20,10 +20,13 @@ const fmtStart = (hm) => {
   return `${((h + 11) % 12) + 1}:${String(m).padStart(2, '0')} ${h < 12 ? 'a. m.' : 'p. m.'}`;
 };
 
-export default function MakeupBookingPage({ purpose = 'REPOSICION' }) {
+// apiBase: con el enlace de grupo (GroupReprogramPage) la base es
+// /makeup-booking/group/:groupToken/students/:studentId; onBack vuelve a la lista del grupo.
+export default function MakeupBookingPage({ purpose = 'REPOSICION', apiBase = null, onBack = null }) {
   const { token } = useParams();
   const reprog = purpose === 'REPROGRAMACION';
-  const stateUrl = `/makeup-booking/${token}${reprog ? '?purpose=REPROGRAMACION' : ''}`;
+  const base = apiBase || `/makeup-booking/${token}`;
+  const stateUrl = `${base}${reprog ? '?purpose=REPROGRAMACION' : ''}`;
   const [data, setData] = useState(null);
   const [error, setError] = useState('');
   const [notice, setNotice] = useState('');
@@ -49,15 +52,15 @@ export default function MakeupBookingPage({ purpose = 'REPOSICION' }) {
   }
 
   const book = (slot) => run(`${slot.date}|${slot.key}`,
-    () => api.post(`/makeup-booking/${token}/book`, { date: slot.date, slotKey: slot.key, purpose }),
+    () => api.post(`${base}/book`, { date: slot.date, slotKey: slot.key, purpose }),
     `✅ Reservado: ${dayTitle(slot.date)}, ${slot.label}.`);
   const cancel = (b) => {
     if (!window.confirm('¿Cancelar esta reserva?')) return;
-    run(`c${b.sessionId}`, () => api.delete(`/makeup-booking/${token}/book/${b.sessionId}`), 'Reserva cancelada.');
+    run(`c${b.sessionId}`, () => api.delete(`${base}/book/${b.sessionId}`), 'Reserva cancelada.');
   };
   const suggest = (e) => {
     e.preventDefault();
-    run('suggest', () => api.post(`/makeup-booking/${token}/suggestions`, { text: suggestion.trim(), purpose }),
+    run('suggest', () => api.post(`${base}/suggestions`, { text: suggestion.trim(), purpose }),
       '📨 Recibimos tu sugerencia. La Escuela te contactará.')
       .then(() => setSuggestion(''));
   };
@@ -70,12 +73,16 @@ export default function MakeupBookingPage({ purpose = 'REPOSICION' }) {
       </div>
     </div>
   );
+  const back = onBack && (
+    <button className="btn btn-ghost mb-2" style={{ minHeight: 36 }} onClick={onBack}>← Elegir otro estudiante</button>
+  );
 
   if (!data) {
     return (
       <div className="page">
         {header}
         <div className="page-content">
+          {back}
           {error ? <div className="alert alert-error">{error}</div> : <div className="spinner" />}
         </div>
       </div>
@@ -101,6 +108,7 @@ export default function MakeupBookingPage({ purpose = 'REPOSICION' }) {
     <div className="page">
       {header}
       <div className="page-content">
+        {back}
         <div className="card mb-3">
           <div className="font-medium" style={{ fontSize: '1.1rem' }}>{student.name}</div>
           {student.groups.length > 0 && <div className="text-xs text-gray">Grupo {student.groups.join(', ')}</div>}

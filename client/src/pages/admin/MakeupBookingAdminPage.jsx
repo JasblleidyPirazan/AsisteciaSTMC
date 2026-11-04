@@ -9,6 +9,8 @@ import { fmtDate, bogotaTodayStr } from '../../utils/dates';
 // Enlaces de reposición (/reponer/:token): lluvia, canceladas por la Escuela, justificadas.
 // Enlaces de reprogramación (/reprogramar/:token): clases no vistas por festivos o recesos.
 //   Ambos se envían por WhatsApp (mensaje listo, sin conexión de API), correo o copiar.
+//   Por grupo (/reprogramar/g/:token): un solo enlace para todos los estudiantes del
+//   grupo; el acudiente elige a su hijo. Ideal para mandarlo al chat del grupo.
 // Sugerencias: horarios que pidieron los acudientes cuando nada les sirvió.
 
 const dayTitle = (date) => {
@@ -34,6 +36,16 @@ function message(s, rules, kind = 'repos') {
     : `${s.name} tiene ${n} clase${n !== 1 ? 's' : ''} por reponer `
       + 'en la Escuela de Tenis Santa María. Puedes agendar sus reposiciones aquí, sin usuario ni contraseña:\n';
   return `${hola}${body}${linkFor(s.token, kind)}${turnos ? `\n\nTurnos: ${turnos}.` : ''}`;
+}
+
+const groupLinkFor = (token) => `${window.location.origin}/reprogramar/g/${token}`;
+
+function groupMessage(g, rules) {
+  const turnos = (rules?.slots || []).map((t) => `${t.day} ${t.label}`).join(' · ');
+  return `Hola, familias del grupo ${g.code}: algunas clases no se dictaron por festivos o días de receso `
+    + 'y las vamos a reprogramar. Con este enlace pueden agendarlas, sin usuario ni contraseña: '
+    + 'abran el enlace, toquen el nombre de su hijo o hija y elijan un turno.\n'
+    + `${groupLinkFor(g.token)}${turnos ? `\n\nTurnos: ${turnos}.` : ''}`;
 }
 
 const KIND_TEXT = {
@@ -64,6 +76,7 @@ export default function MakeupBookingAdminPage() {
   const [busy, setBusy] = useState('');
   const [onlyToSchedule, setOnlyToSchedule] = useState(true);
   const [search, setSearch] = useState('');
+  const [reprogMode, setReprogMode] = useState('student'); // 'student' | 'group'
 
   const load = () => api.get('/makeup-booking/admin/overview').then(setData).catch((e) => setError(e.message));
   useEffect(() => {
@@ -98,6 +111,19 @@ export default function MakeupBookingAdminPage() {
       setError(e.message);
     } finally {
       setBusy('');
+    }
+  }
+
+  const createGroupLink = (g, regenerate = false) => act(`glink${g.groupId}`,
+    () => api.post(`/makeup-booking/admin/groups/${g.groupId}/link`, { regenerate }),
+    regenerate ? `Enlace del grupo ${g.code} cambiado: el anterior ya no funciona.` : null);
+
+  async function copyGroup(g) {
+    try {
+      await navigator.clipboard.writeText(groupMessage(g, data.rules));
+      setNotice(`Mensaje del grupo ${g.code} copiado. Pégalo en el chat del grupo.`);
+    } catch {
+      window.prompt('Copia el enlace:', groupLinkFor(g.token));
     }
   }
 
@@ -227,7 +253,73 @@ export default function MakeupBookingAdminPage() {
           </>
         )}
 
-        {(tab === 'links' || tab === 'reprog') && (
+        {tab === 'reprog' && (
+          <div style={{ display: 'flex', gap: 8, marginBottom: 12 }}>
+            <button {...tabBtn(reprogMode === 'student')} onClick={() => setReprogMode('student')}>👤 Por estudiante</button>
+            <button {...tabBtn(reprogMode === 'group')} onClick={() => setReprogMode('group')}>
+              👥 Por grupo ({(data.reprogGroups || []).length})
+            </button>
+          </div>
+        )}
+
+        {tab === 'reprog' && reprogMode === 'group' && (() => {
+          const groups = (data.reprogGroups || [])
+            .filter((g) => !onlyToSchedule || g.toSchedule > 0)
+            .filter((g) => !q || g.code.toLowerCase().includes(q) || (g.professor || '').toLowerCase().includes(q));
+          return (
+            <>
+              <div className="alert alert-info mb-3" style={{ fontWeight: 600 }}>👥 Enlaces de reprogramación por grupo</div>
+              <p className="text-sm text-gray mb-3">
+                Un solo enlace por grupo, para mandarlo al chat del grupo: <strong>sirve a todos sus estudiantes</strong>.
+                El acudiente abre el enlace, toca el nombre de su hijo o hija y agenda en los mismos turnos de las
+                reposiciones. Solo deja agendar clases no vistas por festivos o recesos.
+              </p>
+              <input className="form-input mb-2" placeholder="Buscar grupo o profesor…" value={search}
+                onChange={(e) => setSearch(e.target.value)} />
+              <label className="flex items-center gap-2 text-sm mb-3">
+                <input type="checkbox" checked={onlyToSchedule} onChange={(e) => setOnlyToSchedule(e.target.checked)} />
+                Solo los grupos que aún tienen clases sin agendar
+              </label>
+              {groups.length === 0 && <div className="alert alert-info">No hay grupos en esta lista.</div>}
+              {groups.map((g) => (
+                <div key={g.groupId} className="card mb-2">
+                  <div className="font-medium">Grupo {g.code}</div>
+                  <div className="text-xs text-gray">
+                    {g.professor && `${g.professor} · `}
+                    {g.students} estudiante{g.students !== 1 ? 's' : ''} · por reprogramar {g.pending}
+                    {g.reserved > 0 && ` · agendadas ${g.reserved}`}
+                    {g.toSchedule > 0 ? ` · faltan ${g.toSchedule}` : ' · todo agendado ✓'}
+                  </div>
+                  <div className="flex gap-2 mt-2" style={{ flexWrap: 'wrap' }}>
+                    {!g.token ? (
+                      <button className="btn btn-primary" style={smallBtn} disabled={!!busy} onClick={() => createGroupLink(g)}>
+                        {busy === `glink${g.groupId}` ? 'Creando…' : '🔗 Crear enlace del grupo'}
+                      </button>
+                    ) : (
+                      <>
+                        <a className="btn btn-primary" style={smallBtn} target="_blank" rel="noreferrer"
+                          title="Abre WhatsApp para elegir el chat del grupo"
+                          href={`https://wa.me/?text=${encodeURIComponent(groupMessage(g, data.rules))}`}>📲 WhatsApp</a>
+                        <button className="btn btn-outline" style={smallBtn} onClick={() => copyGroup(g)}>📋 Copiar mensaje</button>
+                        <button className="btn btn-ghost" style={smallBtn} disabled={!!busy}
+                          title="Invalida el enlace anterior del grupo"
+                          onClick={() => window.confirm(`¿Cambiar el enlace del grupo ${g.code}? El anterior dejará de funcionar.`) && createGroupLink(g, true)}>
+                          🔄 Cambiar enlace
+                        </button>
+                      </>
+                    )}
+                  </div>
+                </div>
+              ))}
+              <p className="text-xs text-gray">
+                Cualquiera que tenga el enlace del grupo puede agendar por cualquier estudiante del grupo. Si se envió
+                a quien no era, usa «Cambiar enlace».
+              </p>
+            </>
+          );
+        })()}
+
+        {(tab === 'links' || (tab === 'reprog' && reprogMode === 'student')) && (
           <>
             <div className={`alert ${kind === 'reprog' ? 'alert-info' : 'alert-success'} mb-3`} style={{ fontWeight: 600 }}>
               {kt.title}

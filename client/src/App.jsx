@@ -34,6 +34,7 @@ import ReportePage from './pages/ReportePage';
 import AuditPage from './pages/admin/AuditPage';
 import PublicValidationPage from './pages/ValidationPage';
 import MakeupBookingPage from './pages/MakeupBookingPage';
+import GroupReprogramPage from './pages/GroupReprogramPage';
 import MakeupBookingAdminPage from './pages/admin/MakeupBookingAdminPage';
 import ValidationAdminPage from './pages/admin/ValidationAdminPage';
 
@@ -95,6 +96,7 @@ function AppRoutes() {
       {/* Agendamiento de reposiciones: enlace personal del acudiente, sin login */}
       <Route path="/reponer/:token" element={<MakeupBookingPage />} />
       <Route path="/reprogramar/:token" element={<MakeupBookingPage purpose="REPROGRAMACION" />} />
+      <Route path="/reprogramar/g/:groupToken" element={<GroupReprogramPage />} />
 
       <Route path="/" element={
         <RequireAuth>

@@ -374,9 +374,10 @@ const TABLES = [
       col('active', 'active', 'boolean', false, 'Soft delete. Default true.'),
       col('deactivation_reason', 'deactivationReason', 'text', true, 'Reason given when deactivating (required).'),
       col('deactivated_at', 'deactivatedAt', 'timestamp', true, 'When the group was deactivated.'),
+      col('booking_token', 'bookingToken', 'text', true, 'Secret code of the group reprogramming link (/reprogramar/g/:token): one link for every student of the group to book the classes lost to holidays or recesses. Created on demand by the coordinator; rotating it invalidates the old link.', { key: 'UNIQUE' }),
       createdAt(),
     ],
-    keys: { primary: ['id'], unique: [['code']] },
+    keys: { primary: ['id'], unique: [['code'], ['booking_token']] },
     relations: [
       ['professor', 'Professor', 'Owner professor.'],
       ['enrollments', 'StudentEnrollment[]', 'Students of the group.'],

@@ -176,6 +176,8 @@ model Group {
   active             Boolean   @default(true)
   deactivationReason String?   @map("deactivation_reason")
   deactivatedAt      DateTime? @map("deactivated_at")
+  // Enlace de reprogramación del grupo (/reprogramar/g/:token): sirve a todos sus estudiantes
+  bookingToken       String?   @unique @map("booking_token")
   createdAt          DateTime  @default(now()) @map("created_at")
 
   professor   Professor             @relation(fields: [professorId], references: [id])
