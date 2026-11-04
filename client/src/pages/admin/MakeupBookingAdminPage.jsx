@@ -61,6 +61,72 @@ const KIND_TEXT = {
   },
 };
 
+// Formulario para agregar un estudiante a un turno de la agenda. Sugiere primero
+// a los que tienen clases por reponer o reprogramar (con cuántas les faltan) y
+// permite buscar a cualquier estudiante activo. El propósito decide de qué saldo
+// descuenta la reserva: reposición o reprogramación.
+function AddStudentForm({ data, slot, busy, onAdd, onCancel }) {
+  const [q, setQ] = useState('');
+  const [found, setFound] = useState([]);
+  const [purpose, setPurpose] = useState('REPOSICION');
+  const inSlot = new Set(slot.participants.map((p) => p.id));
+
+  useEffect(() => {
+    const term = q.trim();
+    if (term.length < 2) { setFound([]); return undefined; }
+    const t = setTimeout(() => {
+      api.get('/search', { q: term }).then((r) => setFound(r.students || [])).catch(() => setFound([]));
+    }, 250);
+    return () => clearTimeout(t);
+  }, [q]);
+
+  const owing = {};
+  for (const s of data.students) owing[s.studentId] = { ...(owing[s.studentId] || {}), name: s.name, groups: s.groups, repos: s.toSchedule };
+  for (const s of data.reprogStudents || []) owing[s.studentId] = { ...(owing[s.studentId] || {}), name: s.name, groups: s.groups, reprog: s.toSchedule };
+  const norm = (t) => t.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase();
+  const term = norm(q.trim());
+  const suggestions = Object.entries(owing)
+    .filter(([id, o]) => !inSlot.has(id) && (purpose === 'REPROGRAMACION' ? o.reprog > 0 : o.repos > 0))
+    .filter(([, o]) => !term || norm(o.name).includes(term) || norm((o.groups || []).join(' ')).includes(term))
+    .slice(0, 8);
+  const others = found.filter((st) => !inSlot.has(st.id) && !suggestions.some(([id]) => id === st.id)).slice(0, 6);
+
+  const row = (id, name, detail) => (
+    <button key={id} type="button" className="btn btn-outline" disabled={!!busy}
+      style={{ ...smallBtn, width: '100%', justifyContent: 'space-between', marginBottom: 4 }}
+      onClick={() => onAdd(id, purpose)}>
+      <span style={{ textAlign: 'left' }}>{name}</span>
+      <span className="text-xs text-gray">{detail}</span>
+    </button>
+  );
+
+  return (
+    <div className="mt-2" style={{ padding: 8, background: 'var(--gray-50)', borderRadius: 8 }}>
+      <div className="flex gap-2 mb-2" style={{ flexWrap: 'wrap' }}>
+        <button type="button" {...tabBtn(purpose === 'REPOSICION')} onClick={() => setPurpose('REPOSICION')}>🔁 Reposición</button>
+        <button type="button" {...tabBtn(purpose === 'REPROGRAMACION')} onClick={() => setPurpose('REPROGRAMACION')}>📆 Reprogramación</button>
+      </div>
+      <input className="form-input mb-2" autoFocus placeholder="Buscar estudiante o grupo…" value={q}
+        onChange={(e) => setQ(e.target.value)} />
+      {suggestions.length > 0 && (
+        <div className="text-xs text-gray mb-1">
+          Con clases por {purpose === 'REPROGRAMACION' ? 'reprogramar' : 'reponer'} sin agendar:
+        </div>
+      )}
+      {suggestions.map(([id, o]) => row(id, o.name,
+        `${(o.groups || []).join(', ')} · faltan ${purpose === 'REPROGRAMACION' ? o.reprog : o.repos}`))}
+      {others.length > 0 && <div className="text-xs text-gray mb-1 mt-1">Otros estudiantes:</div>}
+      {others.map((st) => row(st.id, st.name, st.groupCode || ''))}
+      {suggestions.length === 0 && others.length === 0 && (
+        <div className="text-xs text-gray mb-2">
+          {q.trim().length < 2 ? 'Escribe al menos 2 letras para buscar a cualquier estudiante.' : 'Sin resultados.'}
+        </div>
+      )}
+      <button type="button" className="btn btn-ghost" style={smallBtn} onClick={onCancel}>Cerrar</button>
+    </div>
+  );
+}
+
 const tabBtn = (active) => ({
   className: `btn ${active ? 'btn-primary' : 'btn-outline'}`,
   style: { flex: 1, minHeight: 38, fontSize: '0.85rem' },
@@ -77,6 +143,7 @@ export default function MakeupBookingAdminPage() {
   const [onlyToSchedule, setOnlyToSchedule] = useState(true);
   const [search, setSearch] = useState('');
   const [reprogMode, setReprogMode] = useState('student'); // 'student' | 'group'
+  const [addingTo, setAddingTo] = useState(null); // `${date}|${key}` del turno donde se agrega
 
   const load = () => api.get('/makeup-booking/admin/overview').then(setData).catch((e) => setError(e.message));
   useEffect(() => {
@@ -136,6 +203,20 @@ export default function MakeupBookingAdminPage() {
     }
   }
 
+  const slotLabelOf = (sl) => `${dayTitle(sl.date)}, ${sl.label}`;
+  const addToSlot = (slot, studentId, purpose) => act(`add${slot.date}|${slot.key}`,
+    () => api.post('/makeup-booking/admin/agenda/participants', { date: slot.date, slotKey: slot.key, studentId, purpose }),
+    `Estudiante agregado a ${slotLabelOf(slot)}.`).then(() => setAddingTo(null));
+  const removeFromSlot = (slot, p) => {
+    if (!window.confirm(`¿Quitar a ${p.name} de ${slotLabelOf(slot)}? Se libera el cupo.`)) return;
+    act(`rm${slot.sessionId}|${p.id}`,
+      () => api.delete(`/makeup-booking/admin/agenda/${slot.sessionId}/participants/${p.id}`),
+      `${p.name} salió de ${slotLabelOf(slot)}.`);
+  };
+  const moveToSlot = (slot, p, target) => act(`mv${slot.sessionId}|${p.id}`,
+    () => api.post(`/makeup-booking/admin/agenda/${slot.sessionId}/participants/${p.id}/move`, { date: target.date, slotKey: target.key }),
+    `${p.name} pasó a ${slotLabelOf(target)}.`);
+
   const assignProfessor = (slot, professorId) => act(`prof${slot.sessionId}`,
     () => api.put(`/makeups/${slot.sessionId}`, { professorId }), 'Profesor asignado.');
 
@@ -152,6 +233,8 @@ export default function MakeupBookingAdminPage() {
   }
 
   const today = bogotaTodayStr();
+  // Un turno se edita mientras no se haya reportado ni cancelado
+  const editable = (slot) => !slot.status || slot.status === 'PROGRAMADA';
   const q = search.trim().toLowerCase();
   const kind = tab === 'reprog' ? 'reprog' : 'repos';
   const sourceList = kind === 'reprog' ? (data.reprogStudents || []) : data.students;
@@ -218,13 +301,39 @@ export default function MakeupBookingAdminPage() {
                       <div className="text-xs text-gray">Sin reservas</div>
                     ) : (
                       <>
-                        <div className="text-sm mt-1">
-                          {slot.participants.map((p, i) => (
-                            <span key={p.id}>
-                              {i > 0 && ' · '}
-                              {p.name}
-                              {p.reprogramming && <span title="Reprogramación (festivo o receso)"> 📆</span>}
-                            </span>
+                        <div className="mt-1">
+                          {slot.participants.map((p) => (
+                            <div key={p.id} className="flex items-center justify-between" style={{ gap: 6, padding: '3px 0', flexWrap: 'wrap' }}>
+                              <span className="text-sm" style={{ minWidth: 0 }}>
+                                {p.name}
+                                {p.reprogramming && <span title="Reprogramación (festivo o receso)"> 📆</span>}
+                                {!p.bookedByParent && <span className="text-xs text-gray"> · por la Escuela</span>}
+                              </span>
+                              {editable(slot) && (
+                                <span className="flex items-center gap-2">
+                                  <select className="form-input form-select" style={{ minHeight: 30, fontSize: '0.75rem', width: 'auto', maxWidth: 170 }}
+                                    value="" disabled={!!busy} title="Mover a otro turno"
+                                    onChange={(e) => {
+                                      const target = data.agenda.find((t) => `${t.date}|${t.key}` === e.target.value);
+                                      if (target) moveToSlot(slot, p, target);
+                                    }}>
+                                    <option value="">↔ Mover a…</option>
+                                    {data.agenda
+                                      .filter((t) => `${t.date}|${t.key}` !== `${slot.date}|${slot.key}`)
+                                      .map((t) => {
+                                        const full = t.participants.length >= t.capacity;
+                                        return (
+                                          <option key={`${t.date}|${t.key}`} value={`${t.date}|${t.key}`} disabled={full}>
+                                            {fmtDate(t.date, { weekday: 'short', day: 'numeric', month: 'short' })} {t.label} ({t.participants.length}/{t.capacity}{full ? ' lleno' : ''})
+                                          </option>
+                                        );
+                                      })}
+                                  </select>
+                                  <button className="btn btn-ghost" style={{ ...smallBtn, minHeight: 30 }} disabled={!!busy}
+                                    title="Quitar del turno" onClick={() => removeFromSlot(slot, p)}>✕</button>
+                                </span>
+                              )}
+                            </div>
                           ))}
                         </div>
                         <div className="flex items-center gap-2 mt-2" style={{ flexWrap: 'wrap' }}>
@@ -242,13 +351,24 @@ export default function MakeupBookingAdminPage() {
                         </div>
                       </>
                     )}
+                    {editable(slot) && slot.participants.length < slot.capacity && (
+                      addingTo === `${slot.date}|${slot.key}` ? (
+                        <AddStudentForm data={data} slot={slot} busy={busy}
+                          onAdd={(studentId, purpose) => addToSlot(slot, studentId, purpose)}
+                          onCancel={() => setAddingTo(null)} />
+                      ) : (
+                        <button className="btn btn-ghost mt-1" style={smallBtn} disabled={!!busy}
+                          onClick={() => setAddingTo(`${slot.date}|${slot.key}`)}>+ Agregar estudiante</button>
+                      )
+                    )}
                   </div>
                 ))}
               </div>
             ))}
             <p className="text-xs text-gray mb-1">📆 = reprogramación (clase no vista por festivo o receso); sin marca = reposición.</p>
             <p className="text-xs text-gray">
-              Para mover a un estudiante de turno o quitarlo, edita la reposición en <Link to="/admin/makeups">Reposiciones</Link>.
+              Agregar, mover o quitar estudiantes cambia de inmediato los cupos que ven los acudientes en sus enlaces.
+              Una reposición ya reportada o cancelada se edita en <Link to="/admin/makeups">Reposiciones</Link>.
             </p>
           </>
         )}

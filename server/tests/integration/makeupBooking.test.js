@@ -127,6 +127,39 @@ describe('enlace de reprogramación por grupo', () => {
   });
 });
 
+describe('edición de la agenda por la coordinación', () => {
+  it('solo ADMIN o Coordinador editan la agenda', async () => {
+    const teacher = authAs('TEACHER');
+    const res = await request(app).delete('/api/makeup-booking/admin/agenda/s1/participants/st1').set('Authorization', `Bearer ${teacher}`);
+    expect(res.status).toBe(403);
+    const reception = authAs('RECEPTION');
+    const res2 = await request(app).post('/api/makeup-booking/admin/agenda/participants').set('Authorization', `Bearer ${reception}`).send({});
+    expect(res2.status).toBe(403);
+  });
+
+  it('no se quita a nadie de una reposición ya reportada', async () => {
+    const token = authAs('PHYSICAL_TRAINER');
+    prismaMock.makeupParticipant = {
+      findUnique: vi.fn().mockResolvedValue({
+        sessionId: 's1', studentId: 'st1', bookedAt: new Date(),
+        session: { id: 's1', kind: 'MAKEUP', status: 'REALIZADA', bookingSlot: 'VIE-1715', date: new Date('2026-12-04T00:00:00Z') },
+      }),
+      delete: vi.fn(),
+    };
+    const res = await request(app).delete('/api/makeup-booking/admin/agenda/s1/participants/st1').set('Authorization', `Bearer ${token}`);
+    expect(res.status).toBe(409);
+    expect(prismaMock.makeupParticipant.delete).not.toHaveBeenCalled();
+  });
+
+  it('no se agrega a un turno que no está en la agenda', async () => {
+    const token = authAs('ADMIN');
+    prismaMock.semester = { findFirst: vi.fn().mockResolvedValue(null) };
+    const res = await request(app).post('/api/makeup-booking/admin/agenda/participants').set('Authorization', `Bearer ${token}`)
+      .send({ date: '2020-01-03', slotKey: 'VIE-1715', studentId: 'st1' });
+    expect(res.status).toBe(400);
+  });
+});
+
 describe('coordinación', () => {
   it('la agenda exige sesión de ADMIN o Coordinador', async () => {
     expect((await request(app).get('/api/makeup-booking/admin/overview')).status).toBe(401);
