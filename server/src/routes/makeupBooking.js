@@ -21,6 +21,9 @@
 // Coordinación (ADMIN / Coordinador, auth inline):
 //   GET    /admin/overview               → agenda de turnos, estudiantes por reponer, sugerencias
 //   POST   /admin/students/:id/link      → crea (o rota con regenerate) el enlace del estudiante
+//   POST   /admin/agenda/participants    → agregar un estudiante a un turno { date, slotKey, studentId, purpose? }
+//   DELETE /admin/agenda/:sessionId/participants/:studentId        → quitarlo del turno
+//   POST   /admin/agenda/:sessionId/participants/:studentId/move   → moverlo a otro turno { date, slotKey }
 //   POST   /admin/groups/:id/link        → crea (o rota con regenerate) el enlace de reprogramación del grupo
 //   PATCH  /admin/suggestions/:id        → marcar una sugerencia como atendida { resolved }
 const express = require('express');
@@ -236,6 +239,72 @@ async function buildPublicState(student, purpose = 'REPOSICION', now = new Date(
   };
 }
 
+// Error controlado dentro de la transacción de reserva.
+class BookingError extends Error {
+  constructor(status, message) {
+    super(message);
+    this.status = status;
+  }
+}
+
+/**
+ * Ocupa un cupo del turno `slot` para el estudiante. Una sola definición para el
+ * acudiente (reserva) y para la coordinación (agregar / mover), así las dos
+ * respetan el mismo cupo. Corre en transacción Serializable con reintentos:
+ * dos reservas simultáneas no pasan del cupo y el @@unique(date, bookingSlot)
+ * evita crear dos reposiciones para el mismo turno.
+ *   participant: { bookedAt, reprogramming } — se copian a la reserva nueva
+ *   moveFrom:    sessionId del que se saca al estudiante en la misma transacción
+ *                (mover de turno); si ese turno queda vacío, se borra
+ */
+async function reserveSeat({ slot, studentId, capacity, participant, moveFrom = null, alreadyMsg, fullMsg }) {
+  const dateObj = new Date(`${slot.date}T00:00:00Z`);
+  let lastErr;
+  for (let attempt = 0; attempt < 6; attempt++) {
+    // Espera aleatoria entre reintentos para que las reservas simultáneas no choquen otra vez
+    if (attempt > 0) await new Promise((r) => setTimeout(r, 25 + Math.random() * 100 * attempt));
+    try {
+      return await prisma.$transaction(async (tx) => {
+        let session = await tx.classSession.findUnique({
+          where: { date_bookingSlot: { date: dateObj, bookingSlot: slot.key } },
+          include: { makeupParticipants: { select: { studentId: true } } },
+        });
+        if (!session) {
+          session = await tx.classSession.create({
+            data: {
+              kind: 'MAKEUP',
+              groupId: null,
+              title: `Reposición ${slot.weekday.toLowerCase()} ${slot.label}`,
+              date: dateObj,
+              status: 'PROGRAMADA',
+              effectiveUnits: SLOT_UNITS,
+              bookingSlot: slot.key,
+            },
+            include: { makeupParticipants: { select: { studentId: true } } },
+          });
+        }
+        if (session.status !== 'PROGRAMADA') throw new BookingError(409, 'Ese turno ya no está disponible.');
+        if (session.id === moveFrom) throw new BookingError(400, 'Ya está en ese turno.');
+        if (session.makeupParticipants.some((p) => p.studentId === studentId)) throw new BookingError(409, alreadyMsg);
+        if (session.makeupParticipants.length >= capacity) throw new BookingError(409, fullMsg);
+        if (moveFrom) {
+          await tx.makeupParticipant.delete({ where: { sessionId_studentId: { sessionId: moveFrom, studentId } } });
+          const left = await tx.makeupParticipant.count({ where: { sessionId: moveFrom } });
+          if (left === 0) await tx.classSession.delete({ where: { id: moveFrom } });
+        }
+        await tx.makeupParticipant.create({ data: { sessionId: session.id, studentId, ...participant } });
+        return session.id;
+      }, { isolationLevel: 'Serializable' });
+    } catch (err) {
+      if (err instanceof BookingError) throw err;
+      // P2034 = conflicto de serialización, P2002 = el turno se creó en paralelo
+      if (err.code === 'P2034' || err.code === 'P2002') { lastErr = err; continue; }
+      throw err;
+    }
+  }
+  throw new BookingError(409, 'Hubo muchas reservas al mismo tiempo. Intenta de nuevo.');
+}
+
 // ─────────────────────────── Coordinación ───────────────────────────
 const staff = [authMiddleware, requireRole('ADMIN', 'PHYSICAL_TRAINER')];
 
@@ -366,6 +435,104 @@ router.post('/admin/students/:id/link', ...staff, async (req, res, next) => {
   }
 });
 
+// ── Edición de la agenda por la coordinación ──
+// Agregar, quitar o mover estudiantes de un turno. Usa el mismo cupo que ven los
+// acudientes (reserveSeat), así los cambios se reflejan en los enlaces. La
+// coordinación puede mover a cualquier turno del horizonte, aunque ya haya
+// pasado la hora límite de reserva del acudiente.
+
+// Turno del horizonte (hoy incluido) por fecha + clave, o null.
+async function findAgendaSlot(date, slotKey) {
+  const cfg = await loadBookingConfig();
+  const excluded = await loadExcludedDates();
+  const slot = upcomingSlots(bogotaDateStr(), excluded, cfg.horizonDays, cfg.slots)
+    .find((s) => s.date === date && s.key === slotKey);
+  return { slot, cfg };
+}
+
+// Reserva de un turno de la agenda que todavía se puede editar.
+async function editableParticipation(sessionId, studentId) {
+  const p = await prisma.makeupParticipant.findUnique({
+    where: { sessionId_studentId: { sessionId: String(sessionId), studentId: String(studentId) } },
+    include: { session: true },
+  });
+  if (!p || p.session.kind !== 'MAKEUP' || !p.session.bookingSlot) return { error: [404, 'Reserva no encontrada'] };
+  if (p.session.status !== 'PROGRAMADA') return { error: [409, 'Esa reposición ya se reportó o se canceló: edítala en Reposiciones.'] };
+  if (await isSessionPeriodLocked(p.session.date)) return { error: [409, 'La quincena de ese turno está cerrada.'] };
+  return { participation: p };
+}
+
+router.post('/admin/agenda/participants', ...staff, async (req, res, next) => {
+  try {
+    const { date, slotKey, studentId } = req.body || {};
+    const reprogramming = purposeOf(req.body?.purpose) === REPROGRAMACION;
+    const { slot, cfg } = await findAgendaSlot(date, slotKey);
+    if (!slot) return fail(res, 400, 'Ese turno no está en la agenda');
+    const student = studentId && await prisma.student.findUnique({ where: { id: String(studentId) } });
+    if (!student || !student.active) return fail(res, 404, 'Estudiante no encontrado');
+    if (await isSessionPeriodLocked(new Date(`${slot.date}T00:00:00Z`))) return fail(res, 409, 'La quincena de ese turno está cerrada.');
+    try {
+      // Lo agrega la Escuela: sin bookedAt, el acudiente no lo puede cancelar
+      await reserveSeat({
+        slot, studentId: student.id, capacity: cfg.capacity,
+        participant: { bookedAt: null, reprogramming },
+        alreadyMsg: `${student.name} ya está en ese turno.`,
+        fullMsg: `Ese turno está lleno (${cfg.capacity} cupos).`,
+      });
+    } catch (err) {
+      if (err instanceof BookingError) return fail(res, err.status, err.message);
+      throw err;
+    }
+    res.status(201).json({ success: true });
+  } catch (err) {
+    next(err);
+  }
+});
+
+router.delete('/admin/agenda/:sessionId/participants/:studentId', ...staff, async (req, res, next) => {
+  try {
+    const { participation, error } = await editableParticipation(req.params.sessionId, req.params.studentId);
+    if (error) return fail(res, ...error);
+    await prisma.$transaction(async (tx) => {
+      await tx.makeupParticipant.delete({
+        where: { sessionId_studentId: { sessionId: participation.sessionId, studentId: participation.studentId } },
+      });
+      // Un turno que quedó vacío deja de existir como reposición
+      const left = await tx.makeupParticipant.count({ where: { sessionId: participation.sessionId } });
+      if (left === 0) await tx.classSession.delete({ where: { id: participation.sessionId } });
+    });
+    res.json({ success: true });
+  } catch (err) {
+    next(err);
+  }
+});
+
+router.post('/admin/agenda/:sessionId/participants/:studentId/move', ...staff, async (req, res, next) => {
+  try {
+    const { participation, error } = await editableParticipation(req.params.sessionId, req.params.studentId);
+    if (error) return fail(res, ...error);
+    const { slot, cfg } = await findAgendaSlot(req.body?.date, req.body?.slotKey);
+    if (!slot) return fail(res, 400, 'Ese turno no está en la agenda');
+    if (await isSessionPeriodLocked(new Date(`${slot.date}T00:00:00Z`))) return fail(res, 409, 'La quincena de ese turno está cerrada.');
+    try {
+      // Conserva quién lo reservó y si es reposición o reprogramación
+      await reserveSeat({
+        slot, studentId: participation.studentId, capacity: cfg.capacity,
+        participant: { bookedAt: participation.bookedAt, reprogramming: participation.reprogramming },
+        moveFrom: participation.sessionId,
+        alreadyMsg: 'Ese estudiante ya está en el turno de destino.',
+        fullMsg: `El turno de destino está lleno (${cfg.capacity} cupos).`,
+      });
+    } catch (err) {
+      if (err instanceof BookingError) return fail(res, err.status, err.message);
+      throw err;
+    }
+    res.json({ success: true });
+  } catch (err) {
+    next(err);
+  }
+});
+
 router.post('/admin/groups/:id/link', ...staff, async (req, res, next) => {
   try {
     const group = await prisma.group.findUnique({ where: { id: req.params.id } });
@@ -439,14 +606,6 @@ router.get(['/:token', GROUP_STUDENT], publicLimiter, resolveStudent, async (req
   }
 });
 
-// Error controlado dentro de la transacción de reserva.
-class BookingError extends Error {
-  constructor(status, message) {
-    super(message);
-    this.status = status;
-  }
-}
-
 router.post(['/:token/book', `${GROUP_STUDENT}/book`], publicLimiter, resolveStudent, async (req, res, next) => {
   try {
     const { student } = req;
@@ -469,59 +628,21 @@ router.post(['/:token/book', `${GROUP_STUDENT}/book`], publicLimiter, resolveStu
         : 'Ya agendaste todas las clases que tienes por reponer.');
     }
 
-    const dateObj = new Date(`${slot.date}T00:00:00Z`);
-    if (await isSessionPeriodLocked(dateObj)) {
+    if (await isSessionPeriodLocked(new Date(`${slot.date}T00:00:00Z`))) {
       return fail(res, 409, 'Ese turno ya no admite reservas. Comunícate con la Escuela.');
     }
 
-    // Serializable + reintento: dos acudientes reservando el último cupo a la
-    // vez no pueden pasarse del cupo; el @@unique(date, bookingSlot) evita
-    // crear dos reposiciones para el mismo turno.
-    let lastErr;
-    for (let attempt = 0; attempt < 6; attempt++) {
-      // Espera aleatoria entre reintentos para que las reservas simultáneas no choquen otra vez
-      if (attempt > 0) await new Promise((r) => setTimeout(r, 25 + Math.random() * 100 * attempt));
-      try {
-        await prisma.$transaction(async (tx) => {
-          let session = await tx.classSession.findUnique({
-            where: { date_bookingSlot: { date: dateObj, bookingSlot: slot.key } },
-            include: { makeupParticipants: { select: { studentId: true } } },
-          });
-          if (!session) {
-            session = await tx.classSession.create({
-              data: {
-                kind: 'MAKEUP',
-                groupId: null,
-                title: `Reposición ${slot.weekday.toLowerCase()} ${slot.label}`,
-                date: dateObj,
-                status: 'PROGRAMADA',
-                effectiveUnits: SLOT_UNITS,
-                bookingSlot: slot.key,
-              },
-              include: { makeupParticipants: { select: { studentId: true } } },
-            });
-          }
-          if (session.status !== 'PROGRAMADA') throw new BookingError(409, 'Ese turno ya no está disponible.');
-          if (session.makeupParticipants.some((p) => p.studentId === student.id)) {
-            throw new BookingError(409, 'Ya tienes una reserva en ese turno.');
-          }
-          if (session.makeupParticipants.length >= cfg.capacity) {
-            throw new BookingError(409, 'Ese turno se acaba de llenar. Elige otro.');
-          }
-          await tx.makeupParticipant.create({
-            data: { sessionId: session.id, studentId: student.id, bookedAt: new Date(), reprogramming },
-          });
-        }, { isolationLevel: 'Serializable' });
-        lastErr = null;
-        break;
-      } catch (err) {
-        if (err instanceof BookingError) return fail(res, err.status, err.message);
-        // P2034 = conflicto de serialización, P2002 = el turno se creó en paralelo
-        if (err.code === 'P2034' || err.code === 'P2002') { lastErr = err; continue; }
-        throw err;
-      }
+    try {
+      await reserveSeat({
+        slot, studentId: student.id, capacity: cfg.capacity,
+        participant: { bookedAt: new Date(), reprogramming },
+        alreadyMsg: 'Ya tienes una reserva en ese turno.',
+        fullMsg: 'Ese turno se acaba de llenar. Elige otro.',
+      });
+    } catch (err) {
+      if (err instanceof BookingError) return fail(res, err.status, err.message);
+      throw err;
     }
-    if (lastErr) return fail(res, 409, 'Hubo muchas reservas al mismo tiempo. Intenta de nuevo.');
 
     res.status(201).json({ success: true, data: await buildPublicState(student, purpose) });
   } catch (err) {
