@@ -4,7 +4,7 @@ import XLSX from 'xlsx';
 
 const require = createRequire(import.meta.url);
 const {
-  parseAttendanceRows, planClasses, pickStudent, normMark, normDate,
+  parseAttendanceRows, planClasses, pickStudent, diffClass, normMark, normDate,
 } = require('../../src/services/attendanceImport.js');
 
 function xlsxBuffer(rows) {
@@ -96,4 +96,44 @@ describe('pickStudent (homónimos)', () => {
   it('prefiere el activo', () => expect(pickStudent([a, c], [])).toBe(a));
   it('dos activos → el inscrito en el grupo de la clase', () => expect(pickStudent([a, b], ['g2'])).toBe(b));
   it('dos activos sin pista → null (ambiguo)', () => expect(pickStudent([a, b], ['g9'])).toBeNull());
+});
+
+describe('diffClass (clase ya cargada vs archivo)', () => {
+  const current = {
+    records: [
+      { studentId: 'a', status: 'PRESENTE', attendanceType: 'REGULAR' },
+      { studentId: 'b', status: 'AUSENTE', attendanceType: 'REGULAR' },
+    ],
+    professorId: 'p1', assistantId: 'x1',
+  };
+  const names = { a: 'Ana', b: 'Beto', c: 'Carla' };
+
+  it('igual → sin cambios', () => {
+    const d = diffClass(current, { records: [...current.records], professorId: null, assistantId: null }, names);
+    expect(d.changed).toBe(false);
+    expect(d.changes).toEqual([]);
+  });
+
+  it('marca distinta, estudiante nuevo, tipo distinto, profesor y asistente distintos', () => {
+    const d = diffClass(current, {
+      records: [
+        { studentId: 'b', status: 'PRESENTE', attendanceType: 'REGULAR' },
+        { studentId: 'a', status: 'PRESENTE', attendanceType: 'REPOSICION' },
+        { studentId: 'c', status: 'JUSTIFICADA', attendanceType: 'REGULAR' },
+      ],
+      professorId: 'p2', assistantId: 'x2',
+    }, names);
+    expect(d.changes).toEqual([
+      'Beto: A → P', 'Ana: ahora reposición', 'Carla: se agrega (J)', 'profesor distinto', 'asistente distinto',
+    ]);
+    expect(d.professorId).toBe('p2');
+    expect(d.assistantId).toBe('x2');
+  });
+
+  it('el estudiante que el archivo no trae se conserva; profesor/asistente en blanco no borran', () => {
+    const d = diffClass(current, { records: [{ studentId: 'b', status: 'PRESENTE', attendanceType: 'REGULAR' }], professorId: null, assistantId: null }, names);
+    expect(d.records.map((r) => `${r.studentId}:${r.status}`).sort()).toEqual(['a:PRESENTE', 'b:PRESENTE']);
+    expect(d.professorId).toBe('p1');
+    expect(d.assistantId).toBe('x1');
+  });
 });
