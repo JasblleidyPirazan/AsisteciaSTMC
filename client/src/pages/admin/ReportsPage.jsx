@@ -4,8 +4,9 @@ import { api } from '../../api/client';
 import { fmtDate as fmt } from '../../utils/dates';
 import StudentTracking from './StudentTracking';
 import GroupsProgress from './GroupsProgress';
+import SecondGroups from './SecondGroups';
 
-const TABS = ['Grupo', 'Estudiantes', 'Asistente', 'Profesor', 'Clase', 'Avance de grupos'];
+const TABS = ['Grupo', 'Estudiantes', 'Asistente', 'Profesor', 'Clase', 'Avance de grupos', 'Otros grupos'];
 function fmtCOP(n) {
   return new Intl.NumberFormat('es-CO', { style: 'currency', currency: 'COP', maximumFractionDigits: 0 }).format(n || 0);
 }
@@ -116,7 +117,7 @@ export default function ReportsPage() {
           ))}
         </div>
 
-        {tab === 5 ? <GroupsProgress /> : tab === 1 ? <StudentTracking /> : (
+        {tab === 6 ? <SecondGroups /> : tab === 5 ? <GroupsProgress /> : tab === 1 ? <StudentTracking /> : (
         <>
         <form onSubmit={handleSearch}>
           {!loadingLists && (
