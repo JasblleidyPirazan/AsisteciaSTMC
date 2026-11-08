@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react';
 import { Link } from 'react-router-dom';
 import { api } from '../../api/client';
 import { fmtDate, bogotaTodayStr } from '../../utils/dates';
+import WeeklyEmailPanel from '../../components/WeeklyEmailPanel';
 
 // Agendamiento de reposiciones y reprogramaciones — vista de coordinación (/admin/makeup-booking).
 // Agenda: turnos de las próximas 2 semanas con quién reservó y el profesor.
@@ -272,6 +273,7 @@ export default function MakeupBookingAdminPage() {
           <button {...tabBtn(tab === 'suggestions')} onClick={() => setTab('suggestions')}>
             Sugerencias ({data.suggestions.length})
           </button>
+          <button {...tabBtn(tab === 'email')} onClick={() => setTab('email')}>📧 Correo semanal</button>
         </div>
 
         {error && <div className="alert alert-error mb-3">{error}</div>}
@@ -510,6 +512,8 @@ export default function MakeupBookingAdminPage() {
             })}
           </>
         )}
+
+        {tab === 'email' && <WeeklyEmailPanel />}
 
         {tab === 'suggestions' && (
           <>

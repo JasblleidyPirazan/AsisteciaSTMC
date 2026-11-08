@@ -10,7 +10,7 @@ describe('turnos', () => {
     expect(SLOT_TEMPLATES.map((t) => `${t.weekday} ${t.start}-${t.end}`)).toEqual([
       '5 17:15-18:00', '5 18:00-18:45', '6 13:30-14:15', '6 14:15-15:00',
     ]);
-    expect(SLOT_CAPACITY).toBe(6);
+    expect(SLOT_CAPACITY).toBe(8);
   });
 
   it('lista los turnos de los próximos 14 días, hoy incluido', () => {

@@ -53,6 +53,9 @@ app.use('/api/validation', require('./routes/validation'));
 // Agendamiento público de reposiciones: enlace personal sin login; las rutas
 // /admin/* del mismo router aplican auth inline.
 app.use('/api/makeup-booking', require('./routes/makeupBooking'));
+// Correo semanal de avance: vista previa con login y feed con clave (NOTIFY_API_KEY)
+// para el script de envío; cada ruta aplica su propia autenticación.
+app.use('/api/notifications', require('./routes/notifications'));
 
 // Auth (rate-limited on login)
 app.use('/api/auth', authLimiter, require('./routes/auth'));
