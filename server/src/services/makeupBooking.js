@@ -19,7 +19,7 @@ const SLOT_TEMPLATES = [
   { key: 'SAB-1330', weekday: 6, start: '13:30', end: '14:15' },
   { key: 'SAB-1415', weekday: 6, start: '14:15', end: '15:00' },
 ];
-const SLOT_CAPACITY = 6;
+const SLOT_CAPACITY = 8;
 const SLOT_UNITS = 1;
 // Cuántos días hacia adelante se pueden ver y reservar turnos.
 const HORIZON_DAYS = 14;

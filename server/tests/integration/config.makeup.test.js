@@ -25,7 +25,7 @@ beforeEach(() => {
 describe('PUT /config — reglas de agendamiento de reposiciones', () => {
   it('GET devuelve los valores por defecto de turnos y cupo', async () => {
     const res = await request(app).get('/api/config').set('Authorization', authAs('ADMIN'));
-    expect(res.body.data.makeup_capacity).toBe('6');
+    expect(res.body.data.makeup_capacity).toBe('8');
     expect(JSON.parse(res.body.data.makeup_slots)).toHaveLength(4);
   });
 
