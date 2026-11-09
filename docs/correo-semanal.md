@@ -3,13 +3,17 @@
 Cada semana se envía un correo a los acudientes de todos los estudiantes
 **matriculados e inscritos**. El correo trae:
 
-1. **Avance** del paquete: clases pagadas, recibidas, las que faltan, % y fecha estimada de fin.
+1. **Avance** del paquete: clases pagadas, recibidas, las que faltan y %.
 2. **Reposiciones**: si tiene clases por reponer (canceladas por lluvia, canceladas por la
    Escuela y faltas justificadas), cuántas y de dónde salen, las que ya agendó, un botón a su
    **enlace personal** (`/reponer/…`) y los turnos con cupo de los próximos días. Si no tiene,
    el correo lo dice ("No tiene clases por reponer") y no lleva enlace.
 3. **Detalle clase a clase** del semestre: fecha, grupo, registro (asistió, no asistió,
    justificada, lluvia, festivo…) y qué significa para su paquete.
+
+Al final, después del aviso de inconsistencias, cierra con: "El semestre finaliza el
+<fecha>. Participa en las jornadas de reposiciones que tendremos para completar tu paquete
+de clases." La fecha es la **fecha de fin del semestre activo** (Configuración → Semestres).
 
 Todas las cifras salen del ledger del estudiante: son las mismas que ve la Escuela en el sistema.
 

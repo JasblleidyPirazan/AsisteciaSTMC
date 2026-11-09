@@ -152,6 +152,7 @@ async function buildWeeklyBatch({ appUrl, now = new Date() }) {
       openSlots,
       bookingUrl,
       semesterName: semester?.name || null,
+      semesterEnd: semester?.endDate ? dbDateStr(semester.endDate) : null,
       today,
     });
     recipients.push({

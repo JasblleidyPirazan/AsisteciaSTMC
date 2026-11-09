@@ -73,6 +73,7 @@ describe('buildProgressEmail', () => {
     openSlots: [{ date: '2026-11-14', label: '1:30 p. m. – 2:15 p. m.', free: 3 }, { date: '2026-11-14', label: '2:15 p. m. – 3:00 p. m.', free: 0 }],
     bookingUrl: 'https://x.test/reponer/abc',
     semesterName: '2026-2',
+    semesterEnd: '2026-12-12',
     today: '2026-11-08',
   };
   const mail = buildProgressEmail(base);
@@ -95,6 +96,14 @@ describe('buildProgressEmail', () => {
       expect(out).toContain('responde este correo o comunícate con el Club');
       expect(out).toContain('se entiende que la información es correcta');
     }
+  });
+  it('no muestra la fecha estimada de fin y cierra con el fin del semestre', () => {
+    for (const out of [mail.html, mail.text]) {
+      expect(out).not.toMatch(/estimada/i);
+      expect(out).toContain('El semestre finaliza el 12 de diciembre. Participa en las jornadas de reposiciones');
+    }
+    const end = mail.html.indexOf('El semestre finaliza');
+    expect(end).toBeGreaterThan(mail.html.indexOf('se entiende que la información es correcta'));
   });
   it('escapa el HTML de los datos', () => {
     expect(mail.html).toContain('Laura &lt;Pérez&gt;');
