@@ -1,6 +1,8 @@
 const express = require('express');
 const prisma = require('../lib/prisma');
 const { requireRole } = require('../middleware/auth');
+const { bogotaDateStr } = require('../lib/dates');
+const { validateExtension, validateSemesterDates } = require('../services/semesterExtension');
 
 const router = express.Router();
 
@@ -36,6 +38,9 @@ router.post('/', requireRole('ADMIN'), async (req, res, next) => {
     if (!name || !startDate || !endDate) {
       return res.status(400).json({ success: false, error: 'Nombre, fecha inicio y fecha fin requeridos' });
     }
+    if (String(endDate).slice(0, 10) < String(startDate).slice(0, 10)) {
+      return res.status(400).json({ success: false, error: 'La fecha de fin debe ser posterior a la de inicio' });
+    }
 
     // If marking as active, deactivate all others first
     if (active) {
@@ -60,6 +65,16 @@ router.post('/', requireRole('ADMIN'), async (req, res, next) => {
 router.put('/:id', requireRole('ADMIN'), async (req, res, next) => {
   try {
     const { name, startDate, endDate, active } = req.body;
+    if (startDate !== undefined || endDate !== undefined) {
+      const current = await prisma.semester.findUnique({ where: { id: req.params.id } });
+      if (!current) return res.status(404).json({ success: false, error: 'Semestre no encontrado' });
+      const all = await prisma.semester.findMany({ select: { id: true, name: true, startDate: true } });
+      const check = validateSemesterDates({
+        semester: { ...current, startDate: startDate ?? current.startDate, endDate: endDate ?? current.endDate },
+        allSemesters: all,
+      });
+      if (check.error) return res.status(400).json({ success: false, error: check.error });
+    }
     const data = {};
     if (name !== undefined) data.name = name;
     if (startDate !== undefined) data.startDate = new Date(startDate);
@@ -80,6 +95,57 @@ router.put('/:id', requireRole('ADMIN'), async (req, res, next) => {
       include: { exclusions: { orderBy: { date: 'asc' } } },
     });
     res.json({ success: true, data: semester });
+  } catch (err) {
+    next(err);
+  }
+});
+
+/**
+ * Ampliar el semestre (correr la fecha de fin). Body { endDate, dryRun }.
+ * Con dryRun (por defecto) no guarda: devuelve la vista previa con el impacto
+ * en el déficit (estudiantes que no alcanzan a ver su paquete antes del cierre),
+ * calculado con el mismo ledger que usa todo el sistema.
+ */
+router.post('/:id/extend', requireRole('ADMIN'), async (req, res, next) => {
+  try {
+    const semester = await prisma.semester.findUnique({ where: { id: req.params.id }, include: { exclusions: true } });
+    if (!semester) return res.status(404).json({ success: false, error: 'Semestre no encontrado' });
+    const all = await prisma.semester.findMany({ select: { id: true, name: true, startDate: true } });
+    const check = validateExtension({ semester, allSemesters: all, newEnd: req.body?.endDate });
+    if (check.error) return res.status(400).json({ success: false, error: check.error });
+
+    const dryRun = req.body?.dryRun !== false;
+    let impact = null;
+    if (semester.active) {
+      // Mismo ledger que el resto del sistema, con la fecha de fin actual y con la nueva
+      const { loadLedgers, summarizeLedgers } = require('../services/studentLedger');
+      const brief = (s) => ({
+        deficit: s.pendientes.deficit,
+        studentsWithDeficit: s.pendientes.studentsWithDeficit,
+        cubreCalendario: s.pendientes.cubreCalendario,
+      });
+      const [before, after] = await Promise.all([
+        loadLedgers({ semester }),
+        loadLedgers({ semester: { ...semester, endDate: new Date(`${check.to}T00:00:00Z`) } }),
+      ]);
+      impact = { before: brief(summarizeLedgers(before.ledgers)), after: brief(summarizeLedgers(after.ledgers)) };
+    }
+    // Festivos o recesos ya cargados dentro del período nuevo (para revisar que estén todos)
+    const exclusionsInRange = semester.exclusions
+      .map((e) => ({ date: e.date.toISOString().slice(0, 10), reason: e.reason || null }))
+      .filter((e) => e.date > check.from && e.date <= check.to)
+      .sort((a, b) => a.date.localeCompare(b.date));
+
+    const preview = { from: check.from, to: check.to, days: check.days, active: semester.active, impact, exclusionsInRange };
+    if (dryRun) return res.json({ success: true, data: { ...preview, applied: false } });
+
+    const updated = await prisma.semester.update({
+      where: { id: semester.id },
+      data: { endDate: new Date(`${check.to}T00:00:00Z`) },
+      include: { exclusions: { orderBy: { date: 'asc' } } },
+    });
+    console.log(`[semesters] ${req.user.email} amplió "${semester.name}" de ${check.from} a ${check.to} (${bogotaDateStr()})`);
+    res.json({ success: true, data: { ...preview, applied: true, semester: updated } });
   } catch (err) {
     next(err);
   }

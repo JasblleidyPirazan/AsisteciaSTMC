@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { api } from '../../api/client';
 import { fmtDate } from '../../utils/dates';
 import { useAuth } from '../../hooks/useAuth';
+import ExtendSemesterPanel from '../../components/ExtendSemesterPanel';
 import { toast } from '../../utils/toast';
 import AttendanceImportCard from '../../components/AttendanceImportCard';
 
@@ -101,6 +102,7 @@ export default function ConfigPage() {
 
   // Exclusions
   const [expandedSem, setExpandedSem] = useState(null);
+  const [extendingSem, setExtendingSem] = useState(null);
   const [exclDate, setExclDate] = useState('');
   const [exclReason, setExclReason] = useState('');
 
@@ -434,6 +436,10 @@ export default function ConfigPage() {
                   </button>
                 )}
                 <button className="btn btn-ghost" style={{ minHeight: 28, padding: '0 8px', fontSize: '0.75rem' }}
+                  onClick={() => setExtendingSem(extendingSem === sem.id ? null : sem.id)}>
+                  📅 Ampliar
+                </button>
+                <button className="btn btn-ghost" style={{ minHeight: 28, padding: '0 8px', fontSize: '0.75rem' }}
                   onClick={() => setExpandedSem(expandedSem === sem.id ? null : sem.id)}>
                   {expandedSem === sem.id ? '▲' : '▼'}
                 </button>
@@ -443,6 +449,18 @@ export default function ConfigPage() {
                 </button>
               </div>
             </div>
+
+            {extendingSem === sem.id && (
+              <ExtendSemesterPanel
+                semester={sem}
+                onClose={() => setExtendingSem(null)}
+                onExtended={(updated) => {
+                  setSemesters(semesters.map((s) => (s.id === updated.id ? updated : s)));
+                  setExtendingSem(null);
+                  toast.success(`Semestre ampliado hasta ${fmtDate(updated.endDate)}`);
+                }}
+              />
+            )}
 
             {expandedSem === sem.id && (
               <div style={{ marginTop: 12, borderTop: '1px solid var(--gray-200)', paddingTop: 12 }}>
