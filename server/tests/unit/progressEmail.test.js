@@ -90,6 +90,12 @@ describe('buildProgressEmail', () => {
     expect(mail.html).toContain('30 %');
     expect(mail.text).toContain('AVANCE: 12 de 40 clases (30 %)');
   });
+  it('cierra pidiendo avisar inconsistencias (si no, la información se da por correcta)', () => {
+    for (const out of [mail.html, mail.text]) {
+      expect(out).toContain('responde este correo o comunícate con el Club');
+      expect(out).toContain('se entiende que la información es correcta');
+    }
+  });
   it('escapa el HTML de los datos', () => {
     expect(mail.html).toContain('Laura &lt;Pérez&gt;');
     expect(mail.html).not.toContain('Laura <Pérez>');

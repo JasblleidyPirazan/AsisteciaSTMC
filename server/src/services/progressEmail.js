@@ -164,6 +164,9 @@ function buildProgressEmail({
     ...rows.map((r) => `- ${shortDate(r.date)} · ${r.label} · ${r.mark} · ${r.effect}`),
     '',
     toBook > 0 ? `Este enlace es personal: ${bookingUrl}` : '',
+    '',
+    'Si tienes alguna duda o notas alguna inconsistencia en esta información, por favor responde este correo o comunícate con el Club; de lo contrario, se entiende que la información es correcta.',
+    '',
     schoolName,
   ].filter((l) => l !== false && l !== null).join('\n');
 
@@ -231,8 +234,9 @@ function buildProgressEmail({
 
 <tr><td style="padding:12px 20px 20px;font-size:12px;color:#6b7280;border-top:1px solid #e5e7eb;">
   Las clases canceladas por lluvia o por la Escuela y las faltas justificadas se reponen. Los festivos y recesos no se reponen: el calendario se corre y se recuperan al final.
-  Si ves algo que no coincide, responde a este correo. ${toBook > 0 ? 'El enlace de agendamiento es personal: no lo compartas.' : ''}
-  <br><br>${esc(schoolName)}
+  ${toBook > 0 ? 'El enlace de agendamiento es personal: no lo compartas.' : ''}
+  <p style="margin:12px 0 0;font-size:13px;color:#374151;font-weight:600;">Si tienes alguna duda o notas alguna inconsistencia en esta información, por favor responde este correo o comunícate con el Club; de lo contrario, se entiende que la información es correcta.</p>
+  <p style="margin:12px 0 0;">${esc(schoolName)}</p>
 </td></tr>
 </table>
 </td></tr></table>
