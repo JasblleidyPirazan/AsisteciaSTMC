@@ -33,14 +33,14 @@ const records = [
 ];
 
 describe('isRecipient', () => {
-  it('solo estudiantes con clases de reposición pendientes', () => {
+  it('matriculados e inscritos, tengan o no reposiciones', () => {
     expect(isRecipient(ledger())).toBe(true);
-    expect(isRecipient(ledger({ reposicion: { ...ledger().reposicion, pendientes: 0 } }))).toBe(false);
+    expect(isRecipient(ledger({ reposicion: { ...ledger().reposicion, pendientes: 0 } }))).toBe(true);
+    expect(isRecipient(ledger({ status: 'INSCRITO' }))).toBe(true);
     expect(isRecipient(null)).toBe(false);
   });
-  it('deja fuera inactivos, suspendidos, de prueba y graduados', () => {
-    for (const status of ['INACTIVO', 'SUSPENDIDO', 'PRUEBA', 'GRADUADO']) expect(isRecipient(ledger({ status }))).toBe(false);
-    for (const status of ['PREINSCRITO', 'INSCRITO', 'MATRICULADO']) expect(isRecipient(ledger({ status }))).toBe(true);
+  it('deja fuera preinscritos, inactivos, suspendidos, de prueba y graduados', () => {
+    for (const status of ['PREINSCRITO', 'INACTIVO', 'SUSPENDIDO', 'PRUEBA', 'GRADUADO']) expect(isRecipient(ledger({ status }))).toBe(false);
   });
 });
 
@@ -78,7 +78,7 @@ describe('buildProgressEmail', () => {
   const mail = buildProgressEmail(base);
 
   it('asunto con el nombre y las clases por reponer', () => {
-    expect(mail.subject).toBe('Avance de Ana: 2 clases por reponer');
+    expect(mail.subject).toBe('Avance de clases de Ana: 2 clases por reponer');
   });
   it('trae avance, reposiciones, enlace y turnos con cupo', () => {
     expect(mail.html).toContain('https://x.test/reponer/abc');
@@ -98,5 +98,15 @@ describe('buildProgressEmail', () => {
     const m = buildProgressEmail({ ...base, ledger: ledger({ reposicion: { ...ledger().reposicion, porAgendar: 0 } }) });
     expect(m.html).not.toContain('Agendar mi');
     expect(m.html).toContain('ya están agendadas');
+  });
+  it('sin reposiciones: avance y detalle, sin enlace ni botón', () => {
+    const none = { ...ledger().reposicion, lluvia: 0, justificadas: 0, pendientes: 0, agendadas: 0, porAgendar: 0, items: [] };
+    const m = buildProgressEmail({ ...base, ledger: ledger({ reposicion: none }), reservations: [], bookingUrl: null });
+    expect(m.subject).toBe('Avance de clases de Ana');
+    expect(m.html).toContain('No tiene clases por reponer');
+    expect(m.html).toContain('Detalle de clases');
+    expect(m.html).not.toContain('reponer/');
+    expect(m.html).not.toContain('Turnos con cupo');
+    expect(m.text).not.toContain('null');
   });
 });

@@ -1,12 +1,13 @@
 # Correo semanal de avance a acudientes
 
-Cada semana se envía un correo a los acudientes de los estudiantes que tienen
-**clases por reponer** (canceladas por lluvia, canceladas por la Escuela y
-faltas justificadas). El correo trae:
+Cada semana se envía un correo a los acudientes de todos los estudiantes
+**matriculados e inscritos**. El correo trae:
 
 1. **Avance** del paquete: clases pagadas, recibidas, las que faltan, % y fecha estimada de fin.
-2. **Reposiciones**: cuántas tiene por reponer y de dónde salen, las que ya agendó,
-   un botón a su **enlace personal** (`/reponer/…`) y los turnos con cupo de los próximos días.
+2. **Reposiciones**: si tiene clases por reponer (canceladas por lluvia, canceladas por la
+   Escuela y faltas justificadas), cuántas y de dónde salen, las que ya agendó, un botón a su
+   **enlace personal** (`/reponer/…`) y los turnos con cupo de los próximos días. Si no tiene,
+   el correo lo dice ("No tiene clases por reponer") y no lleva enlace.
 3. **Detalle clase a clase** del semestre: fecha, grupo, registro (asistió, no asistió,
    justificada, lluvia, festivo…) y qué significa para su paquete.
 
@@ -26,11 +27,11 @@ arma los correos  ──── feed con clave ──▶ los trae y los envía co
   de envío sin tocar el contenido.
 - La coordinación ve **la vista previa** en *Agendar reposiciones → 📧 Correo semanal*
   (lista de destinatarios, cada correo tal como llegará y quiénes no tienen correo).
-- Quién recibe: estudiante activo, no de prueba, no suspendido ni graduado, con
-  clases de reposición pendientes. Se envía al correo del estudiante (o, si no tiene,
-  al de la cuenta de padre vinculada). Los que no tienen correo aparecen aparte para
-  avisarles por WhatsApp.
-- Si el estudiante aún no tenía enlace de agendamiento, se le crea al armar el correo.
+- Quién recibe: estudiantes con estado ✅ Matriculado o 🔵 Inscrito (pago completo
+  o parcial). No reciben: 📝 preinscritos (sin pagos), 🎓 graduados, de prueba,
+  suspendidos ni inactivos. Se envía al correo del estudiante (o, si no tiene,
+  al de la cuenta de padre vinculada). Los que no tienen correo aparecen aparte.
+- Si el estudiante tiene reposiciones por agendar y aún no tenía enlace, se le crea al armar el correo.
 
 ## Puesta en marcha (una sola vez)
 
