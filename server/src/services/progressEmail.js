@@ -7,17 +7,18 @@
 // docs/correo-semanal.md). Así se puede cambiar de servicio de correo sin tocar
 // el contenido.
 //
-// A quién se le escribe: `isRecipient(ledger)` — estudiantes con clases de
-// reposición pendientes (lluvia, canceladas por la Escuela y justificadas).
+// A quién se le escribe: `isRecipient(ledger)` — todos los estudiantes
+// MATRICULADOS e INSCRITOS. Quien tiene reposiciones pendientes (lluvia,
+// canceladas por la Escuela y justificadas) recibe además su enlace para agendarlas.
 
 const WEEKDAY = ['domingo', 'lunes', 'martes', 'miércoles', 'jueves', 'viernes', 'sábado'];
 const MONTH = ['ene', 'feb', 'mar', 'abr', 'may', 'jun', 'jul', 'ago', 'sep', 'oct', 'nov', 'dic'];
 
-const SKIP_STATUSES = new Set(['INACTIVO', 'SUSPENDIDO', 'PRUEBA', 'GRADUADO']);
+const RECIPIENT_STATUSES = new Set(['MATRICULADO', 'INSCRITO']);
 
-/** ¿A este estudiante le llega el correo? Solo si tiene clases por reponer. */
+/** ¿A este estudiante le llega el correo? Matriculados e inscritos. */
 function isRecipient(ledger) {
-  return !!ledger && !SKIP_STATUSES.has(ledger.status) && (ledger.reposicion?.pendientes || 0) > 0;
+  return !!ledger && RECIPIENT_STATUSES.has(ledger.status);
 }
 
 function esc(v) {
@@ -110,7 +111,7 @@ const TONE = {
  *   records:      asistencia clase a clase (ver classRows)
  *   reservations: [{ date, label }] reposiciones ya agendadas (próximas)
  *   openSlots:    [{ date, label, free }] turnos de reposición con cupo
- *   bookingUrl:   enlace personal /reponer/:token
+ *   bookingUrl:   enlace personal /reponer/:token (solo hace falta si tiene reposiciones por agendar)
  *   schoolName, semesterName, today
  * Devuelve { subject, html, text }.
  */
@@ -129,7 +130,10 @@ function buildProgressEmail({
   const toBook = Math.floor(rep.porAgendar || 0);
   const fin = ledger.proyeccion?.fin || null;
 
-  const subject = `Avance de ${firstName}: ${plural(rep.pendientes, 'clase', 'clases')} por reponer`;
+  const hasMakeups = rep.pendientes > 0;
+  const subject = hasMakeups
+    ? `Avance de clases de ${firstName}: ${plural(rep.pendientes, 'clase', 'clases')} por reponer`
+    : `Avance de clases de ${firstName}`;
 
   const origin = [
     rep.lluvia > 0 && plural(rep.lluvia, 'cancelada por lluvia', 'canceladas por lluvia'),
@@ -149,15 +153,20 @@ function buildProgressEmail({
     '',
     `AVANCE: ${fmtN(seen)} de ${fmtN(paid)} clases (${pct} %). Le faltan ${fmtN(left)}.${fin ? ` Fecha estimada de fin: ${longDate(fin)}.` : ''}`,
     '',
-    `REPOSICIONES: ${plural(rep.pendientes, 'clase', 'clases')} por reponer (${origin.join(', ')}).${repuestasTxt}`,
+    hasMakeups
+      ? `REPOSICIONES: ${plural(rep.pendientes, 'clase', 'clases')} por reponer (${origin.join(', ')}).${repuestasTxt}`
+      : `REPOSICIONES: no tiene clases por reponer.${repuestasTxt}`,
     reservations.length ? `Ya agendadas: ${reservations.map((r) => `${longDate(r.date)}, ${r.label}`).join('; ')}` : '',
-    toBook > 0 ? `Le falta agendar ${plural(toBook, 'reposición', 'reposiciones')}. Agéndalas aquí: ${bookingUrl}` : 'Todas sus reposiciones ya están agendadas.',
+    toBook > 0 ? `Le falta agendar ${plural(toBook, 'reposición', 'reposiciones')}. Agéndalas aquí: ${bookingUrl}` : (hasMakeups ? 'Todas sus reposiciones ya están agendadas.' : ''),
     toBook > 0 && slots.length ? `Turnos con cupo: ${slots.map((s) => `${shortDate(s.date)} ${s.label} (${s.free} ${s.free === 1 ? 'cupo' : 'cupos'})`).join('; ')}` : '',
     '',
     'DETALLE DE CLASES:',
     ...rows.map((r) => `- ${shortDate(r.date)} · ${r.label} · ${r.mark} · ${r.effect}`),
     '',
-    `Este enlace es personal: ${bookingUrl}`,
+    toBook > 0 ? `Este enlace es personal: ${bookingUrl}` : '',
+    '',
+    'Si tienes alguna duda o notas alguna inconsistencia en esta información, por favor responde este correo o comunícate con el Club; de lo contrario, se entiende que la información es correcta.',
+    '',
     schoolName,
   ].filter((l) => l !== false && l !== null).join('\n');
 
@@ -168,7 +177,7 @@ function buildProgressEmail({
       <div style="font-size:22px;font-weight:700;color:${color};">${esc(fmtN(value))}</div>
       <div style="font-size:12px;color:#6b7280;">${esc(label)}</div>
     </td>`;
-  const button = toBook > 0 ? `
+  const button = !hasMakeups ? '' : toBook > 0 ? `
     <p style="text-align:center;margin:18px 0;">
       <a href="${esc(bookingUrl)}" style="background:#15803d;color:#ffffff;text-decoration:none;padding:12px 22px;border-radius:8px;font-weight:700;display:inline-block;">
         Agendar ${toBook === 1 ? 'mi reposición' : `mis ${toBook} reposiciones`}
@@ -188,7 +197,7 @@ function buildProgressEmail({
 </td></tr>
 <tr><td style="padding:8px 20px;font-size:14px;">
   <p style="margin:8px 0;">${esc(greeting)}</p>
-  <p style="margin:8px 0;">Te compartimos cómo va ${esc(firstName)} con su paquete de clases y las reposiciones que tiene pendientes.</p>
+  <p style="margin:8px 0;">Te compartimos cómo va ${esc(firstName)} con su paquete de clases${hasMakeups ? ' y las reposiciones que tiene pendientes' : ''}.</p>
 </td></tr>
 
 <tr><td style="padding:8px 20px;">
@@ -202,7 +211,9 @@ function buildProgressEmail({
 
 <tr><td style="padding:8px 20px;">
   <h2 style="font-size:16px;margin:12px 0 6px;">🔁 Reposiciones</h2>
-  <p style="margin:4px 0;font-size:14px;">Tiene <b>${esc(plural(rep.pendientes, 'clase', 'clases'))} por reponer</b> (${esc(origin.join(', '))}).${esc(repuestasTxt)}</p>
+  ${hasMakeups
+    ? `<p style="margin:4px 0;font-size:14px;">Tiene <b>${esc(plural(rep.pendientes, 'clase', 'clases'))} por reponer</b> (${esc(origin.join(', '))}).${esc(repuestasTxt)}</p>`
+    : `<p style="margin:4px 0;font-size:14px;color:#15803d;">✔ No tiene clases por reponer.${esc(repuestasTxt)}</p>`}
   ${reservations.length ? `<p style="margin:8px 0 4px;font-size:14px;"><b>Ya agendadas:</b></p>
   <ul style="margin:0 0 8px;padding-left:20px;font-size:14px;">${reservations.map((r) => `<li>${esc(longDate(r.date))} · ${esc(r.label)}</li>`).join('')}</ul>` : ''}
   ${toBook > 0 ? `<p style="margin:8px 0;font-size:14px;">Le ${toBook === 1 ? 'falta' : 'faltan'} <b>agendar ${esc(plural(toBook, 'reposición', 'reposiciones'))}</b>. Elige el turno que te sirva con este enlace personal:</p>` : ''}
@@ -223,8 +234,9 @@ function buildProgressEmail({
 
 <tr><td style="padding:12px 20px 20px;font-size:12px;color:#6b7280;border-top:1px solid #e5e7eb;">
   Las clases canceladas por lluvia o por la Escuela y las faltas justificadas se reponen. Los festivos y recesos no se reponen: el calendario se corre y se recuperan al final.
-  Si ves algo que no coincide, responde a este correo. El enlace de agendamiento es personal: no lo compartas.
-  <br><br>${esc(schoolName)}
+  ${toBook > 0 ? 'El enlace de agendamiento es personal: no lo compartas.' : ''}
+  <p style="margin:12px 0 0;font-size:13px;color:#374151;font-weight:600;">Si tienes alguna duda o notas alguna inconsistencia en esta información, por favor responde este correo o comunícate con el Club; de lo contrario, se entiende que la información es correcta.</p>
+  <p style="margin:12px 0 0;">${esc(schoolName)}</p>
 </td></tr>
 </table>
 </td></tr></table>

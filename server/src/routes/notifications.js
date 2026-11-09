@@ -133,13 +133,17 @@ async function buildWeeklyBatch({ appUrl, now = new Date() }) {
       skipped.push({ studentId: st.id, name: st.name, reason: 'Sin correo registrado' });
       continue;
     }
-    // El enlace personal de agendamiento: se crea si aún no existe (igual que "Enviar enlaces")
-    let token = st.bookingToken;
-    if (!token) {
-      token = newToken();
-      await prisma.student.update({ where: { id: st.id }, data: { bookingToken: token } });
+    // Enlace personal de agendamiento, solo para quien tiene reposiciones por
+    // agendar; se crea si aún no existe (igual que "Enviar enlaces")
+    let bookingUrl = null;
+    if (Math.floor(ledger.reposicion.porAgendar || 0) > 0) {
+      let token = st.bookingToken;
+      if (!token) {
+        token = newToken();
+        await prisma.student.update({ where: { id: st.id }, data: { bookingToken: token } });
+      }
+      bookingUrl = `${appUrl}/reponer/${token}`;
     }
-    const bookingUrl = `${appUrl}/reponer/${token}`;
     const email = buildProgressEmail({
       student: st,
       ledger,
@@ -153,6 +157,7 @@ async function buildWeeklyBatch({ appUrl, now = new Date() }) {
     recipients.push({
       studentId: st.id,
       name: st.name,
+      status: ledger.status,
       guardianName: st.guardianName || null,
       to,
       pendientes: ledger.reposicion.pendientes,

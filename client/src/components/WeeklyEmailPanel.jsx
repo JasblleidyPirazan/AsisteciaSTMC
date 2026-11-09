@@ -8,6 +8,7 @@ export default function WeeklyEmailPanel() {
   const [error, setError] = useState('');
   const [open, setOpen] = useState(null);
   const [q, setQ] = useState('');
+  const [onlyMakeups, setOnlyMakeups] = useState(false);
 
   useEffect(() => {
     api.get('/notifications/weekly-progress').then(setData).catch((e) => setError(e.message));
@@ -17,15 +18,16 @@ export default function WeeklyEmailPanel() {
   if (!data) return <div className="text-sm text-gray">Armando los correos…</div>;
 
   const term = q.trim().toLowerCase();
-  const list = data.recipients.filter((r) => !term || r.name.toLowerCase().includes(term) || r.to.toLowerCase().includes(term));
+  const withMakeups = data.recipients.filter((r) => r.pendientes > 0).length;
+  const list = data.recipients.filter((r) => !onlyMakeups || r.pendientes > 0).filter((r) => !term || r.name.toLowerCase().includes(term) || r.to.toLowerCase().includes(term));
   const copyEmails = () => navigator.clipboard?.writeText(data.recipients.map((r) => r.to).join(', '));
 
   return (
     <>
       <p className="text-sm text-gray mb-2">
-        Cada semana se envía un correo a los acudientes de estudiantes con <b>clases por reponer</b> (lluvia, canceladas por la
-        Escuela y justificadas): avance del paquete, detalle clase a clase y su enlace para agendar. Esta es la vista previa de
-        lo que se enviaría hoy.
+        Cada semana se envía un correo a los acudientes de todos los estudiantes <b>matriculados e inscritos</b>: avance del
+        paquete y detalle clase a clase. Quienes tienen <b>clases por reponer</b> (lluvia, canceladas por la Escuela y
+        justificadas) reciben además su enlace para agendarlas. Esta es la vista previa de lo que se enviaría hoy.
       </p>
       {!data.feedEnabled && (
         <div className="alert alert-info mb-2">
@@ -35,20 +37,24 @@ export default function WeeklyEmailPanel() {
       )}
       <div className="flex items-center mb-2" style={{ gap: 8, flexWrap: 'wrap' }}>
         <span className="badge">✉️ {data.recipients.length} correos</span>
+        <span className="badge">🔁 {withMakeups} con reposiciones</span>
         {data.skipped.length > 0 && <span className="badge" style={{ background: '#fef3c7' }}>⚠️ {data.skipped.length} sin correo</span>}
         <input className="form-input" style={{ flex: 1, minWidth: 160 }} placeholder="Buscar estudiante o correo"
           value={q} onChange={(e) => setQ(e.target.value)} />
+        <label className="text-sm" style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+          <input type="checkbox" checked={onlyMakeups} onChange={(e) => setOnlyMakeups(e.target.checked)} /> Solo con reposiciones
+        </label>
         {data.recipients.length > 0 && <button className="btn btn-outline" onClick={copyEmails}>Copiar correos</button>}
       </div>
 
-      {data.recipients.length === 0 && <div className="alert alert-info">Hoy no hay estudiantes con clases por reponer.</div>}
+      {data.recipients.length === 0 && <div className="alert alert-info">No hay estudiantes matriculados ni inscritos con semestre activo.</div>}
       {list.map((r) => (
         <div key={r.studentId} className="card mb-2">
           <div className="flex items-center justify-between" style={{ gap: 8, cursor: 'pointer' }}
             onClick={() => setOpen(open === r.studentId ? null : r.studentId)}>
             <div style={{ minWidth: 0 }}>
               <div className="font-medium">{r.name}</div>
-              <div className="text-xs text-gray">{r.to} · {r.pendientes} por reponer · {r.porAgendar} por agendar</div>
+              <div className="text-xs text-gray">{r.to}{r.pendientes > 0 ? ` · ${r.pendientes} por reponer · ${r.porAgendar} por agendar` : ' · sin reposiciones'}</div>
             </div>
             <span className="text-sm">{open === r.studentId ? '▲' : '▼'}</span>
           </div>
@@ -64,8 +70,8 @@ export default function WeeklyEmailPanel() {
 
       {data.skipped.length > 0 && (
         <div className="card mt-3">
-          <div className="font-medium mb-1">⚠️ Tienen clases por reponer pero no tienen correo registrado</div>
-          <p className="text-xs text-gray mb-2">Agrega el correo en su ficha (Estudiantes) o envíales el enlace por WhatsApp desde “Enlaces reposición”.</p>
+          <div className="font-medium mb-1">⚠️ Matriculados o inscritos sin correo registrado</div>
+          <p className="text-xs text-gray mb-2">Agrega el correo en su ficha (Estudiantes). Si tienen reposiciones, envíales el enlace por WhatsApp desde “Enlaces reposición”.</p>
           {data.skipped.map((s) => <div key={s.studentId} className="text-sm">{s.name}</div>)}
         </div>
       )}
