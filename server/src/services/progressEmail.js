@@ -12,6 +12,7 @@
 // canceladas por la Escuela y justificadas) recibe además su enlace para agendarlas.
 
 const WEEKDAY = ['domingo', 'lunes', 'martes', 'miércoles', 'jueves', 'viernes', 'sábado'];
+const MONTH_FULL = ['enero', 'febrero', 'marzo', 'abril', 'mayo', 'junio', 'julio', 'agosto', 'septiembre', 'octubre', 'noviembre', 'diciembre'];
 const MONTH = ['ene', 'feb', 'mar', 'abr', 'may', 'jun', 'jul', 'ago', 'sep', 'oct', 'nov', 'dic'];
 
 const RECIPIENT_STATUSES = new Set(['MATRICULADO', 'INSCRITO']);
@@ -31,6 +32,11 @@ function esc(v) {
 function shortDate(d) {
   const x = new Date(`${d}T00:00:00Z`);
   return `${WEEKDAY[x.getUTCDay()].slice(0, 3)} ${x.getUTCDate()} ${MONTH[x.getUTCMonth()]}`;
+}
+// '2026-12-12' → '12 de diciembre'
+function dayMonth(d) {
+  const x = new Date(`${d}T00:00:00Z`);
+  return `${x.getUTCDate()} de ${MONTH_FULL[x.getUTCMonth()]}`;
 }
 // '2026-11-06' → 'viernes 6 de nov'
 function longDate(d) {
@@ -112,12 +118,12 @@ const TONE = {
  *   reservations: [{ date, label }] reposiciones ya agendadas (próximas)
  *   openSlots:    [{ date, label, free }] turnos de reposición con cupo
  *   bookingUrl:   enlace personal /reponer/:token (solo hace falta si tiene reposiciones por agendar)
- *   schoolName, semesterName, today
+ *   schoolName, semesterName, semesterEnd ('YYYY-MM-DD', fin del semestre), today
  * Devuelve { subject, html, text }.
  */
 function buildProgressEmail({
   student, ledger, records = [], reservations = [], openSlots = [], bookingUrl,
-  schoolName = 'Escuela de Tenis Santa María', semesterName = null, today,
+  schoolName = 'Escuela de Tenis Santa María', semesterName = null, semesterEnd = null, today,
 }) {
   const name = student.name;
   const firstName = String(name).trim().split(/\s+/)[0];
@@ -128,7 +134,9 @@ function buildProgressEmail({
   const pct = paid > 0 ? Math.round((seen / paid) * 100) : 0;
   const rep = ledger.reposicion;
   const toBook = Math.floor(rep.porAgendar || 0);
-  const fin = ledger.proyeccion?.fin || null;
+  const closing = semesterEnd
+    ? `El semestre finaliza el ${dayMonth(semesterEnd)}. Participa en las jornadas de reposiciones que tendremos para completar tu paquete de clases.`
+    : null;
 
   const hasMakeups = rep.pendientes > 0;
   const subject = hasMakeups
@@ -151,7 +159,7 @@ function buildProgressEmail({
     '',
     `Este es el avance de clases de ${name}${semesterName ? ` en el semestre ${semesterName}` : ''} al ${longDate(today)}.`,
     '',
-    `AVANCE: ${fmtN(seen)} de ${fmtN(paid)} clases (${pct} %). Le faltan ${fmtN(left)}.${fin ? ` Fecha estimada de fin: ${longDate(fin)}.` : ''}`,
+    `AVANCE: ${fmtN(seen)} de ${fmtN(paid)} clases (${pct} %). Le faltan ${fmtN(left)}.`,
     '',
     hasMakeups
       ? `REPOSICIONES: ${plural(rep.pendientes, 'clase', 'clases')} por reponer (${origin.join(', ')}).${repuestasTxt}`
@@ -166,6 +174,8 @@ function buildProgressEmail({
     toBook > 0 ? `Este enlace es personal: ${bookingUrl}` : '',
     '',
     'Si tienes alguna duda o notas alguna inconsistencia en esta información, por favor responde este correo o comunícate con el Club; de lo contrario, se entiende que la información es correcta.',
+    closing ? '' : null,
+    closing,
     '',
     schoolName,
   ].filter((l) => l !== false && l !== null).join('\n');
@@ -206,7 +216,7 @@ function buildProgressEmail({
     ${box(paid, 'clases pagadas')}${box(seen, 'clases recibidas', '#15803d')}${box(left, 'le faltan', '#b45309')}
   </tr></table>
   <div style="background:#e5e7eb;border-radius:6px;height:10px;margin:8px 0 4px;"><div style="background:#15803d;border-radius:6px;height:10px;width:${pct}%;"></div></div>
-  <div style="font-size:12px;color:#6b7280;">${pct} % del paquete${fin ? ` · fecha estimada de fin: <b>${esc(longDate(fin))}</b>` : ''}</div>
+  <div style="font-size:12px;color:#6b7280;">${pct} % del paquete</div>
 </td></tr>
 
 <tr><td style="padding:8px 20px;">
@@ -236,6 +246,7 @@ function buildProgressEmail({
   Las clases canceladas por lluvia o por la Escuela y las faltas justificadas se reponen. Los festivos y recesos no se reponen: el calendario se corre y se recuperan al final.
   ${toBook > 0 ? 'El enlace de agendamiento es personal: no lo compartas.' : ''}
   <p style="margin:12px 0 0;font-size:13px;color:#374151;font-weight:600;">Si tienes alguna duda o notas alguna inconsistencia en esta información, por favor responde este correo o comunícate con el Club; de lo contrario, se entiende que la información es correcta.</p>
+  ${closing ? `<p style="margin:12px 0 0;font-size:14px;color:#15803d;font-weight:700;">${esc(closing)}</p>` : ''}
   <p style="margin:12px 0 0;">${esc(schoolName)}</p>
 </td></tr>
 </table>
