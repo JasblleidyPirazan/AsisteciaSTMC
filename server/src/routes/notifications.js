@@ -14,9 +14,10 @@ const { authMiddleware, requireRole } = require('../middleware/auth');
 const { bogotaDateStr, dbDateStr } = require('../lib/dates');
 const { loadLedgers } = require('../services/studentLedger');
 const {
-  loadBookingConfig, upcomingSlots, canBookAt, findTemplate, slotLabel, newToken,
+  loadBookingConfig, upcomingSlots, canBookAt, newToken,
 } = require('../services/makeupBooking');
 const { buildProgressEmail, isRecipient } = require('../services/progressEmail');
+const { loadProgressInputs } = require('../services/progressReportData');
 
 const router = express.Router();
 
@@ -56,32 +57,17 @@ async function buildWeeklyBatch({ appUrl, now = new Date() }) {
   if (targets.length === 0) return { ...base, recipients: [], skipped: [] };
 
   const ids = targets.map((l) => l.studentId);
-  const dateFilter = { gte: new Date(`${window.from}T00:00:00.000Z`) };
-  if (window.to) dateFilter.lt = new Date(`${window.to}T00:00:00.000Z`);
   const cfg = await loadBookingConfig();
   const excluded = (exclusions || []).map((e) => e.date);
   const slots = upcomingSlots(today, excluded, cfg.horizonDays, cfg.slots);
   const lastDate = slots.length ? slots[slots.length - 1].date : today;
 
-  const [students, records, reservations, slotSessions] = await Promise.all([
+  const [students, { recordsBy, reservationsBy }, slotSessions] = await Promise.all([
     prisma.student.findMany({
       where: { id: { in: ids } },
       select: { id: true, name: true, email: true, guardianName: true, bookingToken: true, parentUser: { select: { email: true } } },
     }),
-    prisma.attendanceRecord.findMany({
-      where: { studentId: { in: ids }, session: { date: dateFilter } },
-      select: {
-        studentId: true, status: true, attendanceType: true,
-        session: { select: { date: true, kind: true, title: true, effectiveUnits: true, group: { select: { code: true } } } },
-      },
-    }),
-    prisma.makeupParticipant.findMany({
-      where: {
-        studentId: { in: ids }, reprogramming: false,
-        session: { kind: 'MAKEUP', status: 'PROGRAMADA', date: { gte: new Date(`${today}T00:00:00.000Z`) } },
-      },
-      select: { studentId: true, session: { select: { date: true, title: true, bookingSlot: true } } },
-    }),
+    loadProgressInputs({ studentIds: ids, window, today, slots: cfg.slots }),
     prisma.classSession.findMany({
       where: {
         kind: 'MAKEUP', bookingSlot: { not: null },
@@ -101,26 +87,6 @@ async function buildWeeklyBatch({ appUrl, now = new Date() }) {
       const taken = session?._count.makeupParticipants || 0;
       return { date: s.date, label: s.label, free: closed ? 0 : Math.max(0, cfg.capacity - taken) };
     });
-
-  const recordsBy = {};
-  for (const r of records) {
-    (recordsBy[r.studentId] ||= []).push({
-      date: dbDateStr(r.session.date),
-      kind: r.session.kind,
-      title: r.session.title,
-      groupCode: r.session.group?.code || null,
-      units: Number(r.session.effectiveUnits) || 1,
-      status: r.status,
-      attendanceType: r.attendanceType,
-    });
-  }
-  const reservationsBy = {};
-  for (const p of reservations) {
-    const date = dbDateStr(p.session.date);
-    const tpl = findTemplate(p.session.bookingSlot, cfg.slots);
-    (reservationsBy[p.studentId] ||= []).push({ date, label: tpl ? slotLabel(tpl) : (p.session.title || 'Reposición') });
-  }
-  for (const list of Object.values(reservationsBy)) list.sort((a, b) => a.date.localeCompare(b.date));
 
   const studentById = Object.fromEntries(students.map((s) => [s.id, s]));
   const recipients = [];

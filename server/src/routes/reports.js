@@ -153,6 +153,54 @@ router.get('/students-tracking', requireRole('ADMIN', 'PHYSICAL_TRAINER'), async
   }
 });
 
+/**
+ * Fichas PDF de avance (Seguimiento de Estudiantes → 📄 / 🖨️ Fichas PDF).
+ * Body { studentIds: [...] } (máx. 500). Devuelve { html, count }: un documento
+ * listo para imprimir, una ficha por página, con el mismo contenido del correo
+ * semanal (services/progressEmail.js → buildStudentFicha), sin montos.
+ */
+router.post('/students/fichas', requireRole('ADMIN', 'PHYSICAL_TRAINER'), async (req, res, next) => {
+  try {
+    const ids = Array.isArray(req.body?.studentIds) ? [...new Set(req.body.studentIds.map(String))] : [];
+    if (ids.length === 0) return res.status(400).json({ success: false, error: 'Elige al menos un estudiante' });
+    if (ids.length > 500) return res.status(400).json({ success: false, error: 'Máximo 500 fichas a la vez' });
+
+    const { buildStudentFicha, buildFichasDocument } = require('../services/progressEmail');
+    const { loadProgressInputs } = require('../services/progressReportData');
+    const { loadBookingConfig } = require('../services/makeupBooking');
+    const today = bogotaDateStr();
+    const [{ semester, window, ledgers }, cfg] = await Promise.all([loadLedgers({ studentIds: ids }), loadBookingConfig()]);
+    if (!semester) return res.status(409).json({ success: false, error: 'No hay semestre activo' });
+    const { recordsBy, reservationsBy } = await loadProgressInputs({
+      studentIds: ledgers.map((l) => l.studentId), window, today, slots: cfg.slots,
+    });
+    const semesterEnd = semester.endDate ? dbDateStr(semester.endDate) : null;
+    // Mismo orden en que se pidieron (el de la tabla filtrada)
+    const byId = Object.fromEntries(ledgers.map((l) => [l.studentId, l]));
+    const fichas = ids.filter((id) => byId[id]).map((id) => {
+      const l = byId[id];
+      return buildStudentFicha({
+        student: {
+          name: l.name,
+          document: l.document,
+          groups: l.groups.map((g) => g.code).filter(Boolean),
+          professor: l.groups[0]?.professor || null,
+          status: l.status,
+        },
+        ledger: l,
+        records: recordsBy[id] || [],
+        reservations: reservationsBy[id] || [],
+        semesterName: semester.name,
+        semesterEnd,
+        today,
+      });
+    });
+    res.json({ success: true, data: { count: fichas.length, html: buildFichasDocument(fichas) } });
+  } catch (err) {
+    next(err);
+  }
+});
+
 router.get('/students-tracking/export', requireRole('ADMIN', 'PHYSICAL_TRAINER'), async (req, res, next) => {
   try {
     const { rows, semester } = await loadStudentTracking();

@@ -110,6 +110,89 @@ const TONE = {
   ok: '#15803d', bad: '#b91c1c', repo: '#b45309', muted: '#6b7280',
 };
 
+const SCHOOL = 'Escuela de Tenis Santa María';
+const INCONSISTENCY = {
+  email: 'Si tienes alguna duda o notas alguna inconsistencia en esta información, por favor responde este correo o comunícate con el Club; de lo contrario, se entiende que la información es correcta.',
+  ficha: 'Si tienes alguna duda o notas alguna inconsistencia en esta información, por favor comunícate con el Club; de lo contrario, se entiende que la información es correcta.',
+};
+const RULES = 'Las clases canceladas por lluvia o por la Escuela y las faltas justificadas se reponen. Los festivos y recesos no se reponen: el calendario se corre y se recuperan al final.';
+
+const STATUS_LABEL = {
+  MATRICULADO: '✅ Matriculado', INSCRITO: '🔵 Inscrito', PREINSCRITO: '📝 Preinscrito', GRADUADO: '🎓 Graduado',
+  PRUEBA: '🧪 Prueba', SUSPENDIDO: '⏸️ Suspendido', INACTIVO: '⛔ Inactivo',
+};
+
+/**
+ * Las cifras y textos del reporte de avance de un estudiante. Una sola fuente
+ * para el correo semanal y la ficha PDF: los dos dicen exactamente lo mismo.
+ */
+function reportParts({ ledger, records = [], semesterEnd = null }) {
+  const paid = ledger.paquete.total;
+  const seen = Math.min(ledger.consumidas.total, paid);
+  const left = ledger.pendientes.total;
+  const pct = paid > 0 ? Math.round((seen / paid) * 100) : 0;
+  const rep = ledger.reposicion;
+  const origin = [
+    rep.lluvia > 0 && plural(rep.lluvia, 'cancelada por lluvia', 'canceladas por lluvia'),
+    rep.otras > 0 && plural(rep.otras, 'cancelada por la Escuela', 'canceladas por la Escuela'),
+    rep.justificadas > 0 && plural(rep.justificadas, 'falta justificada', 'faltas justificadas'),
+  ].filter(Boolean);
+  return {
+    paid, seen, left, pct, rep, origin,
+    hasMakeups: rep.pendientes > 0,
+    toBook: Math.floor(rep.porAgendar || 0),
+    repuestasTxt: rep.repuestas > 0 ? ` Ya repuso ${plural(rep.repuestas, 'clase', 'clases')}.` : '',
+    rows: classRows({ ledger, records }),
+    closing: semesterEnd
+      ? `El semestre finaliza el ${dayMonth(semesterEnd)}. Participa en las jornadas de reposiciones que tendremos para completar tu paquete de clases.`
+      : null,
+  };
+}
+
+// ── Bloques HTML compartidos (estilos en línea: sirven en correo y en impresión) ──
+const TD = 'padding:6px 8px;border-bottom:1px solid #e5e7eb;font-size:13px;vertical-align:top;';
+
+function avanceHtml(p) {
+  const box = (value, label, color = '#111827') => `
+    <td align="center" style="padding:10px 4px;background:#f9fafb;border-radius:8px;">
+      <div style="font-size:22px;font-weight:700;color:${color};">${esc(fmtN(value))}</div>
+      <div style="font-size:12px;color:#6b7280;">${esc(label)}</div>
+    </td>`;
+  return `
+  <h2 style="font-size:16px;margin:8px 0;">📈 Avance</h2>
+  <table role="presentation" width="100%" cellpadding="0" cellspacing="6"><tr>
+    ${box(p.paid, 'clases pagadas')}${box(p.seen, 'clases recibidas', '#15803d')}${box(p.left, 'le faltan', '#b45309')}
+  </tr></table>
+  <div style="background:#e5e7eb;border-radius:6px;height:10px;margin:8px 0 4px;"><div style="background:#15803d;border-radius:6px;height:10px;width:${p.pct}%;"></div></div>
+  <div style="font-size:12px;color:#6b7280;">${p.pct} % del paquete</div>`;
+}
+
+function reposicionesHeadHtml(p, reservations) {
+  return `
+  <h2 style="font-size:16px;margin:12px 0 6px;">🔁 Reposiciones</h2>
+  ${p.hasMakeups
+    ? `<p style="margin:4px 0;font-size:14px;">Tiene <b>${esc(plural(p.rep.pendientes, 'clase', 'clases'))} por reponer</b> (${esc(p.origin.join(', '))}).${esc(p.repuestasTxt)}</p>`
+    : `<p style="margin:4px 0;font-size:14px;color:#15803d;">✔ No tiene clases por reponer.${esc(p.repuestasTxt)}</p>`}
+  ${reservations.length ? `<p style="margin:8px 0 4px;font-size:14px;"><b>Ya agendadas:</b></p>
+  <ul style="margin:0 0 8px;padding-left:20px;font-size:14px;">${reservations.map((r) => `<li>${esc(longDate(r.date))} · ${esc(r.label)}</li>`).join('')}</ul>` : ''}`;
+}
+
+function detailHtml(rows) {
+  return `
+  <h2 style="font-size:16px;margin:12px 0 6px;">📋 Detalle de clases</h2>
+  ${rows.length ? `<table role="presentation" width="100%" cellpadding="0" cellspacing="0">
+    <thead><tr><th align="left" style="${TD}color:#6b7280;">Fecha</th><th align="left" style="${TD}color:#6b7280;">Clase</th><th align="left" style="${TD}color:#6b7280;">Registro</th><th align="left" style="${TD}color:#6b7280;">Qué significa</th></tr></thead>
+    <tbody>${rows.map((r) => `<tr style="page-break-inside:avoid;"><td style="${TD}white-space:nowrap;">${esc(shortDate(r.date))}</td><td style="${TD}">${esc(r.label)}</td><td style="${TD}color:${TONE[r.tone]};font-weight:600;">${esc(r.mark)}</td><td style="${TD}">${esc(r.effect)}</td></tr>`).join('')}</tbody>
+  </table>` : '<p style="font-size:14px;color:#6b7280;">Aún no hay clases registradas en este semestre.</p>'}`;
+}
+
+function closingHtml(p, channel, extra = '') {
+  return `
+  ${RULES} ${extra}
+  <p style="margin:12px 0 0;font-size:13px;color:#374151;font-weight:600;">${INCONSISTENCY[channel]}</p>
+  ${p.closing ? `<p style="margin:12px 0 0;font-size:14px;color:#15803d;font-weight:700;">${esc(p.closing)}</p>` : ''}`;
+}
+
 /**
  * Arma el correo de un estudiante.
  *   student:      { name, guardianName }
@@ -123,34 +206,17 @@ const TONE = {
  */
 function buildProgressEmail({
   student, ledger, records = [], reservations = [], openSlots = [], bookingUrl,
-  schoolName = 'Escuela de Tenis Santa María', semesterName = null, semesterEnd = null, today,
+  schoolName = SCHOOL, semesterName = null, semesterEnd = null, today,
 }) {
   const name = student.name;
   const firstName = String(name).trim().split(/\s+/)[0];
   const greeting = student.guardianName ? `Hola, ${student.guardianName}:` : 'Hola:';
-  const paid = ledger.paquete.total;
-  const seen = Math.min(ledger.consumidas.total, paid);
-  const left = ledger.pendientes.total;
-  const pct = paid > 0 ? Math.round((seen / paid) * 100) : 0;
-  const rep = ledger.reposicion;
-  const toBook = Math.floor(rep.porAgendar || 0);
-  const closing = semesterEnd
-    ? `El semestre finaliza el ${dayMonth(semesterEnd)}. Participa en las jornadas de reposiciones que tendremos para completar tu paquete de clases.`
-    : null;
+  const p = reportParts({ ledger, records, semesterEnd });
+  const { paid, seen, left, pct, rep, origin, hasMakeups, toBook, repuestasTxt, rows, closing } = p;
 
-  const hasMakeups = rep.pendientes > 0;
   const subject = hasMakeups
     ? `Avance de clases de ${firstName}: ${plural(rep.pendientes, 'clase', 'clases')} por reponer`
     : `Avance de clases de ${firstName}`;
-
-  const origin = [
-    rep.lluvia > 0 && plural(rep.lluvia, 'cancelada por lluvia', 'canceladas por lluvia'),
-    rep.otras > 0 && plural(rep.otras, 'cancelada por la Escuela', 'canceladas por la Escuela'),
-    rep.justificadas > 0 && plural(rep.justificadas, 'falta justificada', 'faltas justificadas'),
-  ].filter(Boolean);
-  const repuestasTxt = rep.repuestas > 0 ? ` Ya repuso ${plural(rep.repuestas, 'clase', 'clases')}.` : '';
-
-  const rows = classRows({ ledger, records });
   const slots = openSlots.filter((s) => s.free > 0).slice(0, 8);
 
   // ── Texto plano (respaldo para lectores sin HTML) ──
@@ -173,20 +239,13 @@ function buildProgressEmail({
     '',
     toBook > 0 ? `Este enlace es personal: ${bookingUrl}` : '',
     '',
-    'Si tienes alguna duda o notas alguna inconsistencia en esta información, por favor responde este correo o comunícate con el Club; de lo contrario, se entiende que la información es correcta.',
+    INCONSISTENCY.email,
     closing ? '' : null,
     closing,
     '',
     schoolName,
   ].filter((l) => l !== false && l !== null).join('\n');
 
-  // ── HTML (estilos en línea: los clientes de correo ignoran <style>) ──
-  const td = 'padding:6px 8px;border-bottom:1px solid #e5e7eb;font-size:13px;vertical-align:top;';
-  const box = (value, label, color = '#111827') => `
-    <td align="center" style="padding:10px 4px;background:#f9fafb;border-radius:8px;">
-      <div style="font-size:22px;font-weight:700;color:${color};">${esc(fmtN(value))}</div>
-      <div style="font-size:12px;color:#6b7280;">${esc(label)}</div>
-    </td>`;
   const button = !hasMakeups ? '' : toBook > 0 ? `
     <p style="text-align:center;margin:18px 0;">
       <a href="${esc(bookingUrl)}" style="background:#15803d;color:#ffffff;text-decoration:none;padding:12px 22px;border-radius:8px;font-weight:700;display:inline-block;">
@@ -210,43 +269,22 @@ function buildProgressEmail({
   <p style="margin:8px 0;">Te compartimos cómo va ${esc(firstName)} con su paquete de clases${hasMakeups ? ' y las reposiciones que tiene pendientes' : ''}.</p>
 </td></tr>
 
-<tr><td style="padding:8px 20px;">
-  <h2 style="font-size:16px;margin:8px 0;">📈 Avance</h2>
-  <table role="presentation" width="100%" cellpadding="0" cellspacing="6"><tr>
-    ${box(paid, 'clases pagadas')}${box(seen, 'clases recibidas', '#15803d')}${box(left, 'le faltan', '#b45309')}
-  </tr></table>
-  <div style="background:#e5e7eb;border-radius:6px;height:10px;margin:8px 0 4px;"><div style="background:#15803d;border-radius:6px;height:10px;width:${pct}%;"></div></div>
-  <div style="font-size:12px;color:#6b7280;">${pct} % del paquete</div>
+<tr><td style="padding:8px 20px;">${avanceHtml(p)}
 </td></tr>
 
-<tr><td style="padding:8px 20px;">
-  <h2 style="font-size:16px;margin:12px 0 6px;">🔁 Reposiciones</h2>
-  ${hasMakeups
-    ? `<p style="margin:4px 0;font-size:14px;">Tiene <b>${esc(plural(rep.pendientes, 'clase', 'clases'))} por reponer</b> (${esc(origin.join(', '))}).${esc(repuestasTxt)}</p>`
-    : `<p style="margin:4px 0;font-size:14px;color:#15803d;">✔ No tiene clases por reponer.${esc(repuestasTxt)}</p>`}
-  ${reservations.length ? `<p style="margin:8px 0 4px;font-size:14px;"><b>Ya agendadas:</b></p>
-  <ul style="margin:0 0 8px;padding-left:20px;font-size:14px;">${reservations.map((r) => `<li>${esc(longDate(r.date))} · ${esc(r.label)}</li>`).join('')}</ul>` : ''}
+<tr><td style="padding:8px 20px;">${reposicionesHeadHtml(p, reservations)}
   ${toBook > 0 ? `<p style="margin:8px 0;font-size:14px;">Le ${toBook === 1 ? 'falta' : 'faltan'} <b>agendar ${esc(plural(toBook, 'reposición', 'reposiciones'))}</b>. Elige el turno que te sirva con este enlace personal:</p>` : ''}
   ${button}
   ${toBook > 0 && slots.length ? `<p style="margin:8px 0 4px;font-size:13px;color:#374151;">Turnos con cupo en los próximos días:</p>
   <table role="presentation" width="100%" cellpadding="0" cellspacing="0">${slots.map((s) => `
-    <tr><td style="${td}">${esc(longDate(s.date))}</td><td style="${td}">${esc(s.label)}</td><td style="${td}color:#6b7280;" align="right">${s.free} ${s.free === 1 ? 'cupo' : 'cupos'}</td></tr>`).join('')}
+    <tr><td style="${TD}">${esc(longDate(s.date))}</td><td style="${TD}">${esc(s.label)}</td><td style="${TD}color:#6b7280;" align="right">${s.free} ${s.free === 1 ? 'cupo' : 'cupos'}</td></tr>`).join('')}
   </table>` : ''}
 </td></tr>
 
-<tr><td style="padding:8px 20px 16px;">
-  <h2 style="font-size:16px;margin:12px 0 6px;">📋 Detalle de clases</h2>
-  ${rows.length ? `<table role="presentation" width="100%" cellpadding="0" cellspacing="0">
-    <tr><th align="left" style="${td}color:#6b7280;">Fecha</th><th align="left" style="${td}color:#6b7280;">Clase</th><th align="left" style="${td}color:#6b7280;">Registro</th><th align="left" style="${td}color:#6b7280;">Qué significa</th></tr>
-    ${rows.map((r) => `<tr><td style="${td}white-space:nowrap;">${esc(shortDate(r.date))}</td><td style="${td}">${esc(r.label)}</td><td style="${td}color:${TONE[r.tone]};font-weight:600;">${esc(r.mark)}</td><td style="${td}">${esc(r.effect)}</td></tr>`).join('')}
-  </table>` : '<p style="font-size:14px;color:#6b7280;">Aún no hay clases registradas en este semestre.</p>'}
+<tr><td style="padding:8px 20px 16px;">${detailHtml(rows)}
 </td></tr>
 
-<tr><td style="padding:12px 20px 20px;font-size:12px;color:#6b7280;border-top:1px solid #e5e7eb;">
-  Las clases canceladas por lluvia o por la Escuela y las faltas justificadas se reponen. Los festivos y recesos no se reponen: el calendario se corre y se recuperan al final.
-  ${toBook > 0 ? 'El enlace de agendamiento es personal: no lo compartas.' : ''}
-  <p style="margin:12px 0 0;font-size:13px;color:#374151;font-weight:600;">Si tienes alguna duda o notas alguna inconsistencia en esta información, por favor responde este correo o comunícate con el Club; de lo contrario, se entiende que la información es correcta.</p>
-  ${closing ? `<p style="margin:12px 0 0;font-size:14px;color:#15803d;font-weight:700;">${esc(closing)}</p>` : ''}
+<tr><td style="padding:12px 20px 20px;font-size:12px;color:#6b7280;border-top:1px solid #e5e7eb;">${closingHtml(p, 'email', toBook > 0 ? 'El enlace de agendamiento es personal: no lo compartas.' : '')}
   <p style="margin:12px 0 0;">${esc(schoolName)}</p>
 </td></tr>
 </table>
@@ -256,4 +294,48 @@ function buildProgressEmail({
   return { subject, html, text };
 }
 
-module.exports = { buildProgressEmail, isRecipient, classRows };
+/**
+ * Ficha PDF de un estudiante (Reportes → Seguimiento de Estudiantes): el mismo
+ * contenido del correo semanal, sin saludo ni enlace de agendamiento, con los
+ * datos de identificación arriba. Devuelve un <section> para buildFichasDocument.
+ *   student: { name, document, groups: [code], professor, status }
+ */
+function buildStudentFicha({
+  student, ledger, records = [], reservations = [],
+  schoolName = SCHOOL, semesterName = null, semesterEnd = null, today,
+}) {
+  const p = reportParts({ ledger, records, semesterEnd });
+  const ident = [
+    student.document && `Documento: ${student.document}`,
+    student.groups?.length && `Grupo: ${student.groups.join(', ')}`,
+    student.professor && `Profesor: ${student.professor}`,
+    STATUS_LABEL[student.status] || null,
+  ].filter(Boolean).join(' · ');
+  return `<section style="page-break-after:always;max-width:720px;margin:0 auto;padding:0 0 12px;">
+  <div style="display:flex;justify-content:space-between;align-items:baseline;border-bottom:2px solid #15803d;padding-bottom:6px;margin-bottom:12px;">
+    <div style="font-size:12px;font-weight:700;color:#15803d;">🎾 ${esc(schoolName)}</div>
+    <div style="font-size:12px;color:#6b7280;">${semesterName ? `Semestre ${esc(semesterName)} · ` : ''}corte al ${esc(longDate(today))}</div>
+  </div>
+  <h1 style="font-size:20px;margin:0;">Avance de clases de ${esc(student.name)}</h1>
+  ${ident ? `<div style="font-size:12px;color:#6b7280;margin:2px 0 8px;">${esc(ident)}</div>` : ''}
+  ${avanceHtml(p)}
+  ${reposicionesHeadHtml(p, reservations)}
+  ${p.toBook > 0 ? `<p style="margin:8px 0;font-size:14px;">Le ${p.toBook === 1 ? 'falta' : 'faltan'} <b>agendar ${esc(plural(p.toBook, 'reposición', 'reposiciones'))}</b> (con el enlace personal que envía la Escuela).</p>` : (p.hasMakeups ? '<p style="margin:8px 0;font-size:14px;color:#15803d;font-weight:600;">✔ Todas sus reposiciones ya están agendadas.</p>' : '')}
+  ${detailHtml(p.rows)}
+  <div style="margin-top:16px;padding-top:10px;font-size:12px;color:#6b7280;border-top:1px solid #e5e7eb;">${closingHtml(p, 'ficha')}</div>
+</section>`;
+}
+
+/** Documento imprimible con varias fichas (una por página). */
+function buildFichasDocument(fichas, title = 'Fichas de avance') {
+  return `<!doctype html><html lang="es"><head><meta charset="utf-8"><title>${esc(title)}</title>
+<style>
+  @page { size: A4; margin: 14mm; }
+  body { margin: 0; font-family: Arial, Helvetica, sans-serif; color: #111827; }
+  section:last-child { page-break-after: auto !important; }
+  thead { display: table-header-group; }
+  @media print { body { -webkit-print-color-adjust: exact; print-color-adjust: exact; } }
+</style></head><body>${fichas.join('')}</body></html>`;
+}
+
+module.exports = { buildProgressEmail, buildStudentFicha, buildFichasDocument, isRecipient, classRows, reportParts };
