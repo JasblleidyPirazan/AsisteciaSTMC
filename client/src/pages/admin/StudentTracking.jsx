@@ -149,7 +149,7 @@ export default function StudentTracking() {
     if (printing || list.length === 0) return;
     setPrinting(true);
     try {
-      await printFichas(list, { rangeLabel, params: detailParams });
+      await printFichas(list);
     } catch (err) {
       toast.error(err.message);
     } finally {
@@ -353,7 +353,7 @@ export default function StudentTracking() {
 
       {detail && (
         <StudentDetailModal detail={detail} rangeLabel={rangeLabel} printing={printing} onClose={() => setDetail(null)}
-          onPrint={() => printWithDetail([{ ...detail.row, records: detail.records }])} />
+          onPrint={() => printWithDetail([detail.row])} />
       )}
     </div>
   );
@@ -427,165 +427,23 @@ function StudentDetailModal({ detail, rangeLabel, printing, onPrint, onClose }) 
 }
 
 // ─── Fichas para imprimir / guardar como PDF ───────────────────────────────
-// El navegador se encarga del PDF (Imprimir → Guardar como PDF), así que no
-// hace falta ninguna librería: se arma un documento con una ficha por página
-// dentro de un iframe oculto y se manda a imprimir.
-function esc(s) {
-  return String(s ?? '').replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
-}
+// El servidor arma las fichas con el mismo contenido del correo semanal de
+// avance (POST /reports/students/fichas → services/progressEmail.js), así la
+// ficha y el correo dicen exactamente lo mismo. El navegador hace el PDF
+// (Imprimir → Guardar como PDF): se carga el documento en un iframe oculto y se
+// manda a imprimir. Se pide en tandas de 100 para no armar respuestas enormes.
+const FICHAS_BATCH = 100;
 
-// Etiqueta de la clase de un registro: grupo, reposición o festival.
-function classLabel(rec) {
-  const s = rec.session || {};
-  // El título de una reposición suele empezar ya con "Reposición": no se repite
-  const titled = (prefix) => (!s.title ? prefix
-    : s.title.toLowerCase().startsWith(prefix.toLowerCase()) ? s.title : `${prefix} · ${s.title}`);
-  if (s.kind === 'MAKEUP') return titled('Reposición');
-  if (s.kind === 'FESTIVAL') return titled('Festival');
-  return s.group?.code || '—';
-}
-
-const MARK = {
-  PRESENTE: ['P', 'Asistió', '#1FA971'],
-  AUSENTE: ['A', 'Faltó', '#E8526A'],
-  JUSTIFICADA: ['J', 'Justificada', '#3F52A8'],
-  NO_APLICA: ['N/A', 'No aplica', '#7C8BA8'],
-};
-
-function detailTableHtml(r) {
-  const records = [...(r.records || [])]
-    .sort((a, b) => String(a.session?.date || '').localeCompare(String(b.session?.date || '')));
-  if (records.length === 0) {
-    return '<h2>Detalle clase a clase</h2><p class="empty">Sin registros de asistencia en el período.</p>';
-  }
-  const start = r.classesStartDate ? String(r.classesStartDate).slice(0, 10) : null;
-  const rows = records.map((rec, i) => {
-    const date = String(rec.session?.date || '').slice(0, 10);
-    const [code, label, color] = MARK[rec.status] || [rec.status, rec.status, '#141E45'];
-    const notes = [];
-    if (rec.attendanceType === 'REPOSICION' && rec.session?.kind !== 'MAKEUP') notes.push('Repone una clase');
-    const units = Number(rec.session?.effectiveUnits);
-    if (rec.session?.kind === 'MAKEUP' && units && units !== 1) notes.push(`Cuenta por ${units} clases`);
-    if (rec.status === 'AUSENTE' && start && date < start) notes.push('Antes de su inicio de clases: no cuenta');
-    if (rec.status === 'JUSTIFICADA' && rec.justification) notes.push(rec.justification);
-    const weekday = date ? new Date(`${date}T12:00:00`).toLocaleDateString('es-CO', { weekday: 'short' }) : '';
-    const fdate = date ? new Date(`${date}T12:00:00`).toLocaleDateString('es-CO', { day: '2-digit', month: 'short', year: 'numeric' }) : '—';
-    return `<tr>
-      <td class="n">${i + 1}</td>
-      <td>${esc(weekday)} ${esc(fdate)}</td>
-      <td>${esc(classLabel(rec))}</td>
-      <td><span class="mark" style="color:${color};background:${color}1f">${esc(code)}</span> ${esc(label)}</td>
-      <td class="obs">${esc(notes.join(' · '))}</td>
-    </tr>`;
-  }).join('');
-  return `<h2>Detalle clase a clase (${records.length})</h2>
-    <table class="detail">
-      <thead><tr><th>#</th><th>Fecha</th><th>Clase</th><th>Asistencia</th><th>Observación</th></tr></thead>
-      <tbody>${rows}</tbody>
-    </table>`;
-}
-
-function fichaHtml(r, rangeLabel) {
-  const pct = r.pct == null ? null : r.pct;
-  const barColor = pct == null ? '#8B96BE' : pct >= 85 ? '#1FA971' : pct >= 60 ? '#E8A23B' : '#E8526A';
-  const cell = (label, value, color) =>
-    `<div class="m"><div class="mv" style="color:${color}">${esc(value)}</div><div class="ml">${esc(label)}</div></div>`;
-
-  return `<section class="ficha">
-    <header>
-      <div class="brand">🎾 STMC · Academia de Tenis</div>
-      <div class="range">${esc(rangeLabel)}</div>
-    </header>
-    <h1>${esc(r.name)}</h1>
-    <div class="sub">
-      ${esc(r.groupCode || 'Sin grupo')}${r.otherGroups?.length ? ` · ${esc(r.otherGroups.join(', '))}` : ''}
-      ${r.professor ? ` · Profesor: ${esc(r.professor)}` : ''}
-      ${r.document ? ` · Documento: ${esc(r.document)}` : ''}
-    </div>
-    <div class="progress">
-      <div class="ptitle">Avance del paquete de clases</div>
-      <div class="bar"><span style="width:${Math.min(100, pct || 0)}%;background:${barColor}"></span></div>
-      <div class="pfoot"><strong style="color:${barColor}">${pct == null ? '—' : pct + '%'}</strong>
-        · ${r.total} de ${r.acquired || '—'} clases consumidas</div>
-    </div>
-    <div class="metrics">
-      ${cell('Adquiridas', r.acquired || '—', '#141E45')}
-      ${cell('Asistencias', r.present, '#1FA971')}
-      ${cell('Faltas', r.absent, '#E8526A')}
-      ${cell('Justificadas', r.justified, '#3F52A8')}
-      ${cell('No aplica', r.na, '#7C8BA8')}
-      ${cell('Reposiciones', r.makeup, '#7A5AF8')}
-      ${cell('Por lluvia', r.rain, '#4F9FB2')}
-      ${cell('Total consumidas', r.total, '#141E45')}
-    </div>
-    <p class="note">
-      Total consumidas = asistencias + faltas + reposiciones.
-      Las justificadas y los días marcados "no aplica" no consumen clase.
-      Las clases canceladas por lluvia no se cobran del paquete.
-    </p>
-    ${detailTableHtml(r)}
-    <footer>Generado el ${new Date().toLocaleDateString('es-CO', { day: '2-digit', month: 'long', year: 'numeric' })}</footer>
-  </section>`;
-}
-
-// Trae el detalle clase a clase de los estudiantes que aún no lo tienen
-// (de a 4 en paralelo para no saturar el servidor con muchas fichas).
-async function withRecords(rows, params) {
-  const out = [...rows];
-  let next = 0;
-  async function worker() {
-    while (next < out.length) {
-      const i = next++;
-      if (Array.isArray(out[i].records)) continue;
-      const d = await api.get(`/reports/student/${out[i].id}`, params);
-      out[i] = { ...out[i], records: d.records || [] };
-    }
-  }
-  await Promise.all(Array.from({ length: Math.min(4, out.length) }, worker));
-  return out;
-}
-
-export async function printFichas(list, { rangeLabel = '', params = {} } = {}) {
+export async function printFichas(list) {
   if (!list || list.length === 0) return;
-  const rows = await withRecords(list, params);
-  const html = `<!doctype html><html lang="es"><head><meta charset="utf-8">
-<title>Seguimiento de estudiantes</title>
-<style>
-  @page { size: A4; margin: 14mm; }
-  * { box-sizing: border-box; }
-  body { margin: 0; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; color: #141E45; }
-  .ficha { page-break-after: always; padding: 4mm 0; }
-  .ficha:last-child { page-break-after: auto; }
-  header { display: flex; justify-content: space-between; align-items: baseline;
-    border-bottom: 2px solid #3F52A8; padding-bottom: 8px; margin-bottom: 18px; }
-  .brand { font-weight: 700; color: #3F52A8; letter-spacing: 0.02em; }
-  .range { font-size: 11px; color: #6F7BA6; }
-  h1 { font-size: 22px; margin: 0 0 4px; }
-  .sub { font-size: 12px; color: #6F7BA6; margin-bottom: 22px; }
-  .progress { background: #F4F6FC; border: 1px solid #E6EAF3; border-radius: 12px; padding: 14px 16px; margin-bottom: 18px; }
-  .ptitle { font-size: 11px; text-transform: uppercase; letter-spacing: 0.05em; color: #6F7BA6; margin-bottom: 8px; }
-  .bar { height: 10px; border-radius: 99px; background: #E6EAF3; overflow: hidden; }
-  .bar > span { display: block; height: 100%; border-radius: 99px; }
-  .pfoot { font-size: 13px; margin-top: 8px; color: #3F4A6B; }
-  .metrics { display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; }
-  .m { border: 1px solid #E6EAF3; border-radius: 10px; padding: 12px 10px; text-align: center; }
-  .mv { font-size: 20px; font-weight: 700; line-height: 1; }
-  .ml { font-size: 10px; color: #6F7BA6; margin-top: 5px; text-transform: uppercase; letter-spacing: 0.04em; }
-  .note { font-size: 10px; color: #8B96BE; margin-top: 18px; line-height: 1.5; }
-  h2 { font-size: 14px; margin: 22px 0 8px; }
-  .empty { font-size: 12px; color: #6F7BA6; }
-  table.detail { width: 100%; border-collapse: collapse; font-size: 11px; }
-  table.detail th { text-align: left; font-size: 10px; text-transform: uppercase; letter-spacing: 0.04em;
-    color: #6F7BA6; border-bottom: 1.5px solid #C9D0E6; padding: 5px 6px; }
-  table.detail td { border-bottom: 1px solid #E6EAF3; padding: 5px 6px; vertical-align: top; }
-  table.detail tr { page-break-inside: avoid; }
-  table.detail thead { display: table-header-group; }
-  table.detail .n { color: #8B96BE; width: 24px; }
-  table.detail .obs { color: #6F7BA6; }
-  .mark { display: inline-block; min-width: 26px; text-align: center; font-weight: 700; border-radius: 10px; padding: 1px 5px; }
-  footer { font-size: 10px; color: #8B96BE; margin-top: 26px; border-top: 1px solid #E6EAF3; padding-top: 8px; }
-  @media print { body { -webkit-print-color-adjust: exact; print-color-adjust: exact; } }
-</style></head><body>${rows.map((r) => fichaHtml(r, rangeLabel)).join('')}</body></html>`;
+  const ids = list.map((r) => r.id);
+  let html = '';
+  for (let i = 0; i < ids.length; i += FICHAS_BATCH) {
+    const data = await api.post('/reports/students/fichas', { studentIds: ids.slice(i, i + FICHAS_BATCH) });
+    // Une las tandas: el cuerpo de cada documento va dentro del primero
+    if (!html) html = data.html;
+    else html = html.replace('</body>', `${data.html.split('<body>')[1].split('</body>')[0]}</body>`);
+  }
 
   const iframe = document.createElement('iframe');
   iframe.setAttribute('aria-hidden', 'true');

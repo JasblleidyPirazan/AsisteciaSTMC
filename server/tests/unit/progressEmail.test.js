@@ -125,3 +125,39 @@ describe('buildProgressEmail', () => {
     expect(m.text).not.toContain('null');
   });
 });
+
+describe('buildStudentFicha — mismo contenido que el correo', () => {
+  const { buildStudentFicha, buildFichasDocument } = require('../../src/services/progressEmail.js');
+  const args = {
+    student: { name: 'Ana María Pérez', document: '123', groups: ['LMV1'], professor: 'Juan', status: 'MATRICULADO' },
+    ledger: ledger(), records,
+    reservations: [{ date: '2026-11-13', label: '5:15 p. m. – 6:00 p. m.' }],
+    semesterName: '2026-2', semesterEnd: '2026-12-12', today: '2026-11-08',
+  };
+  const ficha = buildStudentFicha(args);
+  const mail = buildProgressEmail({ ...args, bookingUrl: 'https://x.test/reponer/abc', student: { name: 'Ana María Pérez' } });
+
+  it('trae identificación, avance, reposiciones, detalle y cierre', () => {
+    for (const t of ['Documento: 123', 'Grupo: LMV1', 'Profesor: Juan', '✅ Matriculado', 'Semestre 2026-2',
+      '30 % del paquete', '2 clases por reponer', 'viernes 13 de nov', 'Qué significa',
+      'Da derecho a reposición', 'El semestre finaliza el 12 de diciembre', 'se entiende que la información es correcta']) {
+      expect(ficha).toContain(t);
+    }
+  });
+  it('las secciones de avance y detalle son idénticas a las del correo', () => {
+    const between = (html, a, b) => html.slice(html.indexOf(a), html.indexOf(b, html.indexOf(a)));
+    expect(between(ficha, '📈 Avance', '% del paquete')).toBe(between(mail.html, '📈 Avance', '% del paquete'));
+    expect(between(ficha, '📋 Detalle de clases', '</table>')).toBe(between(mail.html, '📋 Detalle de clases', '</table>'));
+  });
+  it('sin enlace de agendamiento, saludo ni "responde este correo"', () => {
+    expect(ficha).not.toContain('reponer/');
+    expect(ficha).not.toContain('Hola');
+    expect(ficha).not.toContain('responde este correo');
+    expect(ficha).toContain('Le falta <b>agendar 1 reposición</b>');
+  });
+  it('el documento pone una ficha por página', () => {
+    const doc = buildFichasDocument([ficha, ficha]);
+    expect(doc).toContain('@page');
+    expect(doc.match(/page-break-after:always/g)).toHaveLength(2);
+  });
+});
