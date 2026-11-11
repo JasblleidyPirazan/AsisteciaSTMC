@@ -81,7 +81,7 @@ export default function MakeupProgress() {
                   <th style={{ padding: '4px 6px' }} title="Reposiciones reportadas esa semana">Repuestas</th>
                   <th style={{ padding: '4px 6px' }} title="Faltó a la reposición: se pierde">Perdidas</th>
                   <th style={{ padding: '4px 6px' }} title="Turnos reservados esa semana, aún sin reportar">Programadas</th>
-                  <th style={{ padding: '4px 6px' }} title="Causado y aún no dictado al cierre de la semana">Saldo</th>
+                  <th style={{ padding: '4px 6px' }} title="Reposiciones que se debían al cierre de la semana (estudiante por estudiante)">Saldo</th>
                 </tr>
               </thead>
               <tbody>
@@ -118,7 +118,7 @@ export default function MakeupProgress() {
           )}
           <p className="text-xs text-gray mt-1">
             Cada clase causada se ubica en la semana en que ocurrió (la clase cancelada o la falta justificada); cada reposición, en la
-            semana en que se dictó o está programada. El saldo es lo causado que aún no se ha dictado al cierre de cada semana.
+            semana en que se dictó o está programada. El saldo es cuántas reposiciones se debían al cierre de cada semana: se calcula estudiante por estudiante, así que una reposición que alguien tomó de más (para recuperar festivos) no salda la deuda de otro. La última semana coincide con las pendientes más las que ya no se reponen.
           </p>
         </div>
       )}
