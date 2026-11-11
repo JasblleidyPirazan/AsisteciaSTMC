@@ -300,3 +300,15 @@ describe('GET /api/ledger/groups', () => {
     expect(res.body.data).toEqual({ semester: null, groups: [] });
   });
 });
+
+describe('GET /api/ledger/makeups-progress', () => {
+  it('ADMIN y Coordinador; Recepción y Profesor no', async () => {
+    const { default: request } = await import('supertest');
+    for (const [role, status] of [['RECEPTION', 403], ['TEACHER', 403], ['PHYSICAL_TRAINER', 200]]) {
+      prismaMock.user = { findUnique: vi.fn().mockResolvedValue({ id: 'u1', email: 'x@y.co', role, active: true }) };
+      prismaMock.semester = { findFirst: vi.fn().mockResolvedValue(null), findMany: vi.fn().mockResolvedValue([]) };
+      const res = await request(app).get('/api/ledger/makeups-progress').set('Authorization', `Bearer ${tokenFor({ id: 'u1', role })}`);
+      expect(res.status).toBe(status);
+    }
+  });
+});

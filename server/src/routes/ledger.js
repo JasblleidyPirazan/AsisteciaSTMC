@@ -1,6 +1,7 @@
 // Ledger del paquete de cada estudiante (docs/brief-implementacion.md, §1.5).
 //
 //   GET /api/ledger              { semester, summary, ledgers }  — filtros groupId, semaforo, q
+//   GET /api/ledger/makeups-progress  avance de las reposiciones (totales y por semana)
 //   GET /api/ledger/groups       plan, dadas, festivos, lluvia, fin estimado y agregados por grupo
 //   GET /api/ledger/:studentId   un ledger
 //
@@ -65,6 +66,31 @@ router.get('/', requireRole('ADMIN', 'PHYSICAL_TRAINER', 'RECEPTION'), async (re
       success: true,
       data: { semester: loaded.semester, window: loaded.window, today: loaded.today, summary, ledgers },
     });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// ─── GET /api/ledger/makeups-progress ─────────────────────────────────────
+// Avance de las reposiciones: totales (causadas, dictadas, programadas, por
+// agendar) y reporte por semana. Ver services/makeupProgress.js.
+
+router.get('/makeups-progress', requireRole('ADMIN', 'PHYSICAL_TRAINER'), async (req, res, next) => {
+  try {
+    const { buildMakeupProgress } = require('../services/makeupProgress');
+    const { dbDateStr } = require('../lib/dates');
+    const loaded = await loadLedgers();
+    if (!loaded.semester) return res.json({ success: true, data: { semester: null, totals: null, weeks: [] } });
+    const ids = loaded.ledgers.map((l) => l.studentId);
+    const rows = ids.length === 0 ? [] : await prisma.makeupParticipant.findMany({
+      where: { studentId: { in: ids }, reprogramming: false, session: { kind: 'MAKEUP', status: 'PROGRAMADA' } },
+      select: { studentId: true, session: { select: { date: true, effectiveUnits: true } } },
+    });
+    const scheduled = rows.map((r) => ({
+      studentId: r.studentId, date: dbDateStr(r.session.date), units: Number(r.session.effectiveUnits) || 1,
+    }));
+    const { totals, weeks } = buildMakeupProgress({ ledgers: loaded.ledgers, scheduled, today: loaded.today });
+    res.json({ success: true, data: { semester: loaded.semester, today: loaded.today, totals, weeks } });
   } catch (err) {
     next(err);
   }
