@@ -21,8 +21,8 @@
 //
 // Saldo de cada semana = lo que se debía de reposición al cierre de esa semana,
 // sumado ESTUDIANTE POR ESTUDIANTE: a cada uno se le suma lo causado y se le
-// resta lo dictado, sin bajar de 0 (una reposición tomada de más se aplica a
-// festivos y no salda la deuda de otro estudiante). La última semana pasada
+// resta lo dictado; si va a favor, ese crédito salda lo que se cause después
+// (igual que el ledger), pero nunca la deuda de otro estudiante. La última semana pasada
 // coincide con pendientes + sinReponer.
 
 const OUT_OF_SCOPE = ['INACTIVO', 'PRUEBA']; // mismo alcance que summarizeLedgers (D10)
@@ -120,10 +120,13 @@ function buildMakeupProgress({ ledgers = [], scheduled = [], today }) {
   const currentWeek = today ? weekStart(today) : null;
   for (const w of list) w.saldo = 0;
   for (const m of Object.values(moves)) {
-    let owed = 0;
+    // El acumulado puede quedar a favor (negativo): una reposición vista antes de
+    // la clase que la origina igual la salda, como en el ledger (min(repuestas,
+    // derecho) sin importar el orden). Solo lo que se debe (> 0) suma al saldo.
+    let running = 0;
     for (const w of list) {
-      owed = Math.max(0, round1(owed + (m[w.weekStart] || 0)));
-      w.saldo += owed;
+      running = round1(running + (m[w.weekStart] || 0));
+      w.saldo += Math.max(0, running);
     }
   }
   for (const w of list) {
