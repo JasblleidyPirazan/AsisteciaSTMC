@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { api } from '../../api/client';
 import StudentLedgerCard from '../../components/StudentLedgerCard';
 import StudentQuickPanel from '../../components/StudentQuickPanel';
+import MakeupProgress from '../../components/MakeupProgress';
 import { GLOSSARY, SEMAFORO } from '../../utils/glossary';
 import { fmtDate } from '../../utils/dates';
 
@@ -117,6 +118,8 @@ export default function LedgerPage() {
                 ))}
               </div>
             </div>
+
+            <MakeupProgress />
 
             <div className="flex gap-2 mb-3" style={{ flexWrap: 'wrap' }}>
               {[['makeups', 'Estudiantes por reponer'], ['students', 'Estudiantes por reponer y reprogramar'], ['groups', 'Grupos']].map(([k, label]) => (
