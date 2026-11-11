@@ -18,6 +18,12 @@
 // Por semana (lunes a domingo, hora de Bogotá): causadas por tipo (fecha de la
 // clase de origen), dictadas (asistió) y perdidas (faltó) por fecha de la
 // reposición, y programadas por la fecha del turno reservado.
+//
+// Saldo de cada semana = lo que se debía de reposición al cierre de esa semana,
+// sumado ESTUDIANTE POR ESTUDIANTE: a cada uno se le suma lo causado y se le
+// resta lo dictado, sin bajar de 0 (una reposición tomada de más se aplica a
+// festivos y no salda la deuda de otro estudiante). La última semana pasada
+// coincide con pendientes + sinReponer.
 
 const OUT_OF_SCOPE = ['INACTIVO', 'PRUEBA']; // mismo alcance que summarizeLedgers (D10)
 
@@ -63,6 +69,14 @@ function buildMakeupProgress({ ledgers = [], scheduled = [], today }) {
     });
   };
 
+  // Movimientos por estudiante y semana, para el saldo
+  const moves = {}; // studentId → { weekStart → delta }
+  const move = (sid, date, delta) => {
+    const ws = weekStart(date);
+    const m = (moves[sid] ||= {});
+    m[ws] = (m[ws] || 0) + delta;
+  };
+
   for (const l of scope) {
     const r = l.reposicion;
     totals.causadas += r.derecho;
@@ -83,12 +97,14 @@ function buildMakeupProgress({ ledgers = [], scheduled = [], today }) {
       const key = it.type === 'RAIN' ? 'lluvia' : it.type === 'OTHER' ? 'otras' : 'justificadas';
       w[key] += 1;
       w.causadas += 1;
+      move(l.studentId, it.date, 1);
     }
     for (const it of r.repuestasItems || []) {
       const w = week(it.date);
       const u = Number(it.units) || 1;
       if (it.absent) { w.perdidas += u; totals.perdidas += u; } else { w.asistidas += u; totals.asistidas += u; }
       w.dictadas += u;
+      move(l.studentId, it.date, -u);
     }
   }
   for (const s of scheduled) {
@@ -100,12 +116,18 @@ function buildMakeupProgress({ ledgers = [], scheduled = [], today }) {
   const list = Object.values(weeks)
     .map((w) => Object.fromEntries(Object.entries(w).map(([k, v]) => [k, typeof v === 'number' ? round1(v) : v])))
     .sort((a, b) => a.weekStart.localeCompare(b.weekStart));
-  // Saldo acumulado: lo causado que todavía no se ha dictado al cierre de cada semana
-  let saldo = 0;
+  // Saldo: lo que se debía al cierre de cada semana, estudiante por estudiante
   const currentWeek = today ? weekStart(today) : null;
+  for (const w of list) w.saldo = 0;
+  for (const m of Object.values(moves)) {
+    let owed = 0;
+    for (const w of list) {
+      owed = Math.max(0, round1(owed + (m[w.weekStart] || 0)));
+      w.saldo += owed;
+    }
+  }
   for (const w of list) {
-    saldo = round1(saldo + w.causadas - w.dictadas);
-    w.saldo = Math.max(0, saldo);
+    w.saldo = round1(w.saldo);
     w.current = w.weekStart === currentWeek;
     w.future = !!currentWeek && w.weekStart > currentWeek;
   }

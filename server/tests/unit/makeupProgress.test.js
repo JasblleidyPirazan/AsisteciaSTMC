@@ -21,6 +21,18 @@ describe('weekStart', () => {
   });
 });
 
+describe('saldo por estudiante', () => {
+  it('lo que un estudiante toma de más no salda la deuda de otro', () => {
+    const debe = L({ studentId: 'debe' }, { derecho: 2, lluvia: 2, pendientes: 2,
+      items: [{ type: 'RAIN', date: '2026-10-05' }, { type: 'RAIN', date: '2026-10-06' }] });
+    // Repuso 3 sin deber nada de reposición (recuperó festivos)
+    const festivos = L({ studentId: 'fest' }, { derecho: 0, repuestas: 3,
+      repuestasItems: [1, 2, 3].map((i) => ({ date: `2026-10-0${i + 5}`, units: 1, absent: false })) });
+    const { weeks } = buildMakeupProgress({ ledgers: [debe, festivos], today: '2026-10-20' });
+    expect(weeks.find((w) => w.weekStart === '2026-10-05')).toMatchObject({ causadas: 2, dictadas: 3, saldo: 2 });
+  });
+});
+
 describe('buildMakeupProgress', () => {
   const ana = L({ studentId: 'ana' }, {
     derecho: 3, lluvia: 2, justificadas: 1, repuestas: 1, pendientes: 2, agendadas: 1,
@@ -59,6 +71,8 @@ describe('buildMakeupProgress', () => {
     expect(w['2026-10-05']).toMatchObject({ lluvia: 2, otras: 2, causadas: 4, dictadas: 0, saldo: 4 });
     expect(w['2026-10-12']).toMatchObject({ justificadas: 1, causadas: 1, dictadas: 1, asistidas: 1, saldo: 4 });
     expect(w['2026-10-19']).toMatchObject({ perdidas: 1, dictadas: 1, saldo: 3 });
+    // Al final cuadra con lo que se debe: pendientes (2) + ya no se reponen (1)
+    expect(weeks[weeks.length - 1].saldo).toBe(totals.pendientes + totals.sinReponer);
     expect(w['2026-11-09']).toMatchObject({ programadas: 1, current: true, future: false });
     expect(weeks.map((x) => x.weekStart)).toEqual([...weeks.map((x) => x.weekStart)].sort());
   });
