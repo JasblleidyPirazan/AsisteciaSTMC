@@ -33,6 +33,16 @@ describe('saldo por estudiante', () => {
   });
 });
 
+describe('saldo con reposición antes de la causa', () => {
+  it('una reposición vista antes de la lluvia la salda (como el ledger)', () => {
+    const l = L({ studentId: 'x' }, { derecho: 1, lluvia: 1, repuestas: 1, pendientes: 0,
+      items: [{ type: 'RAIN', date: '2026-10-20' }],
+      repuestasItems: [{ date: '2026-08-05', units: 1, absent: false }] });
+    const { weeks } = buildMakeupProgress({ ledgers: [l], today: '2026-11-01' });
+    expect(weeks.map((w) => w.saldo)).toEqual([0, 0]);
+  });
+});
+
 describe('buildMakeupProgress', () => {
   const ana = L({ studentId: 'ana' }, {
     derecho: 3, lluvia: 2, justificadas: 1, repuestas: 1, pendientes: 2, agendadas: 1,
