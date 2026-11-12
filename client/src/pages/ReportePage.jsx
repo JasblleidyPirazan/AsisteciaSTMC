@@ -8,6 +8,13 @@ const LEVEL_COLOR = {
   Intermedio: '#7A5AF8', Avanzado: '#3F52A8',
 };
 
+// Motivo de cancelación, igual que en el resto del sistema
+const CANCEL_LABEL = {
+  LLUVIA: '🌧️ Lluvia',
+  OTRA: '🏫 Por la Escuela',
+  SIN_ESTUDIANTES: '🚫 Sin estudiantes',
+};
+
 const STATUS_BADGE = {
   PRESENTE: ['badge-green', 'Presente'],
   AUSENTE: ['badge-red', 'Ausente'],
@@ -68,8 +75,8 @@ export default function ReportePage() {
 
       <div className="page-content">
         <p className="text-sm text-gray mb-3">
-          Una fila por clase reportada con la cantidad de estudiantes por estado. El acumulado suma
-          las clases en orden de fecha.
+          Una fila por clase reportada con la cantidad de estudiantes por estado. Las clases canceladas
+          aparecen en gris con su motivo en la columna "Cancelada" y no suman al acumulado.
         </p>
 
         {/* Filtros */}
@@ -118,10 +125,20 @@ export default function ReportePage() {
           <div className="card"><div className="kpi-lbl">Presentes</div><div className="kpi-num" style={{ color: 'var(--green)' }}>{totals.present || 0}</div></div>
           <div className="card"><div className="kpi-lbl">Ausentes</div><div className="kpi-num" style={{ color: 'var(--red)' }}>{totals.absent || 0}</div></div>
           <div className="card"><div className="kpi-lbl">Justificadas</div><div className="kpi-num" style={{ color: 'var(--yellow)' }}>{totals.justified || 0}</div></div>
+          <div className="card">
+            <div className="kpi-lbl">Canceladas</div>
+            <div className="kpi-num" style={{ color: 'var(--gray-500, #6b7280)' }}>{totals.cancelled || 0}</div>
+            {totals.cancelled > 0 && (
+              <div className="text-xs text-gray">
+                {[['LLUVIA', 'lluvia'], ['OTRA', 'Escuela'], ['SIN_ESTUDIANTES', 'sin estudiantes']]
+                  .filter(([k]) => totals.cancelledBy?.[k]).map(([k, l]) => `${totals.cancelledBy[k]} ${l}`).join(' · ')}
+              </div>
+            )}
+          </div>
         </div>
 
         {loading ? <div className="spinner" /> : withAcc.length === 0 ? (
-          <div className="alert alert-info">No hay clases reportadas para estos filtros.</div>
+          <div className="alert alert-info">No hay clases reportadas ni canceladas para estos filtros.</div>
         ) : (
           <div className="table-wrap">
             <table className="data-table">
@@ -134,12 +151,37 @@ export default function ReportePage() {
                   <th className="num">A</th>
                   <th className="num">J</th>
                   <th className="num">Total</th>
+                  <th>Cancelada</th>
                   <th className="num">Acum. P</th>
                   <th className="num">Acum. total</th>
                 </tr>
               </thead>
               <tbody>
-                {withAcc.map((r) => (
+                {withAcc.map((r) => r.cancelled ? (
+                  <tr key={r.sessionId} style={{ background: 'var(--gray-50, #f9fafb)', color: 'var(--gray-500, #6b7280)' }}
+                    title={r.cancellationReason || undefined}>
+                    <td>{fmtDate(r.date, { day: '2-digit', month: 'short' })}</td>
+                    <td className="font-medium">{r.groupCode}</td>
+                    <td>
+                      {r.level && (
+                        <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5 }}>
+                          <span className="legend-dot" style={{ background: LEVEL_COLOR[r.level] || 'var(--gray-300)' }} />
+                          {r.level}
+                        </span>
+                      )}
+                    </td>
+                    <td className="num">—</td>
+                    <td className="num">—</td>
+                    <td className="num">—</td>
+                    <td className="num">—</td>
+                    <td>
+                      <span className="badge badge-gray">{CANCEL_LABEL[r.cancellationCategory] || 'Cancelada'}</span>
+                      {r.cancellationReason && r.cancellationCategory === 'OTRA' && <span className="text-xs"> {r.cancellationReason}</span>}
+                    </td>
+                    <td className="num text-gray">{r.accPresent}</td>
+                    <td className="num text-gray">{r.accTotal}</td>
+                  </tr>
+                ) : (
                   <tr key={r.sessionId} className="clickable" onClick={() => openDetail(r)}>
                     <td>{fmtDate(r.date, { day: '2-digit', month: 'short' })}</td>
                     <td className="font-medium">{r.groupCode}</td>
@@ -155,6 +197,7 @@ export default function ReportePage() {
                     <td className="num" style={{ color: 'var(--red)' }}>{r.absent}</td>
                     <td className="num" style={{ color: 'var(--yellow)' }}>{r.justified}</td>
                     <td className="num font-medium">{r.total}</td>
+                    <td></td>
                     <td className="num text-gray">{r.accPresent}</td>
                     <td className="num text-gray">{r.accTotal}</td>
                   </tr>
@@ -167,6 +210,7 @@ export default function ReportePage() {
                   <td className="num" style={{ color: 'var(--red)' }}>{totals.absent || 0}</td>
                   <td className="num" style={{ color: 'var(--yellow)' }}>{totals.justified || 0}</td>
                   <td className="num font-medium">{totals.total || 0}</td>
+                  <td>{totals.cancelled ? `${totals.cancelled} canceladas` : ''}</td>
                   <td className="num"></td>
                   <td className="num"></td>
                 </tr>

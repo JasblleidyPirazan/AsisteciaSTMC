@@ -453,7 +453,8 @@ router.get('/class-log', requireRole('ADMIN', 'SUPERADMIN', 'PHYSICAL_TRAINER', 
       professorId = own.id;
     }
 
-    const where = { status: { in: ['REALIZADA', 'CANCELADA_MITAD'] } };
+    // Clases dictadas y también las canceladas (columna "Cancelada" con su motivo)
+    const where = { status: { in: ['REALIZADA', 'CANCELADA_MITAD', 'CANCELADA'] } };
     if (professorId) {
       where.OR = [
         { group: { professorId } },
@@ -493,11 +494,19 @@ router.get('/class-log', requireRole('ADMIN', 'SUPERADMIN', 'PHYSICAL_TRAINER', 
       }
     }
 
+    // Con filtro de estudiante: sus clases reportadas y las canceladas de los grupos
+    // en los que tiene registros (una clase cancelada no tiene registros por estudiante)
+    const studentGroups = new Set(
+      studentId ? sessions.filter((s) => s.attendanceRecords.some((r) => r.student?.id === studentId)).map((s) => s.groupId) : [],
+    );
     const rows = sessions
       .filter((s) => {
         if (level && s.group?.ballLevel !== level) return false;
         if (groupId && s.groupId !== groupId) return false;
-        if (studentId && !s.attendanceRecords.some((r) => r.student?.id === studentId)) return false;
+        if (studentId) {
+          if (s.status === 'CANCELADA') return !!s.groupId && studentGroups.has(s.groupId);
+          if (!s.attendanceRecords.some((r) => r.student?.id === studentId)) return false;
+        }
         return true;
       })
       .map((s) => {
@@ -516,11 +525,19 @@ router.get('/class-log', requireRole('ADMIN', 'SUPERADMIN', 'PHYSICAL_TRAINER', 
           present: c.PRESENTE, absent: c.AUSENTE, justified: c.JUSTIFICADA,
           na: c.NO_APLICA || 0,
           total: s.attendanceRecords.length,
+          cancelled: s.status === 'CANCELADA',
+          cancellationCategory: s.status === 'CANCELADA' ? (s.cancellationCategory || 'OTRA') : null,
+          cancellationReason: s.status === 'CANCELADA' ? (s.cancellationReason || null) : null,
         };
       });
 
     const totals = rows.reduce(
-      (t, r) => ({
+      (t, r) => (r.cancelled ? {
+        ...t,
+        cancelled: t.cancelled + 1,
+        cancelledBy: { ...t.cancelledBy, [r.cancellationCategory]: (t.cancelledBy[r.cancellationCategory] || 0) + 1 },
+      } : {
+        ...t,
         classes: t.classes + 1,
         present: t.present + r.present,
         absent: t.absent + r.absent,
@@ -528,7 +545,7 @@ router.get('/class-log', requireRole('ADMIN', 'SUPERADMIN', 'PHYSICAL_TRAINER', 
         na: t.na + r.na,
         total: t.total + r.total,
       }),
-      { classes: 0, present: 0, absent: 0, justified: 0, na: 0, total: 0 }
+      { classes: 0, present: 0, absent: 0, justified: 0, na: 0, total: 0, cancelled: 0, cancelledBy: { LLUVIA: 0, SIN_ESTUDIANTES: 0, OTRA: 0 } }
     );
 
     res.json({
