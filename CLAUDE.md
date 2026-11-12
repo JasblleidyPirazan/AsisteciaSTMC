@@ -297,6 +297,7 @@ Desde la base de datos o el seed, crear un `User` con `role: 'PHYSICAL_TRAINER'`
 - `POST /api/reports/students/fichas` (ADMIN/SUPERADMIN/Coordinador) — `{ studentIds }` (máx. 500) → `{ count, html }`: fichas PDF con el mismo contenido del correo semanal (nota 66)
 - `GET /api/reports/second-groups?from&to` — Otros grupos (ADMIN/SUPERADMIN/Coordinador): estudiantes que asisten a un grupo distinto del principal, con veces, semanas, días y primera fecha. Ver nota 52
 - `GET /api/reports/second-groups/export?minVisits&minWeeks` — Excel de la misma tabla
+- `GET /api/reports/class-log?from&to&level&groupId&studentId` — "Clases dadas" (`/reporte`, ADMIN/SUPERADMIN/Coordinador/Profesor): una fila por clase REALIZADA con P/A/J y acumulado, **más las CANCELADAS** (`cancelled`, `cancellationCategory`, `cancellationReason`; columna "Cancelada" en gris, no suman al acumulado ni a `totals.classes`; `totals.cancelled` y `totals.cancelledBy {LLUVIA, OTRA, SIN_ESTUDIANTES}`). Con filtro de estudiante: sus clases y las canceladas de los grupos donde tiene registros. Tests: `tests/integration/classLog.test.js`
 - `GET /api/reports/assistant/:id`
 - `GET /api/reports/professor/:id`
 - `GET /api/reports/class/:sessionId`
