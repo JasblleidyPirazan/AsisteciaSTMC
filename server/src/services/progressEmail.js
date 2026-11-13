@@ -178,42 +178,60 @@ function reposicionesHeadHtml(p, reservations) {
 }
 
 /**
- * Apartado "Clases pendientes" de la ficha PDF: cuántas le faltan, las fechas de
- * su calendario regular con las que las verá (hasta el cierre del semestre) y
- * cuántas tiene por reponer y por reprogramar. Todo sale del ledger.
+ * Apartado "Clases pendientes" de la ficha PDF. Responde, en este orden:
+ *   1. ¿Cuántas le faltan?  → pendientes.total
+ *   2. ¿Cómo las va a ver?  → filas que SIEMPRE suman ese total (invariante del
+ *      ledger): en su horario (con las fechas) + reposiciones ya agendadas +
+ *      por agendar en las jornadas de reposición + las que no alcanzan.
+ *   3. ¿Por qué tiene clases por recuperar? → por reponer / por reprogramar,
+ *      aclarando que ya están incluidas en el total (no se suman).
+ * Todo sale del ledger.
  */
-function pendingClassesHtml(ledger, semesterEnd = null) {
+function pendingClassesHtml(ledger, semesterEnd = null, reservations = []) {
   const pend = ledger.pendientes || {};
   const rep = ledger.reposicion || {};
   const cal = ledger.calendario || {};
   const total = pend.total || 0;
+  const title = '<h2 style="font-size:16px;margin:12px 0 6px;">⏳ Clases pendientes</h2>';
   if (total <= 0) {
-    return `
-  <h2 style="font-size:16px;margin:12px 0 6px;">⏳ Clases pendientes</h2>
-  <p style="margin:4px 0;font-size:14px;color:#15803d;">✔ No tiene clases pendientes.</p>`;
+    return `${title}<p style="margin:4px 0;font-size:14px;color:#15803d;">✔ No tiene clases pendientes: ya completó su paquete.</p>`;
   }
-  const box = (value, label, color = '#111827') => `
-    <td align="center" style="padding:10px 4px;background:#f9fafb;border-radius:8px;">
-      <div style="font-size:22px;font-weight:700;color:${color};">${esc(fmtN(value))}</div>
-      <div style="font-size:12px;color:#6b7280;">${esc(label)}</div>
-    </td>`;
+  const chip = (txt) => `<span style="display:inline-block;margin:2px 4px 2px 0;padding:1px 7px;border:1px solid #d1d5db;border-radius:10px;font-size:12px;white-space:nowrap;">${esc(txt)}</span>`;
   const fechas = pend.fechasCalendario || [];
   const manyGroups = new Set(fechas.map((f) => f.groupCode)).size > 1;
-  const chips = fechas.map((f) => `<span style="display:inline-block;margin:2px 4px 2px 0;padding:2px 8px;border:1px solid #d1d5db;border-radius:12px;font-size:12px;white-space:nowrap;">${esc(shortDate(f.date))}${manyGroups && f.groupCode ? ` · ${esc(f.groupCode)}` : ''}</span>`).join('');
-  const scheduledNote = (n) => (n > 0 ? ` (${fmtN(n)} ya ${n === 1 ? 'agendada' : 'agendadas'})` : '');
-  return `
-  <h2 style="font-size:16px;margin:12px 0 6px;">⏳ Clases pendientes</h2>
-  <p style="margin:4px 0 6px;font-size:14px;">Le ${total === 1 ? 'falta' : 'faltan'} <b>${esc(plural(total, 'clase', 'clases'))}</b> para completar su paquete.</p>
-  <table role="presentation" width="100%" cellpadding="0" cellspacing="6"><tr>
-    ${box(pend.cubreCalendario || 0, 'programadas en su calendario')}${box(rep.pendientes || 0, 'por reponer', '#b45309')}${box(cal.recuperables || 0, 'por reprogramar', '#1d4ed8')}
-  </tr></table>
-  <p style="margin:8px 0 4px;font-size:14px;"><b>Clases pendientes programadas</b> (según su horario${semesterEnd ? `, hasta el ${esc(dayMonth(semesterEnd))}` : ''}):</p>
-  ${fechas.length ? `<div style="margin:0 0 8px;line-height:1.9;">${chips}</div>` : '<p style="margin:0 0 8px;font-size:13px;color:#6b7280;">No le quedan clases de su horario antes del cierre del semestre.</p>'}
-  <ul style="margin:0 0 8px;padding-left:20px;font-size:13px;">
-    <li><b>Por reponer:</b> ${esc(plural(rep.pendientes || 0, 'clase', 'clases'))}${esc(scheduledNote(rep.agendadas || 0))} — lluvia, canceladas por la Escuela y faltas justificadas.</li>
-    <li><b>Por reprogramar:</b> ${esc(plural(cal.recuperables || 0, 'clase', 'clases'))}${esc(scheduledNote(cal.agendadas || 0))} — no se dictaron por festivos o días de receso.</li>
-    ${pend.deficit > 0 ? `<li style="color:#b91c1c;"><b>${esc(plural(pend.deficit, 'clase no alcanza', 'clases no alcanzan'))}</b> antes del cierre del semestre: la Escuela las programará.</li>` : ''}
-  </ul>`;
+  const calChips = fechas.map((f) => chip(`${shortDate(f.date)}${manyGroups && f.groupCode ? ` · ${f.groupCode}` : ''}`)).join('');
+  const resChips = (reservations || []).slice(0, Math.ceil(pend.agendadasAplicadas || 0)).map((r) => chip(shortDate(r.date))).join('');
+  const until = semesterEnd ? ` hasta el ${dayMonth(semesterEnd)}` : '';
+
+  const rows = [
+    { n: pend.cubreCalendario || 0, label: `En su horario regular${until}`, detail: calChips },
+    { n: pend.agendadasAplicadas || 0, label: 'En reposiciones ya agendadas', detail: resChips },
+    { n: pend.porAgendar || 0, label: 'Por agendar en las jornadas de reposición', detail: '' },
+    { n: pend.deficit || 0, label: 'No alcanzan antes del cierre del semestre: la Escuela las programará', detail: '', red: true },
+  ].filter((r) => r.n > 0);
+
+  const td = 'padding:6px 8px;border-bottom:1px solid #e5e7eb;font-size:13px;vertical-align:top;';
+  const table = `<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="margin:4px 0 8px;">
+    <tbody>${rows.map((r) => `<tr style="page-break-inside:avoid;">
+      <td style="${td}width:44px;text-align:right;font-size:16px;font-weight:700;color:${r.red ? '#b91c1c' : '#111827'};">${esc(fmtN(r.n))}</td>
+      <td style="${td}${r.red ? 'color:#b91c1c;' : ''}"><b>${esc(r.label)}</b>${r.detail ? `<div style="margin-top:3px;line-height:1.8;">${r.detail}</div>` : ''}</td>
+    </tr>`).join('')}
+    <tr><td style="${td}text-align:right;font-size:16px;font-weight:700;border-bottom:none;">${esc(fmtN(total))}</td><td style="${td}font-weight:700;border-bottom:none;">Total que le falta</td></tr>
+    </tbody></table>`;
+
+  const reponer = rep.pendientes || 0;
+  const reprogramar = cal.recuperables || 0;
+  const why = (reponer > 0 || reprogramar > 0)
+    ? `<p style="margin:6px 0 0;font-size:13px;color:#374151;"><b>¿Por qué tiene clases por recuperar?</b> ${[
+      reponer > 0 && `${plural(reponer, 'clase', 'clases')} por reponer (lluvia, canceladas por la Escuela o faltas justificadas)`,
+      reprogramar > 0 && `${plural(reprogramar, 'clase', 'clases')} por reprogramar (festivos o días de receso)`,
+    ].filter(Boolean).map(esc).join(' y ')}. <span style="color:#6b7280;">Ya están incluidas en ${total === 1 ? 'la clase' : `las ${esc(fmtN(total))} clases`} que le faltan: no se suman.</span></p>`
+    : '';
+
+  return `${title}
+  <p style="margin:4px 0;font-size:14px;">Le ${total === 1 ? 'falta' : 'faltan'} <b>${esc(plural(total, 'clase', 'clases'))}</b> para completar su paquete. Así las verá:</p>
+  ${table}
+  ${why}`;
 }
 
 function detailHtml(rows) {
@@ -360,7 +378,7 @@ function buildStudentFicha({
   ${avanceHtml(p)}
   ${reposicionesHeadHtml(p, reservations)}
   ${p.toBook > 0 ? `<p style="margin:8px 0;font-size:14px;">Le ${p.toBook === 1 ? 'falta' : 'faltan'} <b>agendar ${esc(plural(p.toBook, 'reposición', 'reposiciones'))}</b> (con el enlace personal que envía la Escuela).</p>` : (p.hasMakeups ? '<p style="margin:8px 0;font-size:14px;color:#15803d;font-weight:600;">✔ Todas sus reposiciones ya están agendadas.</p>' : '')}
-  ${pendingClassesHtml(ledger, semesterEnd)}
+  ${pendingClassesHtml(ledger, semesterEnd, reservations)}
   ${detailHtml(p.rows)}
   <div style="margin-top:16px;padding-top:10px;font-size:12px;color:#6b7280;border-top:1px solid #e5e7eb;">${closingHtml(p, 'ficha')}</div>
 </section>`;
