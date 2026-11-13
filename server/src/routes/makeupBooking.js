@@ -383,8 +383,10 @@ router.get('/admin/overview', ...agendaStaff, async (req, res, next) => {
         token: c.bookingToken || null,
       };
     };
-    const students = owing.map((l) => row(l, 'reposicion'));
-    const reprogStudents = owingCalendar.map((l) => row(l, 'calendario'));
+    // Mayor número de clases pendientes primero (luego las que faltan por agendar, luego nombre)
+    const byPending = (a, b) => b.pending - a.pending || b.toSchedule - a.toSchedule || a.name.localeCompare(b.name, 'es');
+    const students = owing.map((l) => row(l, 'reposicion')).sort(byPending);
+    const reprogStudents = owingCalendar.map((l) => row(l, 'calendario')).sort(byPending);
 
     // Grupos con estudiantes por reprogramar (para el enlace de grupo). Un
     // estudiante en dos grupos aparece en ambos: el enlace de cualquiera le sirve.
@@ -405,7 +407,7 @@ router.get('/admin/overview', ...agendaStaff, async (req, res, next) => {
     });
     const reprogGroups = groupRows
       .map((g) => ({ groupId: g.id, code: g.code, professor: g.professor?.name || null, token: g.bookingToken || null, ...byGroup[g.id] }))
-      .sort((a, b) => a.code.localeCompare(b.code, 'es', { numeric: true }));
+      .sort((a, b) => b.pending - a.pending || b.toSchedule - a.toSchedule || a.code.localeCompare(b.code, 'es', { numeric: true }));
 
     // El Profesor L solo usa la Agenda: sin contactos, enlaces ni sugerencias
     // (las listas quedan para sugerir a quién agregar, con nombre y faltantes).

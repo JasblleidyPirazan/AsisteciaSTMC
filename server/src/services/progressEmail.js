@@ -177,6 +177,45 @@ function reposicionesHeadHtml(p, reservations) {
   <ul style="margin:0 0 8px;padding-left:20px;font-size:14px;">${reservations.map((r) => `<li>${esc(longDate(r.date))} · ${esc(r.label)}</li>`).join('')}</ul>` : ''}`;
 }
 
+/**
+ * Apartado "Clases pendientes" de la ficha PDF: cuántas le faltan, las fechas de
+ * su calendario regular con las que las verá (hasta el cierre del semestre) y
+ * cuántas tiene por reponer y por reprogramar. Todo sale del ledger.
+ */
+function pendingClassesHtml(ledger, semesterEnd = null) {
+  const pend = ledger.pendientes || {};
+  const rep = ledger.reposicion || {};
+  const cal = ledger.calendario || {};
+  const total = pend.total || 0;
+  if (total <= 0) {
+    return `
+  <h2 style="font-size:16px;margin:12px 0 6px;">⏳ Clases pendientes</h2>
+  <p style="margin:4px 0;font-size:14px;color:#15803d;">✔ No tiene clases pendientes.</p>`;
+  }
+  const box = (value, label, color = '#111827') => `
+    <td align="center" style="padding:10px 4px;background:#f9fafb;border-radius:8px;">
+      <div style="font-size:22px;font-weight:700;color:${color};">${esc(fmtN(value))}</div>
+      <div style="font-size:12px;color:#6b7280;">${esc(label)}</div>
+    </td>`;
+  const fechas = pend.fechasCalendario || [];
+  const manyGroups = new Set(fechas.map((f) => f.groupCode)).size > 1;
+  const chips = fechas.map((f) => `<span style="display:inline-block;margin:2px 4px 2px 0;padding:2px 8px;border:1px solid #d1d5db;border-radius:12px;font-size:12px;white-space:nowrap;">${esc(shortDate(f.date))}${manyGroups && f.groupCode ? ` · ${esc(f.groupCode)}` : ''}</span>`).join('');
+  const scheduledNote = (n) => (n > 0 ? ` (${fmtN(n)} ya ${n === 1 ? 'agendada' : 'agendadas'})` : '');
+  return `
+  <h2 style="font-size:16px;margin:12px 0 6px;">⏳ Clases pendientes</h2>
+  <p style="margin:4px 0 6px;font-size:14px;">Le ${total === 1 ? 'falta' : 'faltan'} <b>${esc(plural(total, 'clase', 'clases'))}</b> para completar su paquete.</p>
+  <table role="presentation" width="100%" cellpadding="0" cellspacing="6"><tr>
+    ${box(pend.cubreCalendario || 0, 'programadas en su calendario')}${box(rep.pendientes || 0, 'por reponer', '#b45309')}${box(cal.recuperables || 0, 'por reprogramar', '#1d4ed8')}
+  </tr></table>
+  <p style="margin:8px 0 4px;font-size:14px;"><b>Clases pendientes programadas</b> (según su horario${semesterEnd ? `, hasta el ${esc(dayMonth(semesterEnd))}` : ''}):</p>
+  ${fechas.length ? `<div style="margin:0 0 8px;line-height:1.9;">${chips}</div>` : '<p style="margin:0 0 8px;font-size:13px;color:#6b7280;">No le quedan clases de su horario antes del cierre del semestre.</p>'}
+  <ul style="margin:0 0 8px;padding-left:20px;font-size:13px;">
+    <li><b>Por reponer:</b> ${esc(plural(rep.pendientes || 0, 'clase', 'clases'))}${esc(scheduledNote(rep.agendadas || 0))} — lluvia, canceladas por la Escuela y faltas justificadas.</li>
+    <li><b>Por reprogramar:</b> ${esc(plural(cal.recuperables || 0, 'clase', 'clases'))}${esc(scheduledNote(cal.agendadas || 0))} — no se dictaron por festivos o días de receso.</li>
+    ${pend.deficit > 0 ? `<li style="color:#b91c1c;"><b>${esc(plural(pend.deficit, 'clase no alcanza', 'clases no alcanzan'))}</b> antes del cierre del semestre: la Escuela las programará.</li>` : ''}
+  </ul>`;
+}
+
 function detailHtml(rows) {
   return `
   <h2 style="font-size:16px;margin:12px 0 6px;">📋 Detalle de clases</h2>
@@ -321,6 +360,7 @@ function buildStudentFicha({
   ${avanceHtml(p)}
   ${reposicionesHeadHtml(p, reservations)}
   ${p.toBook > 0 ? `<p style="margin:8px 0;font-size:14px;">Le ${p.toBook === 1 ? 'falta' : 'faltan'} <b>agendar ${esc(plural(p.toBook, 'reposición', 'reposiciones'))}</b> (con el enlace personal que envía la Escuela).</p>` : (p.hasMakeups ? '<p style="margin:8px 0;font-size:14px;color:#15803d;font-weight:600;">✔ Todas sus reposiciones ya están agendadas.</p>' : '')}
+  ${pendingClassesHtml(ledger, semesterEnd)}
   ${detailHtml(p.rows)}
   <div style="margin-top:16px;padding-top:10px;font-size:12px;color:#6b7280;border-top:1px solid #e5e7eb;">${closingHtml(p, 'ficha')}</div>
 </section>`;
@@ -338,4 +378,4 @@ function buildFichasDocument(fichas, title = 'Fichas de avance') {
 </style></head><body>${fichas.join('')}</body></html>`;
 }
 
-module.exports = { buildProgressEmail, buildStudentFicha, buildFichasDocument, isRecipient, classRows, reportParts };
+module.exports = { buildProgressEmail, buildStudentFicha, buildFichasDocument, isRecipient, classRows, reportParts, pendingClassesHtml };

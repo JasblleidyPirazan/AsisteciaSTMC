@@ -273,7 +273,10 @@ function buildLedger(input) {
   };
   const hasRecordToday = records.some((r) => r.date === today);
   const from = hasRecordToday ? addDays(today, 1) : today;
-  const restantesEnSemestre = semesterEnd && from <= semesterEnd ? mineDates(from, semesterEnd).length : 0;
+  const restantes = semesterEnd && from <= semesterEnd
+    ? mineDates(from, semesterEnd).sort((a, b) => a.date.localeCompare(b.date) || String(a.groupId).localeCompare(String(b.groupId)))
+    : [];
+  const restantesEnSemestre = restantes.length;
   const cubreCalendario = Math.min(pendientesTotal, restantesEnSemestre);
   const resto1 = round1(pendientesTotal - cubreCalendario);
   const agendadasAplicadas = Math.min(resto1, agendadasTotal);
@@ -288,6 +291,10 @@ function buildLedger(input) {
     agendadasAplicadas,
     porAgendar,
     deficit: round1(resto2 - porAgendar),
+    // Las clases del calendario con las que va a ver lo que le falta (las
+    // primeras `cubreCalendario` fechas que le tocan hasta el cierre): para la
+    // ficha PDF ("Clases pendientes programadas")
+    fechasCalendario: restantes.slice(0, Math.ceil(cubreCalendario)).map((x) => ({ date: x.date, groupCode: groupCode(x.groupId) })),
   };
 
   // ── sinConsolidar ──
