@@ -112,3 +112,49 @@ describe('reglas configurables desde Configuración', () => {
     expect(canCancelAt(now, '2026-10-24', '09:00', 12)).toBe(true);
   });
 });
+
+describe('turnos de fecha específica y edades permitidas (nota 70)', () => {
+  const mb = require('../../src/services/makeupBooking');
+
+  it('valida y deriva la clave de un turno con fecha específica', () => {
+    const { slots, error } = mb.validateSlots([
+      { date: '2026-11-21', start: '09:00', end: '09:45', minAge: 6, maxAge: 10 },
+      { weekday: 5, start: '17:15', end: '18:00' },
+    ]);
+    expect(error).toBeUndefined();
+    expect(slots[0]).toMatchObject({ key: 'VIE-1715', weekday: 5 });
+    expect(slots[1]).toMatchObject({ key: 'F20261121-0900', date: '2026-11-21', minAge: 6, maxAge: 10 });
+    expect(mb.storableSlots(slots)[1]).not.toHaveProperty('key');
+  });
+
+  it('rechaza fechas y edades inválidas', () => {
+    expect(mb.validateSlots([{ date: '2026-13-40', start: '09:00', end: '10:00' }]).error).toMatch(/Fecha/);
+    expect(mb.validateSlots([{ weekday: 5, start: '09:00', end: '10:00', minAge: 12, maxAge: 8 }]).error).toMatch(/mínima/);
+    expect(mb.validateSlots([{ weekday: 5, start: '09:00', end: '10:00', minAge: 1 }]).error).toMatch(/entre 3 y 99/);
+    expect(mb.validateSlots([{ weekday: 5, start: '09:00', end: '10:00', maxAge: '' }]).slots[0]).not.toHaveProperty('maxAge');
+  });
+
+  it('un turno de fecha específica se ofrece aunque esté fuera del horizonte o en un festivo, y no después de pasar', () => {
+    const { slots } = mb.validateSlots([
+      { weekday: 5, start: '17:15', end: '18:00' },
+      { date: '2026-12-30', start: '09:00', end: '09:45' },
+      { date: '2026-11-01', start: '09:00', end: '09:45' },
+    ]);
+    const list = mb.upcomingSlots('2026-11-13', ['2026-12-30'], 7, slots);
+    expect(list.map((s) => s.key)).toEqual(['VIE-1715', 'VIE-1715', 'F20261230-0900']);
+    expect(list[2]).toMatchObject({ date: '2026-12-30', dated: true, weekday: 'Miércoles' });
+    expect(mb.describeSlots(slots, '2026-11-13').map((d) => d.day)).toEqual(['Viernes', 'Miércoles 30 dic']);
+  });
+
+  it('calcula la edad el día del turno y aplica el rango', () => {
+    expect(mb.ageOn('2016-11-21', '2026-11-20')).toBe(9);
+    expect(mb.ageOn('2016-11-21', '2026-11-21')).toBe(10);
+    expect(mb.ageOn(new Date('2016-11-21T00:00:00Z'), '2026-11-21')).toBe(10);
+    const slot = { date: '2026-11-21', minAge: 6, maxAge: 9 };
+    expect(mb.ageAllows(slot, '2016-11-22').ok).toBe(true); // aún tiene 9
+    expect(mb.ageAllows(slot, '2016-11-21')).toEqual({ ok: false, reason: 'Este turno es para 6 a 9 años.' });
+    expect(mb.ageAllows(slot, null).ok).toBe(false); // sin fecha de nacimiento
+    expect(mb.ageAllows({ date: '2026-11-21' }, null).ok).toBe(true); // turno sin restricción
+    expect(mb.agesLabel({ minAge: 12 })).toBe('desde 12 años');
+  });
+});

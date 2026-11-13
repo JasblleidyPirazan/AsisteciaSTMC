@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { api } from '../../api/client';
-import { fmtDate } from '../../utils/dates';
+import { fmtDate, bogotaTodayStr } from '../../utils/dates';
 import { useAuth } from '../../hooks/useAuth';
 import ExtendSemesterPanel from '../../components/ExtendSemesterPanel';
 import { toast } from '../../utils/toast';
@@ -123,9 +123,14 @@ export default function ConfigPage() {
     setSaveError('');
     try {
       await api.put('/config', config);
+      // Recarga lo guardado: el servidor ordena y normaliza los turnos
+      const fresh = await api.get('/config');
+      setConfig({ ...EMPTY_CONFIG, ...fresh });
       setSaved(true);
+      toast.success('Configuración guardada.');
     } catch (err) {
       setSaveError(err.message);
+      toast.error(err.message);
     } finally {
       setSaving(false);
     }
@@ -300,23 +305,63 @@ export default function ConfigPage() {
             </p>
             {parseSlots(config.makeup_slots).map((t, i, arr) => {
               const update = (patch) => setConfig({ ...config, makeup_slots: JSON.stringify(arr.map((x, j) => (j === i ? { ...x, ...patch } : x))) });
+              const dated = !!t.date || t.kind === 'date';
+              const past = t.date && t.date < bogotaTodayStr();
+              const setKind = (kind) => {
+                // eslint-disable-next-line no-unused-vars
+                const { weekday, date, kind: _k, ...rest } = t;
+                update(kind === 'date'
+                  ? { ...rest, weekday: undefined, kind: 'date', date: date || bogotaTodayStr() }
+                  : { ...rest, date: undefined, kind: undefined, weekday: weekday ?? 6 });
+              };
+              const ageInput = (field, placeholder) => (
+                <input type="number" className="form-input" min="3" max="99" placeholder={placeholder}
+                  style={{ width: 84 }} value={t[field] ?? ''}
+                  onChange={(e) => update({ [field]: e.target.value === '' ? undefined : Number(e.target.value) })} />
+              );
               return (
-                <div key={i} className="flex gap-2 mb-2" style={{ flexWrap: 'wrap', alignItems: 'center' }}>
-                  <select className="form-input" style={{ flex: 2, minWidth: 120 }} value={t.weekday}
-                    onChange={(e) => update({ weekday: Number(e.target.value) })}>
-                    {DAY_NAMES.map((d, n) => <option key={n} value={n}>{d}</option>)}
-                  </select>
-                  <input type="time" className="form-input" style={{ flex: 1, minWidth: 100 }} value={t.start} onChange={(e) => update({ start: e.target.value })} />
-                  <input type="time" className="form-input" style={{ flex: 1, minWidth: 100 }} value={t.end} onChange={(e) => update({ end: e.target.value })} />
-                  <button type="button" className="btn btn-outline" style={{ minHeight: 38, color: 'var(--red)' }} title="Quitar turno"
-                    onClick={() => setConfig({ ...config, makeup_slots: JSON.stringify(arr.filter((_, j) => j !== i)) })}>✕</button>
+                <div key={i} className="mb-2" style={{ padding: 8, border: '1px solid var(--gray-200)', borderRadius: 10, opacity: past ? 0.6 : 1 }}>
+                  <div className="flex gap-2" style={{ flexWrap: 'wrap', alignItems: 'center' }}>
+                    <select className="form-input" style={{ width: 'auto', minWidth: 150 }} value={dated ? 'date' : 'week'}
+                      onChange={(e) => setKind(e.target.value)} title="Tipo de turno">
+                      <option value="week">Cada semana</option>
+                      <option value="date">Fecha específica</option>
+                    </select>
+                    {dated ? (
+                      <input type="date" className="form-input" style={{ flex: 2, minWidth: 140 }} value={t.date || ''}
+                        onChange={(e) => update({ date: e.target.value })} />
+                    ) : (
+                      <select className="form-input" style={{ flex: 2, minWidth: 120 }} value={t.weekday}
+                        onChange={(e) => update({ weekday: Number(e.target.value) })}>
+                        {DAY_NAMES.map((d, n) => <option key={n} value={n}>{d}</option>)}
+                      </select>
+                    )}
+                    <input type="time" className="form-input" style={{ flex: 1, minWidth: 100 }} value={t.start} onChange={(e) => update({ start: e.target.value })} />
+                    <input type="time" className="form-input" style={{ flex: 1, minWidth: 100 }} value={t.end} onChange={(e) => update({ end: e.target.value })} />
+                    <button type="button" className="btn btn-outline" style={{ minHeight: 38, color: 'var(--red)' }} title="Quitar turno"
+                      onClick={() => setConfig({ ...config, makeup_slots: JSON.stringify(arr.filter((_, j) => j !== i)) })}>✕</button>
+                  </div>
+                  <div className="flex gap-2 mt-2 text-xs text-gray" style={{ flexWrap: 'wrap', alignItems: 'center' }}>
+                    <span>Edades permitidas:</span>
+                    {ageInput('minAge', 'mín.')}
+                    <span>a</span>
+                    {ageInput('maxAge', 'máx.')}
+                    <span>años{t.minAge == null && t.maxAge == null ? ' · vacío = todas las edades' : ''}</span>
+                    {past && <span className="badge badge-gray">Fecha pasada: ya no se ofrece</span>}
+                  </div>
                 </div>
               );
             })}
-            <button type="button" className="btn btn-outline mb-3" style={{ minHeight: 36 }}
-              onClick={() => setConfig({ ...config, makeup_slots: JSON.stringify([...parseSlots(config.makeup_slots), { weekday: 6, start: '13:30', end: '14:15' }]) })}>
-              + Agregar turno
-            </button>
+            <div className="flex gap-2 mb-3" style={{ flexWrap: 'wrap' }}>
+              <button type="button" className="btn btn-outline" style={{ minHeight: 36 }}
+                onClick={() => setConfig({ ...config, makeup_slots: JSON.stringify([...parseSlots(config.makeup_slots), { weekday: 6, start: '13:30', end: '14:15' }]) })}>
+                + Turno semanal
+              </button>
+              <button type="button" className="btn btn-outline" style={{ minHeight: 36 }}
+                onClick={() => setConfig({ ...config, makeup_slots: JSON.stringify([...parseSlots(config.makeup_slots), { kind: 'date', date: bogotaTodayStr(), start: '09:00', end: '09:45' }]) })}>
+                + Turno con fecha específica
+              </button>
+            </div>
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
               <div className="form-group">
                 <label className="form-label">Cupo por turno</label>
@@ -339,6 +384,15 @@ export default function ConfigPage() {
                   onChange={(e) => setConfig({ ...config, makeup_cancel_cutoff_hours: e.target.value })} />
               </div>
             </div>
+            <p className="text-xs text-gray mb-2">
+              Los turnos con fecha específica se ofrecen aunque caigan en un festivo o receso, y aunque estén más allá de los días hacia
+              adelante. Las edades permitidas solo aplican a lo que reservan los acudientes desde su enlace; la coordinación puede
+              agregar a cualquier estudiante desde la Agenda.
+            </p>
+            {saveError && <div className="alert alert-error mb-2">{saveError}</div>}
+            <button type="submit" className="btn btn-primary btn-full" disabled={saving}>
+              {saving ? 'Guardando…' : '💾 Guardar turnos y reglas'}
+            </button>
           </div>
 
           <div className="card mb-4">
@@ -361,7 +415,7 @@ export default function ConfigPage() {
 
           {saveError && <div className="alert alert-error mb-3">{saveError}</div>}
           <button type="submit" className="btn btn-primary btn-full btn-lg" disabled={saving}>
-            {saving ? 'Guardando...' : 'Guardar tarifas'}
+            {saving ? 'Guardando...' : 'Guardar configuración'}
           </button>
         </form>
 

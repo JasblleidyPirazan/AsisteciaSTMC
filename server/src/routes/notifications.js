@@ -14,7 +14,7 @@ const { authMiddleware, requireRole } = require('../middleware/auth');
 const { bogotaDateStr, dbDateStr } = require('../lib/dates');
 const { loadLedgers } = require('../services/studentLedger');
 const {
-  loadBookingConfig, upcomingSlots, canBookAt, newToken,
+  loadBookingConfig, upcomingSlots, canBookAt, newToken, ageAllows,
 } = require('../services/makeupBooking');
 const { buildProgressEmail, isRecipient } = require('../services/progressEmail');
 const { loadProgressInputs } = require('../services/progressReportData');
@@ -65,7 +65,7 @@ async function buildWeeklyBatch({ appUrl, now = new Date() }) {
   const [students, { recordsBy, reservationsBy }, slotSessions] = await Promise.all([
     prisma.student.findMany({
       where: { id: { in: ids } },
-      select: { id: true, name: true, email: true, guardianName: true, bookingToken: true, parentUser: { select: { email: true } } },
+      select: { id: true, name: true, email: true, guardianName: true, bookingToken: true, birthDate: true, parentUser: { select: { email: true } } },
     }),
     loadProgressInputs({ studentIds: ids, window, today, slots: cfg.slots }),
     prisma.classSession.findMany({
@@ -85,7 +85,7 @@ async function buildWeeklyBatch({ appUrl, now = new Date() }) {
       const session = bySlot[`${s.date}|${s.key}`];
       const closed = session && session.status !== 'PROGRAMADA';
       const taken = session?._count.makeupParticipants || 0;
-      return { date: s.date, label: s.label, free: closed ? 0 : Math.max(0, cfg.capacity - taken) };
+      return { slot: s, date: s.date, label: s.label, free: closed ? 0 : Math.max(0, cfg.capacity - taken) };
     });
 
   const studentById = Object.fromEntries(students.map((s) => [s.id, s]));
@@ -115,7 +115,8 @@ async function buildWeeklyBatch({ appUrl, now = new Date() }) {
       ledger,
       records: recordsBy[st.id] || [],
       reservations: reservationsBy[st.id] || [],
-      openSlots,
+      // Solo los turnos que su edad le permite tomar (edades permitidas, nota 70)
+      openSlots: openSlots.filter((o) => ageAllows(o.slot, st.birthDate).ok),
       bookingUrl,
       semesterName: semester?.name || null,
       semesterEnd: semester?.endDate ? dbDateStr(semester.endDate) : null,

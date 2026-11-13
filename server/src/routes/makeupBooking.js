@@ -36,7 +36,7 @@ const { isSessionPeriodLocked } = require('../lib/payrollLock');
 const {
   SLOT_UNITS, loadBookingConfig, describeSlots,
   SUGGESTION_MAX_LENGTH, MAX_OPEN_SUGGESTIONS,
-  findTemplate, upcomingSlots, canBookAt, canCancelAt, bookableCount, newToken,
+  findTemplate, upcomingSlots, canBookAt, canCancelAt, bookableCount, newToken, ageAllows,
 } = require('../services/makeupBooking');
 
 const router = express.Router();
@@ -193,6 +193,8 @@ async function buildPublicState(student, purpose = 'REPOSICION', now = new Date(
     const busyOther = !!(session && otherBySession[session.id]);
     const open = !session || session.status === 'PROGRAMADA';
     const timeOk = canBookAt(now, slot.date, slot.start, cfg.bookCutoffHours);
+    // Edades permitidas del turno (nota 70): solo restringe al acudiente
+    const age = ageAllows(slot, student.birthDate);
     return {
       ...slot,
       sessionId: session?.id || null,
@@ -202,7 +204,9 @@ async function buildPublicState(student, purpose = 'REPOSICION', now = new Date(
       closed: !open || !timeOk,
       mine,
       busyOther,
-      bookable: !mine && !busyOther && open && timeOk && taken < cfg.capacity && available > 0,
+      ageOk: age.ok,
+      ageReason: age.reason,
+      bookable: age.ok && !mine && !busyOther && open && timeOk && taken < cfg.capacity && available > 0,
     };
   });
 
@@ -233,7 +237,7 @@ async function buildPublicState(student, purpose = 'REPOSICION', now = new Date(
     myBookings,
     suggestions: suggestions.map((s) => ({ id: s.id, text: s.text, createdAt: s.createdAt, resolved: !!s.resolvedAt })),
     rules: {
-      capacity: cfg.capacity, horizonDays: cfg.horizonDays, slots: describeSlots(cfg.slots),
+      capacity: cfg.capacity, horizonDays: cfg.horizonDays, slots: describeSlots(cfg.slots, todayStr),
       bookCutoffHours: cfg.bookCutoffHours, cancelCutoffHours: cfg.cancelCutoffHours,
     },
   };
@@ -411,7 +415,7 @@ router.get('/admin/overview', ...agendaStaff, async (req, res, next) => {
       success: true,
       data: {
         today: todayStr,
-        rules: { capacity: cfg.capacity, horizonDays: cfg.horizonDays, slots: describeSlots(cfg.slots), bookCutoffHours: cfg.bookCutoffHours, cancelCutoffHours: cfg.cancelCutoffHours },
+        rules: { capacity: cfg.capacity, horizonDays: cfg.horizonDays, slots: describeSlots(cfg.slots, todayStr), bookCutoffHours: cfg.bookCutoffHours, cancelCutoffHours: cfg.cancelCutoffHours },
         agenda,
         students: lead ? forLead(students) : students,
         reprogStudents: lead ? forLead(reprogStudents) : reprogStudents,
@@ -595,7 +599,7 @@ router.get('/group/:groupToken', publicLimiter, async (req, res, next) => {
       data: {
         group: { code: group.code },
         students,
-        rules: { capacity: cfg.capacity, horizonDays: cfg.horizonDays, slots: describeSlots(cfg.slots), bookCutoffHours: cfg.bookCutoffHours, cancelCutoffHours: cfg.cancelCutoffHours },
+        rules: { capacity: cfg.capacity, horizonDays: cfg.horizonDays, slots: describeSlots(cfg.slots, bogotaDateStr()), bookCutoffHours: cfg.bookCutoffHours, cancelCutoffHours: cfg.cancelCutoffHours },
       },
     });
   } catch (err) {
@@ -628,6 +632,8 @@ router.post(['/:token/book', `${GROUP_STUDENT}/book`], publicLimiter, resolveStu
     if (!canBookAt(now, slot.date, slot.start, cfg.bookCutoffHours)) {
       return fail(res, 409, `Los turnos se reservan hasta ${cfg.bookCutoffHours} horas antes.`);
     }
+    const age = ageAllows(slot, student.birthDate);
+    if (!age.ok) return fail(res, 409, age.reason);
 
     const debt = await loadDebt(student.id, purpose);
     if (bookableCount(debt.toSchedule, 0) <= 0) {

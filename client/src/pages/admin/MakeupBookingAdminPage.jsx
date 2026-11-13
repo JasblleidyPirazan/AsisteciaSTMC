@@ -31,7 +31,7 @@ function waNumber(phone) {
 
 function message(s, rules, kind = 'repos') {
   const n = s.pending;
-  const turnos = (rules?.slots || []).map((t) => `${t.day} ${t.label}`).join(' · ');
+  const turnos = (rules?.slots || []).map((t) => `${t.day} ${t.label}${t.ages ? ` (${t.ages})` : ""}`).join(' · ');
   const hola = `Hola${s.guardianName ? ` ${s.guardianName}` : ''}, `;
   const body = kind === 'reprog'
     ? `${s.name} tiene ${n} clase${n !== 1 ? 's' : ''} por reprogramar (no se dictaron por festivos o días de receso) `
@@ -44,7 +44,7 @@ function message(s, rules, kind = 'repos') {
 const groupLinkFor = (token) => `${window.location.origin}/reprogramar/g/${token}`;
 
 function groupMessage(g, rules) {
-  const turnos = (rules?.slots || []).map((t) => `${t.day} ${t.label}`).join(' · ');
+  const turnos = (rules?.slots || []).map((t) => `${t.day} ${t.label}${t.ages ? ` (${t.ages})` : ""}`).join(' · ');
   return `Hola, familias del grupo ${g.code}: algunas clases no se dictaron por festivos o días de receso `
     + 'y las vamos a reprogramar. Con este enlace pueden agendarlas, sin usuario ni contraseña: '
     + 'abran el enlace, toquen el nombre de su hijo o hija y elijan un turno.\n'
@@ -299,7 +299,11 @@ export default function MakeupBookingAdminPage() {
                 {d.slots.map((slot) => (
                   <div key={slot.key} style={{ padding: '8px 0', borderTop: '1px solid var(--gray-100)' }}>
                     <div className="flex items-center justify-between" style={{ gap: 8, flexWrap: 'wrap' }}>
-                      <span className="font-medium">{slot.label}</span>
+                      <span className="font-medium">
+                        {slot.label}
+                        {slot.dated && <span className="badge badge-blue" style={{ marginLeft: 6 }}>Fecha especial</span>}
+                        {slot.ages && <span className="text-xs text-gray"> · {slot.ages}</span>}
+                      </span>
                       <span className={`badge ${slot.participants.length >= slot.capacity ? 'badge-red' : slot.participants.length ? 'badge-blue' : 'badge-gray'}`}>
                         {slot.participants.length} / {slot.capacity}
                       </span>
