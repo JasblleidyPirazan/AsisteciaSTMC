@@ -36,6 +36,27 @@ export default function LedgerPage() {
   const [panelId, setPanelId] = useState(null);
   const [view, setView] = useState('makeups');
   const [groupRows, setGroupRows] = useState(null);
+  const [exporting, setExporting] = useState(false);
+
+  // Excel: matriculados con clases por reposición, por reprogramación y total
+  async function exportPending() {
+    setExporting(true);
+    try {
+      const token = localStorage.getItem('stmc_token');
+      const base = import.meta.env.VITE_API_URL || '/api';
+      const res = await fetch(`${base}/ledger/pending-export`, { headers: { Authorization: `Bearer ${token}` } });
+      if (!res.ok) throw new Error('No se pudo generar el Excel');
+      const name = /filename="([^"]+)"/.exec(res.headers.get('Content-Disposition') || '')?.[1] || 'clases-pendientes.xlsx';
+      const url = URL.createObjectURL(await res.blob());
+      const a = document.createElement('a');
+      a.href = url; a.download = name; a.click();
+      URL.revokeObjectURL(url);
+    } catch (e) {
+      setError(e.message);
+    } finally {
+      setExporting(false);
+    }
+  }
 
   useEffect(() => {
     setData(null);
@@ -85,6 +106,13 @@ export default function LedgerPage() {
     <div className="page">
       <div className="page-header">
         <h1>Reposiciones y reprogramación</h1>
+        {!lead && (
+          <button type="button" className="btn btn-secondary btn-sm" onClick={exportPending} disabled={exporting}
+            title="Estudiantes matriculados con sus clases por reposición, por reprogramación y el total"
+            style={{ marginLeft: 'auto' }}>
+            {exporting ? 'Generando…' : '⬇️ Excel de pendientes (matriculados)'}
+          </button>
+        )}
       </div>
       <div className="page-content">
         {error && <div className="alert alert-error mb-3">{error}</div>}

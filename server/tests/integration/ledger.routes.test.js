@@ -312,3 +312,24 @@ describe('GET /api/ledger/makeups-progress', () => {
     }
   });
 });
+
+describe('GET /api/ledger/pending-export', () => {
+  it('ADMIN descarga el Excel', async () => {
+    const res = await get('/pending-export', 'ADMIN').buffer(true).parse((r, cb) => {
+      const chunks = []; r.on('data', (c) => chunks.push(c)); r.on('end', () => cb(null, Buffer.concat(chunks)));
+    });
+    expect(res.status).toBe(200);
+    expect(res.headers['content-type']).toContain('spreadsheetml');
+    expect(res.headers['content-disposition']).toContain('clases-pendientes-2026-2.xlsx');
+    const XLSX = (await import('xlsx')).default;
+    const rows = XLSX.utils.sheet_to_json(XLSX.read(res.body).Sheets.Pendientes);
+    // Ninguno está matriculado en el escenario: solo la fila TOTAL
+    expect(rows).toHaveLength(1);
+    expect(rows[0].Estudiante).toBe('TOTAL (0 estudiantes)');
+  });
+
+  it('TEACHER y RECEPTION no pueden', async () => {
+    expect((await get('/pending-export', 'TEACHER')).status).toBe(403);
+    expect((await get('/pending-export', 'RECEPTION')).status).toBe(403);
+  });
+});
