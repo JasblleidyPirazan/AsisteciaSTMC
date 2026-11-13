@@ -176,6 +176,7 @@ export default function MakeupBookingPage({ purpose = 'REPOSICION', apiBase = nu
               const left = s.capacity - s.taken;
               let status;
               if (s.mine) status = <span className="badge badge-green">✓ Reservado</span>;
+              else if (s.ageOk === false) status = <span className="badge badge-gray" title={s.ageReason || ''}>No disponible para su edad</span>;
               else if (s.busyOther) status = <span className="badge badge-gray">Ya tienes {reprog ? 'una reposición' : 'una reprogramación'} aquí</span>;
               else if (s.full) status = <span className="badge badge-gray">Lleno</span>;
               else if (s.closed) status = <span className="badge badge-gray">Cerrado</span>;
@@ -183,7 +184,10 @@ export default function MakeupBookingPage({ purpose = 'REPOSICION', apiBase = nu
               return (
                 <div key={s.key} className="flex items-center justify-between" style={{ gap: 8, padding: '6px 0' }}>
                   <div>
-                    <div>{s.label}</div>
+                    <div>
+                      {s.label}
+                      {s.ages && <span className="text-xs text-gray"> · {s.ages}</span>}
+                    </div>
                     <div>{status}</div>
                   </div>
                   {s.bookable && (

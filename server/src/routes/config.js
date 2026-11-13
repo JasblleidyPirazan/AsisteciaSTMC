@@ -2,7 +2,7 @@ const express = require('express');
 const prisma = require('../lib/prisma');
 const { requireRole } = require('../middleware/auth');
 
-const { DEFAULT_BOOKING_CONFIG, validateSlots } = require('../services/makeupBooking');
+const { DEFAULT_BOOKING_CONFIG, validateSlots, storableSlots } = require('../services/makeupBooking');
 
 const router = express.Router();
 
@@ -102,7 +102,8 @@ router.put('/', requireRole('ADMIN'), async (req, res, next) => {
         // Los turnos se guardan normalizados (con su clave derivada día-hora)
         if (key === 'makeup_slots') {
           const parsed = typeof req.body[key] === 'string' ? JSON.parse(req.body[key]) : req.body[key];
-          req.body[key] = JSON.stringify(validateSlots(parsed).slots.map(({ weekday, start, end }) => ({ weekday, start, end })));
+          // Conserva fecha específica y edades permitidas (nota 70); la key se deriva
+          req.body[key] = JSON.stringify(storableSlots(validateSlots(parsed).slots));
         }
         updates.push(
           prisma.systemConfig.upsert({

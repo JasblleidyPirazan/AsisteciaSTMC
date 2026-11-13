@@ -13,6 +13,8 @@ import WeeklyEmailPanel from '../../components/WeeklyEmailPanel';
 //   Por grupo (/reprogramar/g/:token): un solo enlace para todos los estudiantes del
 //   grupo; el acudiente elige a su hijo. Ideal para mandarlo al chat del grupo.
 // Sugerencias: horarios que pidieron los acudientes cuando nada les sirvió.
+// Profesor L (data.canManage = false): solo la Agenda, y en ella solo agregar y
+// mover estudiantes (sin quitar, sin asignar profesor, sin enlaces ni sugerencias).
 
 const dayTitle = (date) => {
   const t = fmtDate(date, { weekday: 'long', day: 'numeric', month: 'short' });
@@ -29,7 +31,7 @@ function waNumber(phone) {
 
 function message(s, rules, kind = 'repos') {
   const n = s.pending;
-  const turnos = (rules?.slots || []).map((t) => `${t.day} ${t.label}`).join(' · ');
+  const turnos = (rules?.slots || []).map((t) => `${t.day} ${t.label}${t.ages ? ` (${t.ages})` : ""}`).join(' · ');
   const hola = `Hola${s.guardianName ? ` ${s.guardianName}` : ''}, `;
   const body = kind === 'reprog'
     ? `${s.name} tiene ${n} clase${n !== 1 ? 's' : ''} por reprogramar (no se dictaron por festivos o días de receso) `
@@ -42,7 +44,7 @@ function message(s, rules, kind = 'repos') {
 const groupLinkFor = (token) => `${window.location.origin}/reprogramar/g/${token}`;
 
 function groupMessage(g, rules) {
-  const turnos = (rules?.slots || []).map((t) => `${t.day} ${t.label}`).join(' · ');
+  const turnos = (rules?.slots || []).map((t) => `${t.day} ${t.label}${t.ages ? ` (${t.ages})` : ""}`).join(' · ');
   return `Hola, familias del grupo ${g.code}: algunas clases no se dictaron por festivos o días de receso `
     + 'y las vamos a reprogramar. Con este enlace pueden agendarlas, sin usuario ni contraseña: '
     + 'abran el enlace, toquen el nombre de su hijo o hija y elijan un turno.\n'
@@ -234,6 +236,7 @@ export default function MakeupBookingAdminPage() {
   }
 
   const today = bogotaTodayStr();
+  const canManage = data.canManage !== false;
   // Un turno se edita mientras no se haya reportado ni cancelado
   const editable = (slot) => !slot.status || slot.status === 'PROGRAMADA';
   const q = search.trim().toLowerCase();
@@ -262,7 +265,7 @@ export default function MakeupBookingAdminPage() {
         </div>
       </div>
       <div className="page-content">
-        <div style={{ display: 'flex', gap: 8, marginBottom: 16, flexWrap: 'wrap' }}>
+        {canManage && <div style={{ display: 'flex', gap: 8, marginBottom: 16, flexWrap: 'wrap' }}>
           <button {...tabBtn(tab === 'agenda')} onClick={() => setTab('agenda')}>Agenda ({booked})</button>
           <button {...tabBtn(tab === 'links')} onClick={() => setTab('links')}>
             🔁 Enlaces reposición ({data.students.filter((s) => s.toSchedule > 0).length})
@@ -274,18 +277,20 @@ export default function MakeupBookingAdminPage() {
             Sugerencias ({data.suggestions.length})
           </button>
           <button {...tabBtn(tab === 'email')} onClick={() => setTab('email')}>📧 Correo semanal</button>
-        </div>
+        </div>}
 
         {error && <div className="alert alert-error mb-3">{error}</div>}
         {notice && <div className="alert alert-success mb-3">{notice}</div>}
 
-        {tab === 'agenda' && (
+        {(tab === 'agenda' || !canManage) && (
           <>
             <p className="text-sm text-gray mb-3">
               Turnos de los próximos {data.rules.horizonDays} días (máx. {data.rules.capacity} estudiantes, todos los niveles).
-              Cada turno reservado es una reposición normal: asígnale profesor para que le aparezca en su panel.
+              {canManage
+                ? 'Cada turno reservado es una reposición normal: asígnale profesor para que le aparezca en su panel.'
+                : 'Puedes agregar estudiantes a un turno o moverlos a otro. Para quitar a alguien o asignar profesor, avisa a la coordinación.'}
             </p>
-            {noProfessor > 0 && (
+            {canManage && noProfessor > 0 && (
               <div className="alert alert-error mb-3">⚠️ {noProfessor} turno{noProfessor !== 1 ? 's' : ''} con reservas sin profesor asignado.</div>
             )}
             {days.map((d) => (
@@ -294,7 +299,11 @@ export default function MakeupBookingAdminPage() {
                 {d.slots.map((slot) => (
                   <div key={slot.key} style={{ padding: '8px 0', borderTop: '1px solid var(--gray-100)' }}>
                     <div className="flex items-center justify-between" style={{ gap: 8, flexWrap: 'wrap' }}>
-                      <span className="font-medium">{slot.label}</span>
+                      <span className="font-medium">
+                        {slot.label}
+                        {slot.dated && <span className="badge badge-blue" style={{ marginLeft: 6 }}>Fecha especial</span>}
+                        {slot.ages && <span className="text-xs text-gray"> · {slot.ages}</span>}
+                      </span>
                       <span className={`badge ${slot.participants.length >= slot.capacity ? 'badge-red' : slot.participants.length ? 'badge-blue' : 'badge-gray'}`}>
                         {slot.participants.length} / {slot.capacity}
                       </span>
@@ -331,21 +340,27 @@ export default function MakeupBookingAdminPage() {
                                         );
                                       })}
                                   </select>
-                                  <button className="btn btn-ghost" style={{ ...smallBtn, minHeight: 30 }} disabled={!!busy}
-                                    title="Quitar del turno" onClick={() => removeFromSlot(slot, p)}>✕</button>
+                                  {canManage && (
+                                    <button className="btn btn-ghost" style={{ ...smallBtn, minHeight: 30 }} disabled={!!busy}
+                                      title="Quitar del turno" onClick={() => removeFromSlot(slot, p)}>✕</button>
+                                  )}
                                 </span>
                               )}
                             </div>
                           ))}
                         </div>
                         <div className="flex items-center gap-2 mt-2" style={{ flexWrap: 'wrap' }}>
-                          <select className="form-input form-select" style={{ flex: 1, minWidth: 180, minHeight: 36 }}
-                            value={slot.professor?.id || ''} disabled={busy === `prof${slot.sessionId}`}
-                            onChange={(e) => e.target.value && assignProfessor(slot, e.target.value)}>
-                            <option value="">— Asignar profesor —</option>
-                            {professors.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
-                          </select>
-                          {slot.professor && slot.date <= today && (
+                          {canManage ? (
+                            <select className="form-input form-select" style={{ flex: 1, minWidth: 180, minHeight: 36 }}
+                              value={slot.professor?.id || ''} disabled={busy === `prof${slot.sessionId}`}
+                              onChange={(e) => e.target.value && assignProfessor(slot, e.target.value)}>
+                              <option value="">— Asignar profesor —</option>
+                              {professors.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
+                            </select>
+                          ) : (
+                            <span className="text-xs text-gray">Profesor: {slot.professor?.name || 'sin asignar'}</span>
+                          )}
+                          {canManage && slot.professor && slot.date <= today && (
                             <Link className="btn btn-outline" style={smallBtn} to={`/makeups/${slot.sessionId}/attendance`}>
                               Reportar asistencia
                             </Link>
@@ -369,13 +384,13 @@ export default function MakeupBookingAdminPage() {
             ))}
             <p className="text-xs text-gray mb-1">📆 = reprogramación (clase no vista por festivo o receso); sin marca = reposición.</p>
             <p className="text-xs text-gray">
-              Agregar, mover o quitar estudiantes cambia de inmediato los cupos que ven los acudientes en sus enlaces.
-              Una reposición ya reportada o cancelada se edita en <Link to="/admin/makeups">Reposiciones</Link>.
+              Los cambios en la agenda se ven de inmediato en los cupos que ven los acudientes en sus enlaces.
+              {canManage && <> Una reposición ya reportada o cancelada se edita en <Link to="/admin/makeups">Reposiciones</Link>.</>}
             </p>
           </>
         )}
 
-        {tab === 'reprog' && (
+        {canManage && tab === 'reprog' && (
           <div style={{ display: 'flex', gap: 8, marginBottom: 12 }}>
             <button {...tabBtn(reprogMode === 'student')} onClick={() => setReprogMode('student')}>👤 Por estudiante</button>
             <button {...tabBtn(reprogMode === 'group')} onClick={() => setReprogMode('group')}>
@@ -384,7 +399,7 @@ export default function MakeupBookingAdminPage() {
           </div>
         )}
 
-        {tab === 'reprog' && reprogMode === 'group' && (() => {
+        {canManage && tab === 'reprog' && reprogMode === 'group' && (() => {
           const groups = (data.reprogGroups || [])
             .filter((g) => !onlyToSchedule || g.toSchedule > 0)
             .filter((g) => !q || g.code.toLowerCase().includes(q) || (g.professor || '').toLowerCase().includes(q));
@@ -441,7 +456,7 @@ export default function MakeupBookingAdminPage() {
           );
         })()}
 
-        {(tab === 'links' || (tab === 'reprog' && reprogMode === 'student')) && (
+        {canManage && (tab === 'links' || (tab === 'reprog' && reprogMode === 'student')) && (
           <>
             <div className={`alert ${kind === 'reprog' ? 'alert-info' : 'alert-success'} mb-3`} style={{ fontWeight: 600 }}>
               {kt.title}
@@ -513,9 +528,9 @@ export default function MakeupBookingAdminPage() {
           </>
         )}
 
-        {tab === 'email' && <WeeklyEmailPanel />}
+        {canManage && tab === 'email' && <WeeklyEmailPanel />}
 
-        {tab === 'suggestions' && (
+        {canManage && tab === 'suggestions' && (
           <>
             <p className="text-sm text-gray mb-3">Horarios que propusieron los acudientes cuando ningún turno les sirvió.</p>
             {data.suggestions.length === 0 && <div className="alert alert-info">No hay sugerencias pendientes.</div>}

@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { useAuth } from '../hooks/useAuth';
-import { roleLabel } from '../utils/roles';
+import { userRoleLabel, hasAnyRole } from '../utils/roles';
 import { api } from '../api/client';
 import CommandPalette from './CommandPalette';
 
@@ -16,7 +16,9 @@ const NAV = [
   // Inicio de la gestión (/admin) = Reposiciones y reprogramación. El ADMIN llega
   // solo (su Inicio redirige); Coordinador y Superadmin entran a "Grupos del día",
   // así que necesitan este acceso directo.
-  { label: 'Reposiciones y reprogramación', path: '/admin', icon: '🎯', roles: ['ADMIN', 'PHYSICAL_TRAINER'] },
+  { label: 'Reposiciones y reprogramación', path: '/admin', icon: '🎯', roles: ['ADMIN', 'PHYSICAL_TRAINER', 'TEACHER_L'] },
+  // TEACHER_L = Profesor L (utils/roles.js): ve la agenda y agrega/mueve estudiantes
+  { label: 'Agendar reposiciones', path: '/admin/makeup-booking', icon: '📅', roles: ['ADMIN', 'PHYSICAL_TRAINER', 'TEACHER_L'] },
   { label: 'Mi quincena', path: '/my-payroll', icon: '💵', roles: ['TEACHER', 'ASSISTANT'] },
   { label: 'Clases dadas', path: '/reporte', icon: '📋', roles: ['TEACHER', 'ADMIN', 'PHYSICAL_TRAINER'] },
   { label: 'Horarios', path: '/horarios', icon: '🗓️', roles: ['ADMIN', 'TEACHER', 'PHYSICAL_TRAINER', 'ASSISTANT', 'RECEPTION', 'PARENT'] },
@@ -27,7 +29,6 @@ const NAV = [
   { label: 'Validación de datos', path: '/admin/enrollment', icon: '📝', roles: ['ADMIN', 'PHYSICAL_TRAINER', 'RECEPTION'] },
   { label: 'Grupos', path: '/admin/groups', icon: '🎾', roles: ['ADMIN', 'PHYSICAL_TRAINER', 'RECEPTION'] },
   { label: 'Reposiciones', path: '/admin/makeups', icon: '🔁', roles: ['ADMIN', 'PHYSICAL_TRAINER'] },
-  { label: 'Agendar reposiciones', path: '/admin/makeup-booking', icon: '📅', roles: ['ADMIN', 'PHYSICAL_TRAINER'] },
   { label: 'Festivales', path: '/admin/festivals', icon: '🎉', roles: ['ADMIN', 'PHYSICAL_TRAINER'] },
   { label: 'Eventos', path: '/admin/events', icon: '🏆', roles: ['ADMIN', 'PHYSICAL_TRAINER'] },
 
@@ -115,7 +116,8 @@ export default function AppShell({ children }) {
       continue;
     }
     // SUPERADMIN is the superset of ADMIN — it sees every nav item.
-    if (role !== 'SUPERADMIN' && !entry.roles.includes(role)) continue;
+    // TEACHER_L (Profesor L) se evalúa con hasAnyRole.
+    if (!hasAnyRole(user, entry.roles)) continue;
     if (pendingSection) {
       items.push({ isSection: true, label: pendingSection.section });
       pendingSection = null;
@@ -217,7 +219,7 @@ export default function AppShell({ children }) {
               🔎 <span className="topbar-search-hint">Buscar…</span>
             </button>
           )}
-          <span className="topbar-role">{roleLabel(role)}</span>
+          <span className="topbar-role">{userRoleLabel(user)}</span>
         </div>
         <div className="app-shell-content">{children}</div>
       </div>

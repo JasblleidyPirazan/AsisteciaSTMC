@@ -68,7 +68,7 @@ export default function GroupReprogramPage() {
             ))}
             {data.rules?.slots?.length > 0 && (
               <p className="text-xs text-gray mt-3">
-                Turnos: {data.rules.slots.map((t) => `${t.day} ${t.label}`).join(' · ')}. Máximo {data.rules.capacity} estudiantes por turno.
+                Turnos: {data.rules.slots.map((t) => `${t.day} ${t.label}${t.ages ? ` (${t.ages})` : ""}`).join(' · ')}. Máximo {data.rules.capacity} estudiantes por turno.
               </p>
             )}
           </>

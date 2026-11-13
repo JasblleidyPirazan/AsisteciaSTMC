@@ -53,28 +53,102 @@ const NUMERIC_LIMITS = {
 
 const HM = /^([01]\d|2[0-3]):[0-5]\d$/;
 
+const YMD = /^\d{4}-\d{2}-\d{2}$/;
+const AGE_LIMITS = [3, 99];
+
 /**
- * Valida la lista de turnos. Devuelve { slots } (con `key` derivada: DIA-HHMM)
- * o { error } con el motivo. Un turno: { weekday 0-6, start 'HH:MM', end 'HH:MM' }.
+ * Valida la lista de turnos. Devuelve { slots } (con `key` derivada) o { error }
+ * con el motivo. Dos clases de turno:
+ *   - semanal:          { weekday 0-6, start 'HH:MM', end 'HH:MM' }        → key DIA-HHMM  (VIE-1715)
+ *   - fecha específica: { date 'YYYY-MM-DD', start, end }                    → key FYYYYMMDD-HHMM (F20261121-1330)
+ * Ambos aceptan edades permitidas opcionales { minAge, maxAge } (años
+ * cumplidos el día del turno): el acudiente solo reserva si su hijo cabe.
  */
 function validateSlots(input) {
   if (!Array.isArray(input) || input.length === 0) return { error: 'Debe haber al menos un turno' };
-  if (input.length > 30) return { error: 'Máximo 30 turnos' };
+  if (input.length > 60) return { error: 'Máximo 60 turnos' };
   const DAY = ['DOM', 'LUN', 'MAR', 'MIE', 'JUE', 'VIE', 'SAB'];
   const seen = new Set();
   const slots = [];
   for (const t of input) {
-    const weekday = Number(t?.weekday);
-    if (!Number.isInteger(weekday) || weekday < 0 || weekday > 6) return { error: 'Día de la semana inválido en un turno' };
     if (!HM.test(String(t?.start)) || !HM.test(String(t?.end))) return { error: 'Las horas deben tener formato HH:MM' };
     if (t.start >= t.end) return { error: `El turno ${t.start} debe terminar después de empezar` };
-    const key = `${DAY[weekday]}-${t.start.replace(':', '')}`;
-    if (seen.has(key)) return { error: `Turno repetido: ${key}` };
-    seen.add(key);
-    slots.push({ key, weekday, start: t.start, end: t.end });
+    const slot = { start: t.start, end: t.end };
+    if (t?.kind === 'date' && !t?.date) return { error: 'Falta la fecha en un turno de fecha específica' };
+    if (t?.date) {
+      const date = String(t.date);
+      if (!YMD.test(date) || Number.isNaN(new Date(`${date}T00:00:00Z`).getTime())) return { error: 'Fecha inválida en un turno' };
+      slot.date = date;
+      slot.key = `F${date.replace(/-/g, '')}-${t.start.replace(':', '')}`;
+    } else {
+      const weekday = Number(t?.weekday);
+      if (!Number.isInteger(weekday) || weekday < 0 || weekday > 6) return { error: 'Día de la semana inválido en un turno' };
+      slot.weekday = weekday;
+      slot.key = `${DAY[weekday]}-${t.start.replace(':', '')}`;
+    }
+    for (const field of ['minAge', 'maxAge']) {
+      const raw = t?.[field];
+      if (raw === undefined || raw === null || raw === '') continue;
+      const n = Number(raw);
+      if (!Number.isInteger(n) || n < AGE_LIMITS[0] || n > AGE_LIMITS[1]) {
+        return { error: `Las edades permitidas deben ser años enteros entre ${AGE_LIMITS[0]} y ${AGE_LIMITS[1]}` };
+      }
+      slot[field] = n;
+    }
+    if (slot.minAge !== undefined && slot.maxAge !== undefined && slot.minAge > slot.maxAge) {
+      return { error: `En el turno de las ${t.start} la edad mínima es mayor que la máxima` };
+    }
+    if (seen.has(slot.key)) return { error: `Turno repetido: ${slot.date || DAY[slot.weekday]} ${t.start}` };
+    seen.add(slot.key);
+    slots.push(slot);
   }
-  slots.sort((a, b) => a.weekday - b.weekday || a.start.localeCompare(b.start));
+  // Semanales primero (por día y hora), luego los de fecha específica (por fecha y hora)
+  slots.sort((a, b) => {
+    if (!!a.date !== !!b.date) return a.date ? 1 : -1;
+    if (a.date) return a.date.localeCompare(b.date) || a.start.localeCompare(b.start);
+    return a.weekday - b.weekday || a.start.localeCompare(b.start);
+  });
   return { slots };
+}
+
+// Lo que se guarda en SystemConfig.makeup_slots (sin la `key`, que se deriva)
+function storableSlots(slots) {
+  return slots.map(({ key, ...rest }) => rest);
+}
+
+/** Años cumplidos en `onDate` (YYYY-MM-DD) por quien nació en `birthDate` (Date o YYYY-MM-DD). */
+function ageOn(birthDate, onDate) {
+  if (!birthDate) return null;
+  const b = (birthDate instanceof Date ? birthDate.toISOString() : String(birthDate)).slice(0, 10);
+  if (!YMD.test(b)) return null;
+  const [by, bm, bd] = b.split('-').map(Number);
+  const [y, m, d] = onDate.split('-').map(Number);
+  return y - by - (m < bm || (m === bm && d < bd) ? 1 : 0);
+}
+
+/**
+ * ¿Puede este estudiante tomar el turno por su edad? Sin restricción → ok.
+ * Con restricción y sin fecha de nacimiento → no (la Escuela debe completarla).
+ * Devuelve { ok, reason }.
+ */
+function ageAllows(slot, birthDate) {
+  if (slot.minAge === undefined && slot.maxAge === undefined) return { ok: true, reason: null };
+  const age = ageOn(birthDate, slot.date);
+  if (age === null) return { ok: false, reason: 'Falta la fecha de nacimiento del estudiante: comunícate con la Escuela.' };
+  if ((slot.minAge !== undefined && age < slot.minAge) || (slot.maxAge !== undefined && age > slot.maxAge)) {
+    return { ok: false, reason: `Este turno es para ${agesLabel(slot)}.` };
+  }
+  return { ok: true, reason: null };
+}
+
+// "6 a 10 años", "desde 12 años", "hasta 8 años" o null
+function agesLabel(t) {
+  const min = t?.minAge;
+  const max = t?.maxAge;
+  if (min !== undefined && min !== null && max !== undefined && max !== null) return `${min} a ${max} años`;
+  if (min !== undefined && min !== null) return `desde ${min} años`;
+  if (max !== undefined && max !== null) return `hasta ${max} años`;
+  return null;
 }
 
 /** Une los valores guardados (filas de SystemConfig) con los de por defecto. */
@@ -128,9 +202,25 @@ function findTemplate(key, templates = SLOT_TEMPLATES) {
   return templates.find((t) => t.key === key) || null;
 }
 
+const slotRow = (tpl, date) => ({
+  date,
+  key: tpl.key,
+  start: tpl.start,
+  end: tpl.end,
+  weekday: WEEKDAY_LABEL[new Date(`${date}T00:00:00Z`).getUTCDay()],
+  label: slotLabel(tpl),
+  dated: !!tpl.date,
+  ...(tpl.minAge !== undefined ? { minAge: tpl.minAge } : {}),
+  ...(tpl.maxAge !== undefined ? { maxAge: tpl.maxAge } : {}),
+  ages: agesLabel(tpl),
+});
+
 /**
- * Turnos de los próximos `horizonDays` días (hoy incluido), saltando las fechas
- * excluidas del semestre (festivos, recesos). Ordenados por fecha y hora.
+ * Turnos que se ofrecen, ordenados por fecha y hora:
+ *  - semanales: los de los próximos `horizonDays` días (hoy incluido), saltando
+ *    las fechas excluidas del semestre (festivos, recesos);
+ *  - de fecha específica: desde hoy, aunque estén más allá del horizonte o caigan
+ *    en una fecha excluida (la Escuela los programó a propósito para ese día).
  */
 function upcomingSlots(todayStr, excludedDates = [], horizonDays = HORIZON_DAYS, templates = SLOT_TEMPLATES) {
   const excluded = new Set(excludedDates);
@@ -140,24 +230,33 @@ function upcomingSlots(todayStr, excludedDates = [], horizonDays = HORIZON_DAYS,
     if (excluded.has(date)) continue;
     const weekday = new Date(`${date}T00:00:00Z`).getUTCDay();
     for (const tpl of templates) {
-      if (tpl.weekday !== weekday) continue;
-      out.push({
-        date,
-        key: tpl.key,
-        start: tpl.start,
-        end: tpl.end,
-        weekday: WEEKDAY_LABEL[weekday],
-        label: slotLabel(tpl),
-      });
+      if (tpl.date || tpl.weekday !== weekday) continue;
+      out.push(slotRow(tpl, date));
     }
   }
+  for (const tpl of templates) {
+    if (tpl.date && tpl.date >= todayStr) out.push(slotRow(tpl, tpl.date));
+  }
+  out.sort((a, b) => a.date.localeCompare(b.date) || a.start.localeCompare(b.start));
   return out;
 }
 
-// Turnos tal como se muestran: [{ key, day: 'Viernes', label: '5:15 p. m. – 6:00 p. m.', minutes: 45 }]
-function describeSlots(templates = SLOT_TEMPLATES) {
+const MONTH_SHORT = ['ene', 'feb', 'mar', 'abr', 'may', 'jun', 'jul', 'ago', 'sep', 'oct', 'nov', 'dic'];
+
+// Turnos tal como se muestran: [{ key, day: 'Viernes' | 'Sábado 21 nov', label: '5:15 p. m. – 6:00 p. m.', minutes: 45, ages }]
+// Los de fecha específica ya pasados no se describen (ya no se ofrecen).
+function describeSlots(templates = SLOT_TEMPLATES, todayStr = null) {
   const mins = (hm) => Number(hm.slice(0, 2)) * 60 + Number(hm.slice(3));
-  return templates.map((t) => ({ key: t.key, day: WEEKDAY_LABEL[t.weekday], label: slotLabel(t), minutes: mins(t.end) - mins(t.start) }));
+  return templates
+    .filter((t) => !t.date || !todayStr || t.date >= todayStr)
+    .map((t) => {
+      let day = WEEKDAY_LABEL[t.weekday];
+      if (t.date) {
+        const d = new Date(`${t.date}T00:00:00Z`);
+        day = `${WEEKDAY_LABEL[d.getUTCDay()]} ${d.getUTCDate()} ${MONTH_SHORT[d.getUTCMonth()]}`;
+      }
+      return { key: t.key, day, date: t.date || null, label: slotLabel(t), minutes: mins(t.end) - mins(t.start), ages: agesLabel(t) };
+    });
 }
 
 function hoursUntil(now, dateStr, start) {
@@ -196,6 +295,10 @@ module.exports = {
   DEFAULT_BOOKING_CONFIG,
   BOOKING_CONFIG_KEYS,
   validateSlots,
+  storableSlots,
+  ageOn,
+  ageAllows,
+  agesLabel,
   resolveBookingConfig,
   loadBookingConfig,
   SLOT_TEMPLATES,
