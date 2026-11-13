@@ -184,7 +184,7 @@ describe('ficha PDF — apartado de clases pendientes', () => {
     }
     // filas con cifra: 4 + 1 = 5 (sin filas en cero)
     expect(html).not.toContain('En reposiciones ya agendadas');
-    expect(html).not.toContain('No alcanzan');
+    expect(html).not.toContain('de reprogramar. Póngase');
   });
 
   it('muestra las reposiciones agendadas con su fecha y el déficit en rojo', () => {
@@ -195,11 +195,47 @@ describe('ficha PDF — apartado de clases pendientes', () => {
     }, null, [{ date: '2026-11-20', label: '5:15 p. m.' }]);
     expect(html).toContain('En reposiciones ya agendadas');
     expect(html).toContain('vie 20 nov');
-    expect(html).toContain('No alcanzan antes del cierre');
+    expect(html).toContain('Clases pendientes de reprogramar'); // fila en rojo
+    expect(html).toContain('Póngase en contacto con la Escuela para coordinar la reprogramación de estas clases.');
     expect(html).toContain('lun 16 nov · LM1');
   });
 
   it('sin pendientes lo dice', () => {
     expect(pendingClassesHtml({ pendientes: { total: 0 }, reposicion: {}, calendario: {} })).toContain('No tiene clases pendientes');
+  });
+});
+
+describe('ficha PDF — desglose de las clases pendientes de reprogramar', () => {
+  const { deficitBreakdown, pendingClassesHtml } = require('../../src/services/progressEmail.js');
+  // Caso real: le faltan 16; 7 en su horario, 2 por agendar y 7 que no caben.
+  const l = {
+    pendientes: { total: 16, cubreCalendario: 7, agendadasAplicadas: 0, porAgendar: 2, deficit: 7, fechasCalendario: [] },
+    reposicion: { pendientes: 2 }, calendario: { recuperables: 3, porAgendar: 3 }, sinConsolidar: { clases: 2 },
+  };
+
+  it('reparte el déficit en festivos, sin reportar y sin cupo, y las partes suman el total', () => {
+    const parts = deficitBreakdown(l);
+    expect(parts.map((p) => [p.key, p.n])).toEqual([['HOLIDAYS', 3], ['UNREPORTED', 2], ['NO_ROOM', 2]]);
+    expect(parts.reduce((a, p) => a + p.n, 0)).toBe(7);
+  });
+
+  it('nunca se pasa del déficit', () => {
+    const parts = deficitBreakdown({ ...l, pendientes: { ...l.pendientes, deficit: 4 }, sinConsolidar: { clases: 9 } });
+    expect(parts.map((p) => [p.key, p.n])).toEqual([['HOLIDAYS', 3], ['UNREPORTED', 1]]);
+  });
+
+  it('la ficha usa el texto de la Escuela y muestra el detalle', () => {
+    const html = pendingClassesHtml(l, '2026-12-12');
+    for (const t of ['Clases pendientes de reprogramar. Póngase en contacto con la Escuela para coordinar la reprogramación de estas clases.',
+      '3 clases por festivos o días de receso', '2 clases ya dictadas que aún no tienen la asistencia registrada',
+      '2 clases que no caben en su horario regular antes del cierre']) {
+      expect(html).toContain(t);
+    }
+  });
+
+  it('en singular', () => {
+    const html = pendingClassesHtml({ ...l, pendientes: { ...l.pendientes, total: 10, deficit: 1 }, calendario: { porAgendar: 1 }, sinConsolidar: { clases: 0 } });
+    expect(html).toContain('Clase pendiente de reprogramar. Póngase en contacto con la Escuela para coordinar la reprogramación de esta clase.');
+    expect(html).toContain('1 clase por festivos o días de receso');
   });
 });
