@@ -178,6 +178,32 @@ function reposicionesHeadHtml(p, reservations) {
 }
 
 /**
+ * De dónde salen las clases que no caben antes del cierre (`pendientes.deficit`).
+ * Se reparten en este orden, sin pasarse del total, así las partes siempre suman
+ * el déficit:
+ *   1. festivos y recesos sin agendar (`calendario.porAgendar`): las jornadas de
+ *      reposición no los cubren, así que siempre terminan aquí;
+ *   2. clases ya pasadas sin asistencia registrada (`sinConsolidar.clases`): no
+ *      cuentan como vistas hasta que se reporten;
+ *   3. el resto: no caben en su horario hasta el cierre (inicio tardío, paquete
+ *      más grande que el calendario, etc.).
+ */
+function deficitBreakdown(ledger) {
+  const deficit = ledger?.pendientes?.deficit || 0;
+  if (deficit <= 0) return [];
+  let left = deficit;
+  const take = (n) => { const v = Math.max(0, Math.min(left, n || 0)); left = Math.round((left - v) * 10) / 10; return v; };
+  const holidays = take(ledger.calendario?.porAgendar);
+  const unreported = take(ledger.sinConsolidar?.clases);
+  const other = left;
+  return [
+    holidays > 0 && { key: 'HOLIDAYS', n: holidays, text: `${plural(holidays, 'clase', 'clases')} por festivos o días de receso.` },
+    unreported > 0 && { key: 'UNREPORTED', n: unreported, text: `${plural(unreported, 'clase ya dictada que aún no tiene', 'clases ya dictadas que aún no tienen')} la asistencia registrada (al registrarla, esta cifra se actualiza).` },
+    other > 0 && { key: 'NO_ROOM', n: other, text: `${plural(other, 'clase que no cabe', 'clases que no caben')} en su horario regular antes del cierre del semestre.` },
+  ].filter(Boolean);
+}
+
+/**
  * Apartado "Clases pendientes" de la ficha PDF. Responde, en este orden:
  *   1. ¿Cuántas le faltan?  → pendientes.total
  *   2. ¿Cómo las va a ver?  → filas que SIEMPRE suman ese total (invariante del
@@ -203,11 +229,21 @@ function pendingClassesHtml(ledger, semesterEnd = null, reservations = []) {
   const resChips = (reservations || []).slice(0, Math.ceil(pend.agendadasAplicadas || 0)).map((r) => chip(shortDate(r.date))).join('');
   const until = semesterEnd ? ` hasta el ${dayMonth(semesterEnd)}` : '';
 
+  const deficit = pend.deficit || 0;
+  const parts = deficitBreakdown(ledger);
+  const deficitDetail = parts.length
+    ? `<ul style="margin:4px 0 0;padding-left:18px;font-size:12px;color:#374151;font-weight:400;">${parts.map((x) => `<li>${esc(x.text)}</li>`).join('')}</ul>`
+    : '';
   const rows = [
     { n: pend.cubreCalendario || 0, label: `En su horario regular${until}`, detail: calChips },
     { n: pend.agendadasAplicadas || 0, label: 'En reposiciones ya agendadas', detail: resChips },
     { n: pend.porAgendar || 0, label: 'Por agendar en las jornadas de reposición', detail: '' },
-    { n: pend.deficit || 0, label: 'No alcanzan antes del cierre del semestre: la Escuela las programará', detail: '', red: true },
+    {
+      n: deficit,
+      label: `${deficit === 1 ? 'Clase pendiente' : 'Clases pendientes'} de reprogramar. Póngase en contacto con la Escuela para coordinar la reprogramación de ${deficit === 1 ? 'esta clase' : 'estas clases'}.`,
+      detail: deficitDetail,
+      red: true,
+    },
   ].filter((r) => r.n > 0);
 
   const td = 'padding:6px 8px;border-bottom:1px solid #e5e7eb;font-size:13px;vertical-align:top;';
@@ -396,4 +432,4 @@ function buildFichasDocument(fichas, title = 'Fichas de avance') {
 </style></head><body>${fichas.join('')}</body></html>`;
 }
 
-module.exports = { buildProgressEmail, buildStudentFicha, buildFichasDocument, isRecipient, classRows, reportParts, pendingClassesHtml };
+module.exports = { buildProgressEmail, buildStudentFicha, buildFichasDocument, isRecipient, classRows, reportParts, pendingClassesHtml, deficitBreakdown };
