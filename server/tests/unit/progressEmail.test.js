@@ -161,3 +161,39 @@ describe('buildStudentFicha — mismo contenido que el correo', () => {
     expect(doc.match(/page-break-after:always/g)).toHaveLength(2);
   });
 });
+
+describe('ficha PDF — apartado de clases pendientes', () => {
+  const { pendingClassesHtml } = require('../../src/services/progressEmail.js');
+  const base = {
+    pendientes: {
+      total: 5, cubreCalendario: 3, agendadasAplicadas: 1, porAgendar: 1, deficit: 0,
+      fechasCalendario: [{ date: '2026-11-16', groupCode: 'LM1' }, { date: '2026-11-18', groupCode: 'LM1' }, { date: '2026-11-23', groupCode: 'LM1' }],
+    },
+    reposicion: { pendientes: 2, agendadas: 1 },
+    calendario: { recuperables: 1, agendadas: 0 },
+  };
+
+  it('muestra las fechas programadas y cuántas por reponer y por reprogramar', () => {
+    const html = pendingClassesHtml(base, '2026-12-12');
+    for (const t of ['⏳ Clases pendientes', 'Le faltan <b>5 clases</b>', 'programadas en su calendario',
+      'lun 16 nov', 'mié 18 nov', 'lun 23 nov', 'hasta el 12 de diciembre',
+      '<b>Por reponer:</b> 2 clases (1 ya agendada)', '<b>Por reprogramar:</b> 1 clase']) {
+      expect(html).toContain(t);
+    }
+    expect(html).not.toContain('· LM1'); // un solo grupo: no repite el código
+    expect(html).not.toContain('no alcanzan');
+  });
+
+  it('avisa el déficit y marca el grupo cuando son varios', () => {
+    const html = pendingClassesHtml({
+      ...base,
+      pendientes: { ...base.pendientes, deficit: 2, fechasCalendario: [{ date: '2026-11-16', groupCode: 'LM1' }, { date: '2026-11-17', groupCode: 'MJ2' }] },
+    });
+    expect(html).toContain('2 clases no alcanzan');
+    expect(html).toContain('lun 16 nov · LM1');
+  });
+
+  it('sin pendientes lo dice', () => {
+    expect(pendingClassesHtml({ pendientes: { total: 0 }, reposicion: {}, calendario: {} })).toContain('No tiene clases pendientes');
+  });
+});
