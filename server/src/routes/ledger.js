@@ -75,6 +75,29 @@ router.get('/', requireRole('ADMIN', 'PHYSICAL_TRAINER', 'RECEPTION', 'TEACHER_L
 // Avance de las reposiciones: totales (causadas, dictadas, programadas, por
 // agendar) y reporte por semana. Ver services/makeupProgress.js.
 
+// ─── GET /api/ledger/pending-export ───────────────────────────────────────
+// Excel de los estudiantes MATRICULADOS con sus clases por reposición, por
+// reprogramación y el total (services/pendingExport.js). Va antes de /:studentId.
+router.get('/pending-export', requireRole('ADMIN', 'PHYSICAL_TRAINER'), async (req, res, next) => {
+  try {
+    const XLSX = require('xlsx');
+    const { buildPendingRows, toSheetData } = require('../services/pendingExport');
+    const { semester, ledgers } = await loadLedgers();
+    const rows = buildPendingRows(ledgers);
+    const ws = XLSX.utils.json_to_sheet(toSheetData(rows));
+    ws['!cols'] = [{ wch: 14 }, { wch: 34 }, { wch: 14 }, { wch: 24 }, { wch: 14 }, { wch: 22 }, { wch: 18 }, { wch: 26 }, { wch: 18 }];
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, 'Pendientes');
+    const buffer = XLSX.write(wb, { type: 'buffer', bookType: 'xlsx' });
+    const tag = semester?.name ? `-${String(semester.name).replace(/[^\w-]+/g, '_')}` : '';
+    res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+    res.setHeader('Content-Disposition', `attachment; filename="clases-pendientes${tag}.xlsx"`);
+    res.send(buffer);
+  } catch (err) {
+    next(err);
+  }
+});
+
 router.get('/makeups-progress', requireRole('ADMIN', 'PHYSICAL_TRAINER', 'TEACHER_L'), async (req, res, next) => {
   try {
     const { buildMakeupProgress } = require('../services/makeupProgress');
