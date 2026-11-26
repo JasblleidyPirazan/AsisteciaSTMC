@@ -239,3 +239,37 @@ describe('ficha PDF — desglose de las clases pendientes de reprogramar', () =>
     expect(html).toContain('1 clase por festivos o días de receso');
   });
 });
+
+describe('correo = ficha (mismo reporte, colores Santa María)', () => {
+  const { buildStudentFicha, buildProgressEmail: mailOf } = require('../../src/services/progressEmail.js');
+  const base = ledger();
+  const full = {
+    ...base,
+    document: '1035', groups: [{ code: 'LMV1', professor: 'Juan' }],
+    pendientes: { total: 28, cubreCalendario: 20, agendadasAplicadas: 1, porAgendar: 1, deficit: 6, fechasCalendario: [] },
+    calendario: { ...base.calendario, recuperables: 2, porAgendar: 2 },
+    sinConsolidar: { clases: 1 },
+  };
+  const common = { ledger: full, records, reservations: [{ date: '2026-11-13', label: '5:15 p. m.' }], semesterName: '2026-2', semesterEnd: '2026-12-12', today: '2026-11-08' };
+  const ficha = buildStudentFicha({ ...common, student: { name: 'Ana María Pérez', document: '1035', groups: ['LMV1'], professor: 'Juan', status: 'MATRICULADO' } });
+  const mail = mailOf({ ...common, student: { name: 'Ana María Pérez', guardianName: 'Laura' }, bookingUrl: 'https://x.test/reponer/abc' });
+  const block = (html, from, to) => html.slice(html.indexOf(from), html.indexOf(to, html.indexOf(from)));
+
+  it('el correo trae la identificación y "Clases pendientes" como la ficha', () => {
+    for (const t of ['Documento: 1035', 'Grupo: LMV1', 'Profesor: Juan', '✅ Matriculado', '⏳ Clases pendientes', 'Total que le falta']) {
+      expect(mail.html).toContain(t);
+    }
+    expect(mail.text).toContain('CLASES PENDIENTES: le faltan 28 clases');
+  });
+  it('encabezado, clases pendientes y detalle son idénticos en los dos', () => {
+    expect(block(mail.html, '⏳ Clases pendientes', '📋 Detalle')).toBe(block(ficha, '⏳ Clases pendientes', '📋 Detalle'));
+    expect(block(mail.html, '📋 Detalle', '</table>')).toBe(block(ficha, '📋 Detalle', '</table>'));
+    expect(block(mail.html, '🎾', '</h1>')).toBe(block(ficha, '🎾', '</h1>'));
+  });
+  it('usa la paleta Santa María (índigo de marca) y no los grises/verdes anteriores', () => {
+    for (const html of [mail.html, ficha]) {
+      expect(html).toContain('#3F52A8');
+      expect(html).not.toMatch(/#15803d|#111827|#6b7280/i);
+    }
+  });
+});
